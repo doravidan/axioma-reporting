@@ -53,6 +53,7 @@ _publish/
 secrets.json
 appsettings.*.json
 !appsettings.Development.json
+!**/appsettings.Production.template.json
 .claude/settings.local.json
 
 # Logs
