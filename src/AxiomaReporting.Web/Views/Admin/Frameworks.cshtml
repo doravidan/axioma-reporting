@@ -1,0 +1,175 @@
+﻿@model List<AxiomaReporting.Core.Entities.Framework>
+@{
+  ViewData["Title"] = "ניהול מסגרות";
+  var educationalStages = ViewBag.EducationalStages as List<AxiomaReporting.Core.Entities.EducationalStage> ?? new();
+}
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>מסגרות</h3>
+    <div class="d-flex gap-2">
+      <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">הוסף מסגרת</button>
+    </div>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+  @if (TempData["Error"] != null)
+  {
+    <div class="alert alert-danger alert-dismissible fade show" role="alert" aria-live="assertive" aria-atomic="true">
+      @TempData["Error"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table table-hover table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>תיאור</th>
+            <th>סמל מוסד</th>
+            <th>שלב חינוך</th>
+            <th>פעיל</th>
+            <th>פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (!Model.Any())
+          {
+            <tr><td colspan="5" class="text-center text-muted py-4">אין מסגרות</td></tr>
+          }
+          @foreach (var f in Model)
+          {
+            <tr>
+              <td>@f.Description</td>
+              <td>@f.InstitutionSymbol</td>
+              <td>@(f.EducationalStage?.Description ?? "—")</td>
+              <td>
+                @if (f.IsActive)
+                {
+                  <span class="badge bg-success">כן</span>
+                }
+                else
+                {
+                  <span class="badge bg-secondary">לא</span>
+                }
+              </td>
+              <td>
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-edit"
+                        data-id="@f.Id"
+                        data-description="@f.Description"
+                        data-symbol="@f.InstitutionSymbol"
+                        data-stage="@(f.EducationalStageId?.ToString() ?? "")"
+                        data-active="@f.IsActive.ToString().ToLower()">
+                  ✏️
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalTitle" aria-hidden="true">
+  <div class="modal-dialog" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addModalTitle">הוסף מסגרת</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <form asp-action="CreateFramework" method="post">
+        @Html.AntiForgeryToken()
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">תיאור <span class="text-danger">*</span></label>
+            <input name="description" class="form-control" required maxlength="200" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">סמל מוסד <span class="text-danger">*</span></label>
+            <input name="institutionSymbol" class="form-control" required maxlength="50" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">שלב חינוך</label>
+            <select name="educationalStageId" class="form-select">
+              <option value="">— בחר —</option>
+              @foreach (var stage in educationalStages)
+              {
+                <option value="@stage.Id">@stage.Description</option>
+              }
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalTitle" aria-hidden="true">
+  <div class="modal-dialog" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editModalTitle">עדכון מסגרת</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <form id="editForm" method="post">
+        @Html.AntiForgeryToken()
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">תיאור <span class="text-danger">*</span></label>
+            <input id="editDescription" name="description" class="form-control" required maxlength="200" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">סמל מוסד <span class="text-danger">*</span></label>
+            <input id="editSymbol" name="institutionSymbol" class="form-control" required maxlength="50" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">שלב חינוך</label>
+            <select id="editStage" name="educationalStageId" class="form-select">
+              <option value="">— בחר —</option>
+              @foreach (var stage in educationalStages)
+              {
+                <option value="@stage.Id">@stage.Description</option>
+              }
+            </select>
+          </div>
+          <div class="mb-3 form-check">
+            <input id="editIsActive" name="isActive" type="checkbox" class="form-check-input" value="true" />
+            <label class="form-check-label" for="editIsActive">פעיל</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.btn-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('editDescription').value = btn.getAttribute('data-description');
+      document.getElementById('editSymbol').value = btn.getAttribute('data-symbol');
+      document.getElementById('editIsActive').checked = btn.getAttribute('data-active') === 'true';
+      var stageVal = btn.getAttribute('data-stage');
+      document.getElementById('editStage').value = stageVal || '';
+      document.getElementById('editForm').action = '/Admin/EditFramework/' + btn.getAttribute('data-id');
+      new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
+  });
+</script>

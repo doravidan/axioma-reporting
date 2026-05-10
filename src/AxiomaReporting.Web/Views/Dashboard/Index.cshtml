@@ -1,0 +1,471 @@
+﻿@using AxiomaReporting.Infrastructure.Services
+@using AxiomaReporting.Core.Entities
+@{
+    ViewData["Title"] = "דשבורד דיווחים";
+    var filter = ViewBag.Filter as DashboardFilter ?? new DashboardFilter();
+    var rows = ViewBag.Rows as List<DashboardReportRow> ?? new List<DashboardReportRow>();
+    var districts = ViewBag.Districts as List<District> ?? new List<District>();
+    var sectors = ViewBag.Sectors as List<Sector> ?? new List<Sector>();
+    var programs = ViewBag.Programs as List<AxiomaReporting.Core.Entities.Program> ?? new List<AxiomaReporting.Core.Entities.Program>();
+    var reportingMonths = ViewBag.ReportingMonths as List<ReportingMonth> ?? new List<ReportingMonth>();
+    bool showData = ViewBag.ShowData ?? false;
+    bool canApprove = ViewBag.CanApprove ?? false;
+    int total = ViewBag.TotalCount ?? 0;
+
+    string SortLink(string key) => Url.Action("Index", new
+    {
+        show = 1,
+        Page = 1,
+        PageSize = filter.PageSize,
+        StatusId = filter.StatusId,
+        DistrictId = filter.DistrictId,
+        SectorId = filter.SectorId,
+        ProgramId = filter.ProgramId,
+        EmployeeCode = filter.EmployeeCode,
+        IdNumber = filter.IdNumber,
+        EmployeeName = filter.EmployeeName,
+        FromMonthId = filter.FromMonthId,
+        ToMonthId = filter.ToMonthId,
+        SortBy = key,
+        SortDesc = filter.SortBy == key ? !filter.SortDesc : false
+    }) ?? "#";
+}
+
+<div class="container-fluid mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>דשבורד דיווחים</h3>
+        <div class="d-flex gap-2">
+            <a asp-action="ExportExcel"
+               asp-route-StatusId="@filter.StatusId"
+               asp-route-FromMonthId="@filter.FromMonthId"
+               asp-route-ToMonthId="@filter.ToMonthId"
+               asp-route-DistrictId="@filter.DistrictId"
+               asp-route-SectorId="@filter.SectorId"
+               asp-route-ProgramId="@filter.ProgramId"
+               asp-route-EmployeeCode="@filter.EmployeeCode"
+               asp-route-IdNumber="@filter.IdNumber"
+               asp-route-EmployeeName="@filter.EmployeeName"
+               asp-route-SortBy="@filter.SortBy"
+               asp-route-SortDesc="@filter.SortDesc"
+               class="btn btn-outline-success btn-sm">
+                ייצוא אקסל
+            </a>
+            <a asp-action="Summary" class="btn btn-primary btn-sm">מסך סיכום ואישור</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+            @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert" aria-live="assertive" aria-atomic="true">
+            @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+        </div>
+    }
+
+    <!-- Live-filter toast + announcer -->
+    <div id="filterLiveRegion" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="filterToast" class="alert alert-warning d-none" role="alert" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Filter Bar -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <strong>סינון דיווחים</strong>
+        </div>
+        <div class="card-body">
+            <form method="get" id="filterForm">
+                <input type="hidden" name="show" value="1" />
+                <input type="hidden" name="SortBy" value="@filter.SortBy" />
+                <input type="hidden" name="SortDesc" value="@filter.SortDesc" />
+                <div class="row g-2">
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">מחוז</label>
+                        <select name="DistrictId" id="districtSelect" class="form-select form-select-sm" data-live-filter="districts">
+                            <option value="">הכל</option>
+                            @foreach (var d in districts)
+                            {
+                                <option value="@d.Id" selected="@(filter.DistrictId == d.Id ? "selected" : null)">@d.Description</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">מגזר</label>
+                        <select name="SectorId" class="form-select form-select-sm" data-live-filter="sectors">
+                            <option value="">הכל</option>
+                            @foreach (var s in sectors)
+                            {
+                                <option value="@s.Id" selected="@(filter.SectorId == s.Id ? "selected" : null)">@s.Description</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">תוכנית</label>
+                        <select name="ProgramId" class="form-select form-select-sm" data-live-filter="programs">
+                            <option value="">הכל</option>
+                            @foreach (var p in programs)
+                            {
+                                <option value="@p.Id" selected="@(filter.ProgramId == p.Id ? "selected" : null)">@p.Description</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">קוד עובד</label>
+                        <input name="EmployeeCode" class="form-control form-control-sm" value="@filter.EmployeeCode" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">ת.ז</label>
+                        <input name="IdNumber" class="form-control form-control-sm" value="@filter.IdNumber" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">שם עובד</label>
+                        <input name="EmployeeName" class="form-control form-control-sm" value="@filter.EmployeeName" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">סטטוס</label>
+                        <select name="StatusId" class="form-select form-select-sm" data-live-filter="statuses" data-preserve-options="1">
+                            <option value="">הכל</option>
+                            <option value="0" selected="@(filter.StatusId == 0 ? "selected" : null)">טרם דווח</option>
+                            <option value="1" selected="@(filter.StatusId == 1 ? "selected" : null)">טיוטה</option>
+                            <option value="2" selected="@(filter.StatusId == 2 ? "selected" : null)">בהזנה</option>
+                            <option value="3" selected="@(filter.StatusId == 3 ? "selected" : null)">ממתין לאישור</option>
+                            <option value="4" selected="@(filter.StatusId == 4 ? "selected" : null)">מאושר</option>
+                            <option value="5" selected="@(filter.StatusId == 5 ? "selected" : null)">הוחזר לתיקון</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">מחודש</label>
+                        <select name="FromMonthId" class="form-select form-select-sm" data-live-filter="months">
+                            <option value="">ראשון</option>
+                            @foreach (var m in reportingMonths)
+                            {
+                                <option value="@m.Id" selected="@(filter.FromMonthId == m.Id ? "selected" : null)">@m.Description</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">עד חודש</label>
+                        <select name="ToMonthId" class="form-select form-select-sm" data-live-filter="months">
+                            <option value="">אחרון</option>
+                            @foreach (var m in reportingMonths)
+                            {
+                                <option value="@m.Id" selected="@(filter.ToMonthId == m.Id ? "selected" : null)">@m.Description</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">גודל עמוד</label>
+                        <select name="PageSize" class="form-select form-select-sm">
+                            @foreach (var s in new[] { 10, 25, 50, 100 })
+                            {
+                                <option value="@s" selected="@(filter.PageSize == s ? "selected" : null)">@s</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label form-label-sm">עמוד</label>
+                        <input name="Page" type="number" min="1" class="form-control form-control-sm" value="@filter.Page" />
+                    </div>
+                    <div class="col-auto d-flex align-items-end gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm">הצג</button>
+                        <a href="@Url.Action("Index")" class="btn btn-outline-secondary btn-sm">נקה</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results Table -->
+    @if (showData)
+    {
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <p class="text-muted mb-0">נמצאו <strong>@total</strong> רשומות</p>
+            @if (total > filter.PageSize)
+            {
+                <nav>
+                    <ul class="pagination pagination-sm mb-0">
+                        @{
+                            var totalPages = (int)Math.Ceiling((double)total / filter.PageSize);
+                        }
+                        @for (var pg = 1; pg <= totalPages; pg++)
+                        {
+                            <li class="page-item @(pg == filter.Page ? "active" : "")">
+                                <a class="page-link"
+                                   href="@Url.Action("Index", new { show = 1, Page = pg, PageSize = filter.PageSize, StatusId = filter.StatusId, DistrictId = filter.DistrictId, SectorId = filter.SectorId, ProgramId = filter.ProgramId, EmployeeCode = filter.EmployeeCode, IdNumber = filter.IdNumber, EmployeeName = filter.EmployeeName, FromMonthId = filter.FromMonthId, ToMonthId = filter.ToMonthId, SortBy = filter.SortBy, SortDesc = filter.SortDesc })">
+                                    @pg
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                </nav>
+            }
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered table-sm align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col" aria-sort="@(filter.SortBy=="code" ? (filter.SortDesc?"descending":"ascending") : "none")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                        <th scope="col" aria-sort="@(filter.SortBy=="idnumber" ? (filter.SortDesc?"descending":"ascending") : "none")"><a class="link-dark" href="@SortLink("idnumber")">ת.ז</a></th>
+                        <th scope="col" aria-sort="@(filter.SortBy=="name" ? (filter.SortDesc?"descending":"ascending") : "none")"><a class="link-dark" href="@SortLink("name")">שם עובד</a></th>
+                        <th scope="col" aria-sort="@(filter.SortBy=="month" ? (filter.SortDesc?"descending":"ascending") : "none")"><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                        <th scope="col" aria-sort="@(filter.SortBy=="status" ? (filter.SortDesc?"descending":"ascending") : "none")"><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                        <th scope="col">שורות</th>
+                        <th scope="col">משך תפוקה</th>
+                        <th scope="col">יתרת שורות</th>
+                        <th scope="col">מסמכים</th>
+                        <th scope="col" aria-sort="@(filter.SortBy=="submitted" ? (filter.SortDesc?"descending":"ascending") : "none")"><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                        @if (canApprove)
+                        {
+                            <th scope="col">פעולות</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!rows.Any())
+                    {
+                        <tr>
+                            <td colspan="@(canApprove ? 11 : 10)" class="text-center text-muted py-4">לא נמצאו דיווחים התואמים את הסינון</td>
+                        </tr>
+                    }
+                    @foreach (var r in rows)
+                    {
+                        <tr>
+                            <td>@r.EmployeeCode</td>
+                            <td>@r.IdNumber</td>
+                            <td>@r.FullName</td>
+                            <td>@r.MonthDescription</td>
+                            <td>
+                                <span class="badge @(r.StatusId == 4 ? "bg-success" : r.StatusId == 5 ? "bg-danger" : r.StatusId == 3 ? "bg-warning text-dark" : "bg-secondary")">
+                                    @r.StatusName
+                                </span>
+                            </td>
+                            <td>@r.RowCount</td>
+                            <td>@r.TotalDuration</td>
+                            <td>
+                                @if (r.MonthlyRowAllocation.HasValue)
+                                {
+                                    <span class="@(r.RemainingRows < 0 ? "text-danger fw-bold" : "")">@r.RemainingRows</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-center">@(r.HasAttachments ? "📎" : "")</td>
+                            <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
+                            @if (canApprove)
+                            {
+                                <td>
+                                    @if (r.StatusId == 3)
+                                    {
+                                        <form asp-controller="Report" asp-action="Approve" asp-route-reportId="@r.ReportId"
+                                              method="post" style="display:inline">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-success">אשר</button>
+                                        </form>
+                                        <button class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info d-flex align-items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-info-circle-fill flex-shrink-0" viewBox="0 0 16 16">
+                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/>
+            </svg>
+            בחר פילטרים ולחץ <strong class="mx-1">הצג</strong> לטעינת נתונים
+        </div>
+    }
+</div>
+
+<!-- Reject Modal -->
+<div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="rejectModalLabel">סיבת דחייה</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
+            </div>
+            <form asp-controller="Report" asp-action="Reject" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="rejectReportId" name="reportId" />
+                <div class="modal-body">
+                    <label class="form-label">סיבת הדחייה (חובה)</label>
+                    <textarea name="rejectionReason" class="form-control" rows="4"
+                              placeholder="הזן את סיבת הדחייה..." required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+                    <button type="submit" class="btn btn-danger">דחה דיווח</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function openReject(reportId) {
+            document.getElementById('rejectReportId').value = reportId;
+            var modal = new bootstrap.Modal(document.getElementById('rejectModal'));
+            modal.show();
+        }
+
+        (function () {
+            var form = document.getElementById('filterForm');
+            if (!form) return;
+
+            // Map input name -> filter DTO field
+            var inputToField = {
+                'DistrictId': 'DistrictId',
+                'SectorId': 'SectorId',
+                'ProgramId': 'ProgramId',
+                'StatusId': 'StatusId',
+                'FromMonthId': 'FromMonthId',
+                'ToMonthId': 'ToMonthId',
+                'EmployeeCode': 'EmployeeCode',
+                'IdNumber': 'IdNumber',
+                'EmployeeName': 'EmployeeName'
+            };
+
+            function collectSelection() {
+                var sel = {};
+                Object.keys(inputToField).forEach(function (name) {
+                    var el = form.querySelector('[name="' + name + '"]');
+                    if (!el) return;
+                    var v = el.value;
+                    if (v === null || v === undefined || v === '') return;
+                    // Numeric fields
+                    if (['DistrictId', 'SectorId', 'ProgramId', 'StatusId', 'FromMonthId', 'ToMonthId'].indexOf(name) >= 0) {
+                        var n = parseInt(v, 10);
+                        if (!isNaN(n)) sel[inputToField[name]] = n;
+                    } else {
+                        sel[inputToField[name]] = v;
+                    }
+                });
+                return sel;
+            }
+
+            function showToast(msg) {
+                var t = document.getElementById('filterToast');
+                var live = document.getElementById('filterLiveRegion');
+                if (t) {
+                    t.textContent = msg;
+                    t.classList.remove('d-none');
+                    setTimeout(function () { t.classList.add('d-none'); }, 4000);
+                }
+                if (live) {
+                    live.textContent = msg;
+                }
+            }
+
+            function repopulate(selectEl, options) {
+                var currentValue = selectEl.value;
+                var preserve = selectEl.getAttribute('data-preserve-options') === '1';
+                if (preserve) {
+                    // Only disable/enable existing options based on compatibility
+                    var validIds = {};
+                    options.forEach(function (o) { validIds[String(o.id)] = true; });
+                    var stillValid = true;
+                    Array.prototype.forEach.call(selectEl.options, function (opt) {
+                        if (opt.value === '') { opt.disabled = false; return; }
+                        var ok = !!validIds[opt.value];
+                        opt.disabled = !ok;
+                        if (opt.value === currentValue && !ok) stillValid = false;
+                    });
+                    if (!stillValid) {
+                        selectEl.value = '';
+                        return false;
+                    }
+                    return true;
+                }
+
+                // Full rebuild for plain lookup selects: keep the first "any" option, replace the rest.
+                var firstOption = selectEl.options[0];
+                var placeholder = firstOption && firstOption.value === '' ? firstOption : null;
+                selectEl.innerHTML = '';
+                if (placeholder) selectEl.appendChild(placeholder);
+
+                var optionIds = {};
+                options.forEach(function (o) {
+                    var opt = document.createElement('option');
+                    opt.value = String(o.id);
+                    opt.textContent = o.name;
+                    selectEl.appendChild(opt);
+                    optionIds[String(o.id)] = true;
+                });
+
+                if (currentValue && optionIds[currentValue]) {
+                    selectEl.value = currentValue;
+                    return true;
+                }
+                if (currentValue) {
+                    selectEl.value = '';
+                    return false;
+                }
+                return true;
+            }
+
+            var inFlight = null;
+            var debounceId = null;
+
+            function fetchOptions() {
+                var sel = collectSelection();
+                var q = encodeURIComponent(JSON.stringify(sel));
+                if (inFlight) inFlight.abort();
+                inFlight = new AbortController();
+                fetch('@Url.Action("FilterOptions")' + '?selected=' + q, {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    signal: inFlight.signal
+                })
+                    .then(function (res) { return res.ok ? res.json() : null; })
+                    .then(function (data) {
+                        if (!data) return;
+                        var lostSelection = false;
+
+                        form.querySelectorAll('[data-live-filter]').forEach(function (sel) {
+                            var dim = sel.getAttribute('data-live-filter');
+                            var list = data[dim] || [];
+                            var ok = repopulate(sel, list);
+                            if (!ok) lostSelection = true;
+                        });
+
+                        if (lostSelection) {
+                            showToast('סינון עודכן — הבחירה הקודמת אינה תואמת');
+                        }
+                    })
+                    .catch(function () { /* ignore */ });
+            }
+
+            function onChangeDebounced() {
+                if (debounceId) clearTimeout(debounceId);
+                debounceId = setTimeout(fetchOptions, 250);
+            }
+
+            // Bind to every filter input
+            Object.keys(inputToField).forEach(function (name) {
+                var el = form.querySelector('[name="' + name + '"]');
+                if (!el) return;
+                var evt = el.tagName === 'SELECT' ? 'change' : 'input';
+                el.addEventListener(evt, onChangeDebounced);
+            });
+        })();
+    </script>
+}

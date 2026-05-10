@@ -1,0 +1,339 @@
+@model AxiomaReporting.Core.DTOs.AllocationDto
+@{
+  var employee = (AxiomaReporting.Core.Entities.User)ViewBag.Employee;
+  bool isEdit = ViewBag.IsEdit == true;
+  ViewData["Title"] = isEdit ? "עריכת הקצאה" : "הוספת הקצאה";
+  decimal[] durationOptions = (decimal[])ViewBag.OutputDurationOptions;
+
+  var districts = (List<AxiomaReporting.Core.Entities.District>)ViewBag.Districts;
+  var programs = (List<AxiomaReporting.Core.Entities.Program>)ViewBag.Programs;
+  var sectors = (List<AxiomaReporting.Core.Entities.Sector>)ViewBag.Sectors;
+  var localities = (List<AxiomaReporting.Core.Entities.Locality>)ViewBag.Localities;
+  var frameworks = (List<AxiomaReporting.Core.Entities.Framework>)ViewBag.Frameworks;
+  var subjects = (List<AxiomaReporting.Core.Entities.Subject>)ViewBag.Subjects;
+  var domains = (List<AxiomaReporting.Core.Entities.Domain>)ViewBag.Domains;
+  var educationalPrograms = (List<AxiomaReporting.Core.Entities.EducationalProgram>)ViewBag.EducationalPrograms;
+  var classes = (List<AxiomaReporting.Core.Entities.SchoolClass>)ViewBag.Classes;
+  var gradeLevels = (List<AxiomaReporting.Core.Entities.GradeLevel>)ViewBag.GradeLevels;
+  var discussionCodes = (List<AxiomaReporting.Core.Entities.DiscussionCode>)ViewBag.DiscussionCodes;
+  var localityDistrictNationals = (List<AxiomaReporting.Core.Entities.LocalityDistrictNational>)ViewBag.LocalityDistrictNationals;
+}
+
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h3>@ViewData["Title"]</h3>
+      <h5 class="text-muted">@employee.FirstName @employee.LastName — קוד: @employee.EmployeeCode</h5>
+    </div>
+    <a asp-action="Allocations" asp-route-id="@employee.Id"
+       class="btn btn-outline-secondary">חזרה להקצאות</a>
+  </div>
+
+  <form method="post"
+        asp-action="@(isEdit ? "EditAllocation" : "CreateAllocation")"
+        asp-route-id="@employee.Id"
+        asp-route-allocationId="@Model.Id">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="UserId" />
+
+    <!-- Basic allocation info -->
+    <div class="card mb-3 border-success">
+      <div class="card-header bg-success text-white fw-bold">פרטי הקצאה</div>
+      <div class="card-body">
+        <div class="row g-3">
+
+          <div class="col-md-6">
+            <label asp-for="ProjectId" class="form-label">פרויקט <span class="text-danger">*</span></label>
+            <select asp-for="ProjectId" asp-items="ViewBag.Projects" id="projectIdSelect" class="form-select">
+              <option value="">-- בחר פרויקט --</option>
+            </select>
+            <span asp-validation-for="ProjectId" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-3">
+            <label asp-for="AnnualEmploymentScope" class="form-label">היקף פעילות שנתי</label>
+            <input asp-for="AnnualEmploymentScope" type="number" step="1" min="0" class="form-control"
+                   data-val-wholenumber="יש להזין מספר שלם" />
+            <span asp-validation-for="AnnualEmploymentScope" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-3">
+            <label asp-for="MonthlyEmploymentScope" class="form-label">היקף פעילות חודשי</label>
+            <input asp-for="MonthlyEmploymentScope" type="number" step="1" min="0" class="form-control"
+                   data-val-wholenumber="יש להזין מספר שלם" />
+            <span asp-validation-for="MonthlyEmploymentScope" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">היקף פעילות יומי</label>
+            <div class="input-group">
+              <input asp-for="DailyEmploymentScope" type="number" step="0.01" min="0"
+                     class="form-control" id="dailyScope" />
+              <div class="input-group-text">
+                <input type="checkbox" id="unlimitedDaily" class="form-check-input mt-0"
+                       @(Model.DailyEmploymentScope == null ? "checked" : "") />
+                <label for="unlimitedDaily" class="form-check-label ms-1">ללא הגבלה</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="MonthlyRowAllocation" class="form-label">הקצאת שורות חודשית</label>
+            <input asp-for="MonthlyRowAllocation" type="number" min="0" class="form-control" />
+            <span asp-validation-for="MonthlyRowAllocation" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="AnnualRowAllocation" class="form-label">הקצאת שורות שנתית</label>
+            <input asp-for="AnnualRowAllocation" type="number" min="0" class="form-control" />
+            <span asp-validation-for="AnnualRowAllocation" class="text-danger small"></span>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">משך תפוקה (ניתן לבחור מספר ערכים)</label>
+            <div class="d-flex flex-wrap gap-3">
+              @foreach (var dur in durationOptions)
+              {
+                <div class="form-check">
+                  <input type="checkbox" name="OutputDurationValues" value="@dur"
+                         class="form-check-input"
+                         id="dur_@dur.ToString().Replace(".", "_")"
+                         @(Model.OutputDurationValues.Contains(dur) ? "checked" : "") />
+                  <label class="form-check-label"
+                         for="dur_@dur.ToString().Replace(".", "_")">@dur</label>
+                </div>
+              }
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="form-check">
+              <input asp-for="AllowExcelUpload" class="form-check-input" type="checkbox" />
+              <label asp-for="AllowExcelUpload" class="form-check-label">אפשר העלאת אקסל</label>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <label asp-for="Notes" class="form-label">הערות</label>
+            <textarea asp-for="Notes" class="form-control" rows="2"></textarea>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Multi-select fields -->
+    <div class="card mb-3">
+      <div class="card-header fw-bold">שיוכים</div>
+      <div class="card-body">
+        <div class="row g-3">
+
+          <div class="col-md-6">
+            <label class="form-label">מחוזות</label>
+            <select name="DistrictIds" multiple class="form-select" size="5">
+              @foreach (var item in districts)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.DistrictIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label" for="programIdsSelect">תוכניות</label>
+            <select name="ProgramIds" id="programIdsSelect" multiple class="form-select" size="5"
+                    data-initial-selected="@string.Join(",", Model.ProgramIds)"
+                    aria-describedby="programsHelp">
+              @foreach (var item in programs)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.ProgramIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+            <small id="programsHelp" class="form-text text-muted">
+              התוכניות יסוננו לפי הפרויקט הנבחר. אם לא הוגדרה מפה, יוצגו כל התוכניות.
+            </small>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">מגזרים</label>
+            <select name="SectorIds" multiple class="form-select" size="5">
+              @foreach (var item in sectors)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.SectorIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">ישובים</label>
+            <select name="LocalityIds" multiple class="form-select" size="5">
+              @foreach (var item in localities)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.LocalityIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">מסגרות</label>
+            <select name="FrameworkIds" multiple class="form-select" size="5">
+              @foreach (var item in frameworks)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.FrameworkIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">נושאים</label>
+            <select name="SubjectIds" multiple class="form-select" size="5">
+              @foreach (var item in subjects)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.SubjectIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">תחומים</label>
+            <select name="DomainIds" multiple class="form-select" size="5">
+              @foreach (var item in domains)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.DomainIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">תוכניות חינוכיות</label>
+            <select name="EducationalProgramIds" multiple class="form-select" size="5">
+              @foreach (var item in educationalPrograms)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.EducationalProgramIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">כיתות</label>
+            <select name="ClassIds" multiple class="form-select" size="5">
+              @foreach (var item in classes)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.ClassIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">שכבות</label>
+            <select name="GradeLevelIds" multiple class="form-select" size="5">
+              @foreach (var item in gradeLevels)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.GradeLevelIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">קודי דיון</label>
+            <select name="DiscussionCodeIds" multiple class="form-select" size="5">
+              @foreach (var item in discussionCodes)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.DiscussionCodeIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">ישוב/מחוז/ארצי</label>
+            <select name="LocalityDistrictNationalIds" multiple class="form-select" size="5">
+              @foreach (var item in localityDistrictNationals)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.LocalityDistrictNationalIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+        </div>
+        <p class="text-muted small mt-2">לבחירה מרובה — החזק Ctrl (Windows) או ⌘ (Mac) ולחץ על הפריטים.</p>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">שמור הקצאה</button>
+      <a asp-action="Allocations" asp-route-id="@employee.Id"
+         class="btn btn-outline-secondary">ביטול</a>
+    </div>
+  </form>
+</div>
+
+@section Scripts {
+  @await Html.PartialAsync("_ValidationScriptsPartial")
+  <script>
+    // Toggle daily scope input when "unlimited" checkbox is clicked
+    const unlimitedDaily = document.getElementById('unlimitedDaily');
+    const dailyScope = document.getElementById('dailyScope');
+
+    function toggleDailyScope() {
+      if (unlimitedDaily.checked) {
+        dailyScope.value = '';
+        dailyScope.disabled = true;
+      } else {
+        dailyScope.disabled = false;
+      }
+    }
+
+    unlimitedDaily.addEventListener('change', toggleDailyScope);
+    toggleDailyScope(); // initialize on page load
+
+    // --- Cascading Project -> Programs ---
+    const projectSelect = document.getElementById('projectIdSelect');
+    const programsSelect = document.getElementById('programIdsSelect');
+    const programsUrl = '@Url.Action("ProgramsForProject", "Employee")';
+
+    async function reloadPrograms(projectId) {
+      if (!projectSelect || !programsSelect) return;
+      const previouslySelected = new Set(Array.from(programsSelect.selectedOptions).map(o => o.value));
+
+      if (!projectId) {
+        // no project: keep current options — server already rendered the default set
+        return;
+      }
+
+      try {
+        const resp = await fetch(programsUrl + '?projectId=' + encodeURIComponent(projectId), {
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!resp.ok) throw new Error('network');
+        const data = await resp.json();
+
+        programsSelect.innerHTML = '';
+        for (const item of data) {
+          const opt = document.createElement('option');
+          opt.value = item.id;
+          opt.textContent = item.description;
+          if (previouslySelected.has(String(item.id))) opt.selected = true;
+          programsSelect.appendChild(opt);
+        }
+      } catch (err) {
+        // Graceful failure: leave current options in place so the user isn't stuck.
+        console.warn('ProgramsForProject fetch failed:', err);
+      }
+    }
+
+    if (projectSelect) {
+      projectSelect.addEventListener('change', (e) => reloadPrograms(e.target.value));
+    }
+  </script>
+}

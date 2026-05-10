@@ -1,0 +1,149 @@
+@model AxiomaReporting.Web.Models.BatchReportImportResultViewModel
+@{
+  ViewData["Title"] = "תוצאות ייבוא דיווחים מרוכז";
+  var r = Model.Result;
+}
+
+<div class="container mt-3" dir="rtl">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>תוצאות ייבוא דיווחים מרוכז</h3>
+    <div class="d-flex gap-2">
+      <a asp-action="BatchReportImport" class="btn btn-outline-secondary btn-sm">חזרה</a>
+      @if (r.Errors.Any())
+      {
+        <a asp-action="BatchReportImportErrorsPdf" class="btn btn-outline-danger btn-sm">הורד רשימת שגיאות (PDF)</a>
+      }
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <div class="text-muted small">חודש דיווח</div>
+          <div class="fs-5">@Model.MonthDescription (@Model.MonthNumber/@Model.Year)</div>
+        </div>
+        <div class="col-md-2">
+          <div class="text-muted small">סך כל השורות שנקראו</div>
+          <div class="fs-5">@r.TotalRowsRead</div>
+        </div>
+        <div class="col-md-2">
+          <div class="text-muted small">שורות שנקלטו</div>
+          <div class="fs-5 text-success">@r.RowsImported</div>
+        </div>
+        <div class="col-md-2">
+          <div class="text-muted small">שורות שגויות</div>
+          <div class="fs-5 text-danger">@r.ErrorRowsCount</div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-muted small">מספר עובדים בדיווח</div>
+          <div class="fs-5">@r.EmployeesAffected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  @if (r.RowResults.Any())
+  {
+    <div class="card mb-3">
+      <div class="card-header"><strong>פירוט שורות מהקובץ</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-bordered mb-0">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">מס' שורה בקובץ</th>
+              <th scope="col">קוד עובד</th>
+              <th scope="col">שם המדווח</th>
+              <th scope="col">תיאור</th>
+            </tr>
+          </thead>
+          <tbody>
+            @foreach (var rr in r.RowResults.OrderBy(x => x.FileRowNumber))
+            {
+              var rowClass = rr.Outcome switch
+              {
+                AxiomaReporting.Infrastructure.Services.BatchImportRowOutcome.Added => "table-success",
+                AxiomaReporting.Infrastructure.Services.BatchImportRowOutcome.Updated => "table-info",
+                AxiomaReporting.Infrastructure.Services.BatchImportRowOutcome.Skipped => "table-warning",
+                AxiomaReporting.Infrastructure.Services.BatchImportRowOutcome.Rejected => "table-danger",
+                _ => string.Empty
+              };
+              <tr class="@rowClass">
+                <td>@rr.FileRowNumber</td>
+                <td>@rr.EmployeeCode</td>
+                <td>@rr.ReporterName</td>
+                <td>@rr.ResultDescription</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  @if (r.EmployeeSummaries.Any())
+  {
+    <div class="card mb-3">
+      <div class="card-header"><strong>פירוט לפי עובד</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">קוד עובד</th>
+              <th scope="col">שם המדווח</th>
+              <th scope="col">שורות שנקלטו</th>
+              <th scope="col">שורות שנדחו</th>
+            </tr>
+          </thead>
+          <tbody>
+            @foreach (var s in r.EmployeeSummaries.OrderBy(s => s.EmployeeCode))
+            {
+              <tr>
+                <td>@s.EmployeeCode</td>
+                <td>@s.ReporterName</td>
+                <td class="text-success">@s.RowsImported</td>
+                <td class="@(s.RowsRejected > 0 ? "text-danger" : "")">@s.RowsRejected</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  @if (r.Errors.Any())
+  {
+    <div class="card border-danger">
+      <div class="card-header bg-danger text-white"><strong>רשימת שגיאות</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-bordered mb-0">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">מס' שורה בקובץ</th>
+              <th scope="col">קוד עובד</th>
+              <th scope="col">שם המדווח</th>
+              <th scope="col">שגיאה</th>
+            </tr>
+          </thead>
+          <tbody>
+            @foreach (var e in r.Errors.OrderBy(e => e.FileRowNumber))
+            {
+              <tr>
+                <td>@e.FileRowNumber</td>
+                <td>@e.EmployeeCode</td>
+                <td>@e.ReporterName</td>
+                <td>@e.ErrorMessage</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+  else if (r.RowsImported > 0)
+  {
+    <div class="alert alert-success" role="alert" aria-live="polite">
+      הייבוא הושלם בהצלחה ללא שגיאות. הודעה על קליטת הדיווח נשלחה לכל עובד מדווח.
+    </div>
+  }
+</div>

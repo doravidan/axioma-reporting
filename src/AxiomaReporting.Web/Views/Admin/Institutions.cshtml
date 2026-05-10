@@ -1,0 +1,292 @@
+﻿@model List<AxiomaReporting.Core.Entities.Institution>
+@{
+  ViewData["Title"] = "ניהול מוסדות";
+  var localities = ViewBag.Localities as List<AxiomaReporting.Core.Entities.Locality> ?? new();
+  var districts = ViewBag.Districts as List<AxiomaReporting.Core.Entities.District> ?? new();
+  var sectors = ViewBag.Sectors as List<AxiomaReporting.Core.Entities.Sector> ?? new();
+  var educationTypes = ViewBag.EducationTypes as List<AxiomaReporting.Core.Entities.EducationType> ?? new();
+  var educationalStages = ViewBag.EducationalStages as List<AxiomaReporting.Core.Entities.EducationalStage> ?? new();
+}
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>מוסדות</h3>
+    <div class="d-flex gap-2">
+      <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">הוסף מוסד</button>
+    </div>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+  @if (TempData["Error"] != null)
+  {
+    <div class="alert alert-danger alert-dismissible fade show" role="alert" aria-live="assertive" aria-atomic="true">
+      @TempData["Error"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  <div class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-bordered mb-0 table-sm">
+          <thead class="table-light">
+            <tr>
+              <th>שם המוסד</th>
+              <th>סמל מוסד</th>
+              <th>ישוב</th>
+              <th>מחוז</th>
+              <th>מגזר</th>
+              <th>סוג חינוך</th>
+              <th>שלב חינוך</th>
+              <th>פעיל</th>
+              <th>פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (!Model.Any())
+            {
+              <tr><td colspan="9" class="text-center text-muted py-4">אין מוסדות</td></tr>
+            }
+            @foreach (var inst in Model)
+            {
+              <tr>
+                <td>@inst.Name</td>
+                <td>@inst.InstitutionSymbol</td>
+                <td>@(inst.Locality?.Description ?? "—")</td>
+                <td>@(inst.District?.Description ?? "—")</td>
+                <td>@(inst.Sector?.Description ?? "—")</td>
+                <td>@(inst.Type?.Description ?? "—")</td>
+                <td>@(inst.EducationalStage?.Description ?? "—")</td>
+                <td>
+                  @if (inst.IsActive)
+                  {
+                    <span class="badge bg-success">כן</span>
+                  }
+                  else
+                  {
+                    <span class="badge bg-secondary">לא</span>
+                  }
+                </td>
+                <td>
+                  <button type="button" class="btn btn-sm btn-outline-secondary btn-edit"
+                          data-id="@inst.Id"
+                          data-name="@inst.Name"
+                          data-symbol="@inst.InstitutionSymbol"
+                          data-locality="@(inst.LocalityId?.ToString() ?? "")"
+                          data-district="@(inst.DistrictId?.ToString() ?? "")"
+                          data-sector="@(inst.SectorId?.ToString() ?? "")"
+                          data-type="@(inst.TypeId?.ToString() ?? "")"
+                          data-stage="@(inst.EducationalStageId?.ToString() ?? "")"
+                          data-active="@inst.IsActive.ToString().ToLower()">
+                    ✏️
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addModalTitle">הוסף מוסד</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <form asp-action="CreateInstitution" method="post">
+        @Html.AntiForgeryToken()
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-md-8 mb-3">
+              <label class="form-label">שם המוסד <span class="text-danger">*</span></label>
+              <input name="name" class="form-control" required />
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">סמל מוסד <span class="text-danger">*</span></label>
+              <input name="institutionSymbol" type="number" class="form-control" required />
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">ישוב</label>
+              <select name="localityId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in localities)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">מחוז</label>
+              <select name="districtId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in districts)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">מגזר</label>
+              <select name="sectorId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in sectors)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">סוג חינוך</label>
+              <select name="typeId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in educationTypes)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">שלב חינוך</label>
+              <select name="educationalStageId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in educationalStages)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editModalTitle">עדכון מוסד</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <form id="editForm" method="post">
+        @Html.AntiForgeryToken()
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-md-8 mb-3">
+              <label class="form-label">שם המוסד <span class="text-danger">*</span></label>
+              <input id="eName" name="name" class="form-control" required />
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">סמל מוסד <span class="text-danger">*</span></label>
+              <input id="eSymbol" name="institutionSymbol" type="number" class="form-control" required />
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">ישוב</label>
+              <select id="eLocality" name="localityId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in localities)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">מחוז</label>
+              <select id="eDistrict" name="districtId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in districts)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">מגזר</label>
+              <select id="eSector" name="sectorId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in sectors)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">סוג חינוך</label>
+              <select id="eType" name="typeId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in educationTypes)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">שלב חינוך</label>
+              <select id="eStage" name="educationalStageId" class="form-select">
+                <option value="">— בחר —</option>
+                @foreach (var item in educationalStages)
+                {
+                  <option value="@item.Id">@item.Description</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="mb-3 form-check">
+            <input id="eIsActive" name="isActive" type="checkbox" class="form-check-input" value="true" />
+            <label class="form-check-label" for="eIsActive">פעיל</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.btn-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('eName').value = btn.getAttribute('data-name');
+      document.getElementById('eSymbol').value = btn.getAttribute('data-symbol');
+      document.getElementById('eIsActive').checked = btn.getAttribute('data-active') === 'true';
+      setSelectVal('eLocality', btn.getAttribute('data-locality'));
+      setSelectVal('eDistrict', btn.getAttribute('data-district'));
+      setSelectVal('eSector', btn.getAttribute('data-sector'));
+      setSelectVal('eType', btn.getAttribute('data-type'));
+      setSelectVal('eStage', btn.getAttribute('data-stage'));
+      document.getElementById('editForm').action = '/Admin/EditInstitution/' + btn.getAttribute('data-id');
+      new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
+  });
+
+  function setSelectVal(id, val) {
+    document.getElementById(id).value = val || '';
+  }
+</script>

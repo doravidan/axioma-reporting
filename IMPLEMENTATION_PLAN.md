@@ -91,8 +91,24 @@ AxiomaReporting/
 | Configure SSL | Obtain and install SSL certificate |
 | Set up domain | Client purchases domain; configure DNS |
 | Set up email | Dedicated email address for system notifications |
-| Set up SMS provider (optional) | If client opts for SMS-based TFA |
+| Set up SMS provider (optional) | Not used for TFA. Only needed if the client later approves SMS reminders |
 | Configure firewall | Server security setup |
+
+---
+
+### 0.4 Client Data File Handling
+
+The provided client workbooks are implemented through two separate paths because the formats differ.
+
+| File | Format | Implementation | Status |
+|------|--------|----------------|--------|
+| `database/seed-data/טבלאות.xlsb` | XLSB | Admin data-migration action `ImportClientLookupXlsb`; seed script remains available | Implemented |
+| `database/seed-data/BASE DATA.xlsb` | XLSB | One-time Python seed script `database/seed-data/seed_reports.py`; assigns `AllocationId` when unambiguous | Implemented |
+| `database/seed-data/קובץ משותף שאלונים לכל התוכניות 12.3.26.xlsx` | XLSX | Admin data-migration action `ImportQuestionnaireCatalog` reads `כללי - מאוחד`, including column H conclusion framework values | Implemented |
+
+The normalized MVC admin upload screens accept `.xlsx` only. The supplied `טבלאות.xlsb` file has a dedicated browser upload path because its sheet layout is client-specific. The historical `BASE DATA.xlsb` file stays as a controlled seed script because it creates approved historical reports.
+
+Detailed mapping is documented in `DATA_IMPORT_MAPPING.md`.
 
 ---
 
@@ -127,13 +143,13 @@ CREATE TABLE [dbo].[LookupTableName] (
 | 7 | EducationalPrograms (תוכניות חינוכיות) | — | |
 | 8 | Subjects (נושאים) | — | |
 | 9 | Domains (תחומים) | — | |
-| 10 | Frameworks (מסגרות) | `InstitutionSymbol NVARCHAR(50)` | Unique per educational stage |
-| 11 | Classes (כיתות) | — | |
+| 10 | Frameworks (מסגרות) | `InstitutionSymbol NVARCHAR(100) NOT NULL`, `EducationalStageId INT NULL` | Unique per educational stage |
+| 11 | SchoolClasses (כיתות) | — | UI label can remain "Classes" |
 | 12 | GradeLevels (שכבות) | — | |
-| 13 | Roles (תפקידים) | — | Employee roles (Teacher, etc.) |
+| 13 | EmployeeRoles (תפקידים) | — | Employee roles (Teacher, etc.) |
 | 14 | EducationalStages (שלבי חינוך) | — | |
 | 15 | EducationTypes (סוגי חינוך) | — | |
-| 16 | LocalityDistrictNational (איתור ישוב/מחוז/ארצי) | — | |
+| 16 | LocalityDistrictNationals (איתור ישוב/מחוז/ארצי) | — | |
 | 17 | DiscussionCodes (קוד דיון) | — | |
 
 #### Institutions Table (Complex)
@@ -209,8 +225,8 @@ CREATE TABLE [dbo].[UserRoles] (
 ```sql
 CREATE TABLE [dbo].[SystemConstants] (
     [Id] INT IDENTITY(1,1) PRIMARY KEY,
-    [Key] NVARCHAR(100) NOT NULL UNIQUE,
-    [Value] NVARCHAR(500) NOT NULL,
+    [Key] NVARCHAR(200) NOT NULL UNIQUE,
+    [Value] NVARCHAR(1000) NOT NULL,
     [Description] NVARCHAR(500),
     [UpdatedAt] DATETIME2 NULL,
     [UpdatedBy] INT NULL
@@ -228,13 +244,15 @@ CREATE TABLE [dbo].[SystemConstants] (
 ```sql
 CREATE TABLE [dbo].[EmailServerSettings] (
     [Id] INT IDENTITY(1,1) PRIMARY KEY,
-    [SmtpServer] NVARCHAR(200) NOT NULL,
+    [SmtpServer] NVARCHAR(500) NOT NULL,
     [Port] INT NOT NULL,
-    [Username] NVARCHAR(200) NOT NULL,
+    [Username] NVARCHAR(500) NOT NULL,
     [Password] NVARCHAR(500) NOT NULL, -- Encrypted
-    [FromAddress] NVARCHAR(200) NOT NULL,
-    [FromName] NVARCHAR(200),
-    [UseSsl] BIT NOT NULL DEFAULT 1
+    [FromAddress] NVARCHAR(500) NOT NULL,
+    [FromName] NVARCHAR(500),
+    [UseSsl] BIT NOT NULL DEFAULT 1,
+    [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE(),
+    [UpdatedAt] DATETIME2 NULL
 );
 ```
 
@@ -264,14 +282,14 @@ CREATE TABLE [dbo].[Users] (
     [FirstName] NVARCHAR(100) NOT NULL,
     [LastName] NVARCHAR(100) NOT NULL,
     [PasswordHash] NVARCHAR(500) NOT NULL,
-    [RoleId] INT NOT NULL FOREIGN KEY REFERENCES Roles(Id),       -- תפקיד (Teacher, etc.)
+    [RoleId] INT NOT NULL FOREIGN KEY REFERENCES EmployeeRoles(Id), -- תפקיד (Teacher, etc.)
     [UserRoleId] INT NOT NULL FOREIGN KEY REFERENCES UserRoles(Id), -- System role (Admin, etc.)
     [StatusId] INT NOT NULL FOREIGN KEY REFERENCES UserStatuses(Id),
     [IsReportingEmployee] BIT NOT NULL DEFAULT 0,  -- עובד מדווח
     [RestDay] INT NULL,                            -- יום מנוחה (0=Sunday...6=Saturday)
     [AllowFutureReporting] BIT NOT NULL DEFAULT 0, -- דיווח עתידי
-    [Notes] NVARCHAR(MAX) NULL,
-    [Email] NVARCHAR(200) NULL,
+    [Notes] NVARCHAR(1000) NULL,
+    [Email] NVARCHAR(500) NULL,
     [Phone] NVARCHAR(50) NULL,
     [MustChangePassword] BIT NOT NULL DEFAULT 1,
     [FailedLoginAttempts] INT NOT NULL DEFAULT 0,
@@ -287,12 +305,44 @@ CREATE TABLE [dbo].[Users] (
 #### Password History
 
 ```sql
-CREATE TABLE [dbo].[PasswordHistory] (
+CREATE TABLE [dbo].[PasswordHistories] (
     [Id] INT IDENTITY(1,1) PRIMARY KEY,
     [UserId] INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
     [PasswordHash] NVARCHAR(500) NOT NULL,
     [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE()
 );
+```
+
+#### Password Reset Tokens
+
+```sql
+CREATE TABLE [dbo].[PasswordResetTokens] (
+    [Id] INT IDENTITY(1,1) PRIMARY KEY,
+    [UserId] INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    [TokenHash] NVARCHAR(128) NOT NULL UNIQUE,
+    [ExpiresAt] DATETIME2 NOT NULL,
+    [UsedAt] DATETIME2 NULL,
+    [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE()
+);
+
+CREATE INDEX IX_PasswordResetTokens_UserId_ExpiresAt
+ON [dbo].[PasswordResetTokens] ([UserId], [ExpiresAt]);
+```
+
+#### Two-Factor Codes
+
+```sql
+CREATE TABLE [dbo].[TwoFactorCodes] (
+    [Id] INT IDENTITY(1,1) PRIMARY KEY,
+    [UserId] INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    [CodeHash] NVARCHAR(128) NOT NULL,
+    [ExpiresAt] DATETIME2 NOT NULL,
+    [UsedAt] DATETIME2 NULL,
+    [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE()
+);
+
+CREATE INDEX IX_TwoFactorCodes_UserId_ExpiresAt
+ON [dbo].[TwoFactorCodes] ([UserId], [ExpiresAt]);
 ```
 
 #### Allocations
@@ -302,14 +352,14 @@ CREATE TABLE [dbo].[Allocations] (
     [Id] INT IDENTITY(1,1) PRIMARY KEY,
     [UserId] INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
     [ProjectId] INT NOT NULL FOREIGN KEY REFERENCES Projects(Id),
-    [AnnualEmploymentScope] DECIMAL(10,2) NULL,   -- היקף העסקה שנתי
-    [MonthlyEmploymentScope] DECIMAL(10,2) NULL,   -- היקף העסקה חודשי
-    [DailyEmploymentScope] DECIMAL(10,2) NULL,     -- היקף העסקה יומי (NULL = unlimited)
+    [AnnualEmploymentScope] DECIMAL(18,4) NULL,   -- היקף העסקה שנתי
+    [MonthlyEmploymentScope] DECIMAL(18,4) NULL,   -- היקף העסקה חודשי
+    [DailyEmploymentScope] DECIMAL(18,4) NULL,     -- היקף העסקה יומי (NULL = unlimited)
     [MonthlyRowAllocation] INT NULL,               -- הקצאת שורות חודשית
     [AnnualRowAllocation] INT NULL,                -- הקצאת שורות שנתית
-    [OutputDuration] NVARCHAR(100) NULL,           -- משך תפוקה (comma-separated or JSON for multi-select)
+    [OutputDuration] NVARCHAR(500) NULL,           -- משך תפוקה (comma-separated values)
     [AllowExcelUpload] BIT NOT NULL DEFAULT 0,
-    [Notes] NVARCHAR(MAX) NULL,
+    [Notes] NVARCHAR(1000) NULL,
     [IsActive] BIT NOT NULL DEFAULT 1,
     [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE(),
     [UpdatedAt] DATETIME2 NULL,
@@ -326,8 +376,8 @@ For each lookup that can be multi-selected per allocation:
 ```sql
 -- Pattern repeated for every allocation-scoped lookup used by report dropdowns:
 -- Districts, Programs, Sectors, Localities, Frameworks, Subjects, Domains,
--- EducationalPrograms, Classes, GradeLevels, DiscussionCodes,
--- LocalityDistrictNational.
+-- EducationalPrograms, SchoolClasses, GradeLevels, DiscussionCodes,
+-- LocalityDistrictNationals.
 
 CREATE TABLE [dbo].[AllocationDistricts] (
     [AllocationId] INT NOT NULL FOREIGN KEY REFERENCES Allocations(Id),
@@ -379,7 +429,7 @@ CREATE TABLE [dbo].[AllocationEducationalPrograms] (
 
 CREATE TABLE [dbo].[AllocationClasses] (
     [AllocationId] INT NOT NULL FOREIGN KEY REFERENCES Allocations(Id),
-    [ClassId] INT NOT NULL FOREIGN KEY REFERENCES Classes(Id),
+    [ClassId] INT NOT NULL FOREIGN KEY REFERENCES SchoolClasses(Id),
     PRIMARY KEY (AllocationId, ClassId)
 );
 
@@ -395,9 +445,9 @@ CREATE TABLE [dbo].[AllocationDiscussionCodes] (
     PRIMARY KEY (AllocationId, DiscussionCodeId)
 );
 
-CREATE TABLE [dbo].[AllocationLocalityDistrictNational] (
+CREATE TABLE [dbo].[AllocationLocalityDistrictNationals] (
     [AllocationId] INT NOT NULL FOREIGN KEY REFERENCES Allocations(Id),
-    [LocalityDistrictNationalId] INT NOT NULL FOREIGN KEY REFERENCES LocalityDistrictNational(Id),
+    [LocalityDistrictNationalId] INT NOT NULL FOREIGN KEY REFERENCES LocalityDistrictNationals(Id),
     PRIMARY KEY (AllocationId, LocalityDistrictNationalId)
 );
 ```
@@ -407,15 +457,14 @@ CREATE TABLE [dbo].[AllocationLocalityDistrictNational] (
 ```sql
 CREATE TABLE [dbo].[ReportingMonths] (
     [Id] INT IDENTITY(1,1) PRIMARY KEY,
-    [Description] NVARCHAR(200) NOT NULL,
+    [Description] NVARCHAR(500) NOT NULL,
     [Month] INT NOT NULL,              -- 1-12
     [Year] INT NOT NULL,
-    [LastReportingDate] DATE NOT NULL,
+    [LastReportingDate] DATETIME2 NOT NULL,
     [IsActive] BIT NOT NULL DEFAULT 0,
     [AllowFutureReporting] BIT NOT NULL DEFAULT 0,
     [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE(),
-    [UpdatedAt] DATETIME2 NULL,
-    CONSTRAINT UQ_ReportingMonth UNIQUE (Month, Year)
+    [UpdatedAt] DATETIME2 NULL
 );
 ```
 
@@ -430,7 +479,7 @@ CREATE TABLE [dbo].[Reports] (
     [SubmittedAt] DATETIME2 NULL,
     [ApprovedAt] DATETIME2 NULL,
     [ApprovedBy] INT NULL FOREIGN KEY REFERENCES Users(Id),
-    [RejectionReason] NVARCHAR(MAX) NULL,
+    [RejectionReason] NVARCHAR(1000) NULL,
     [RejectedAt] DATETIME2 NULL,
     [RejectedBy] INT NULL FOREIGN KEY REFERENCES Users(Id),
     [ImportedFromExcel] BIT NOT NULL DEFAULT 0,
@@ -448,8 +497,8 @@ CREATE TABLE [dbo].[ReportRows] (
     [ReportId] INT NOT NULL FOREIGN KEY REFERENCES Reports(Id),
     [AllocationId] INT NULL FOREIGN KEY REFERENCES Allocations(Id), -- nullable for migration/backfill; required for new rows
     [SequenceNumber] INT NOT NULL,           -- מס"ד - auto per employee per report
-    [MeetingDate] DATE NOT NULL,             -- תאריך המפגש
-    [MeetingDuration] DECIMAL(5,2) NOT NULL, -- משך המפגש (hours, decimal)
+    [MeetingDate] DATETIME2 NOT NULL,        -- תאריך המפגש
+    [MeetingDuration] DECIMAL(18,4) NOT NULL, -- משך המפגש (hours, decimal)
     [DistrictId] INT NOT NULL FOREIGN KEY REFERENCES Districts(Id),
     [LocalityId] INT NOT NULL FOREIGN KEY REFERENCES Localities(Id),
     [FrameworkId] INT NOT NULL FOREIGN KEY REFERENCES Frameworks(Id),
@@ -458,12 +507,12 @@ CREATE TABLE [dbo].[ReportRows] (
     [Subject1Id] INT NOT NULL FOREIGN KEY REFERENCES Subjects(Id),
     [Subject2Id] INT NULL FOREIGN KEY REFERENCES Subjects(Id),
     [DiscussionCodeId] INT NULL FOREIGN KEY REFERENCES DiscussionCodes(Id),
-    [ConclusionClassId] INT NULL FOREIGN KEY REFERENCES Classes(Id),
-    [ConclusionFrameworkId] INT NULL,       -- Educational framework conclusion
-    [ConclusionLocationId] INT NULL,        -- Locality/District/National conclusion
+    [ConclusionClassId] INT NULL FOREIGN KEY REFERENCES SchoolClasses(Id),
+    [ConclusionFrameworkId] INT NULL FOREIGN KEY REFERENCES Frameworks(Id), -- Educational framework conclusion
+    [ConclusionLocationId] INT NULL FOREIGN KEY REFERENCES LocalityDistrictNationals(Id), -- Locality/District/National conclusion
     [GradeLevelId] INT NULL FOREIGN KEY REFERENCES GradeLevels(Id),
-    [ClassId] INT NULL FOREIGN KEY REFERENCES Classes(Id),
-    [Notes] NVARCHAR(MAX) NULL,
+    [ClassId] INT NULL FOREIGN KEY REFERENCES SchoolClasses(Id),
+    [Notes] NVARCHAR(2000) NULL,
     [CreatedAt] DATETIME2 NOT NULL DEFAULT GETDATE(),
     [UpdatedAt] DATETIME2 NULL
 );
@@ -499,6 +548,21 @@ CREATE TABLE [dbo].[InspectorAssignments] (
 );
 ```
 
+#### Reminder Logs
+
+```sql
+CREATE TABLE [dbo].[ReminderLogs] (
+    [Id] INT IDENTITY(1,1) PRIMARY KEY,
+    [UserId] INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    [ReportingMonthId] INT NULL FOREIGN KEY REFERENCES ReportingMonths(Id),
+    [TemplateType] NVARCHAR(100) NOT NULL,
+    [SentAt] DATETIME2 NOT NULL
+);
+
+CREATE INDEX IX_ReminderLogs_User_Month_Template_SentAt
+ON [dbo].[ReminderLogs] ([UserId], [ReportingMonthId], [TemplateType], [SentAt]);
+```
+
 ### 1.4 EF Core Setup
 
 | Task | Details |
@@ -506,7 +570,7 @@ CREATE TABLE [dbo].[InspectorAssignments] (
 | Create entity classes | One class per table in `Core/Entities/` |
 | Configure relationships | Fluent API in `AppDbContext.OnModelCreating` |
 | Create initial migration | `dotnet ef migrations add InitialCreate` |
-| Seed system data | Statuses, Roles, default admin user |
+| Seed system data | Statuses, EmployeeRoles, UserRoles, default admin user |
 | Create repository interfaces | In `Core/Interfaces/` |
 | Implement repositories | In `Infrastructure/Repositories/` |
 
@@ -527,7 +591,7 @@ CREATE TABLE [dbo].[InspectorAssignments] (
 | 7 | Password change screen | Validate: min 8 chars, letters+digits, not in last 5 | Clear validation messages |
 | 8 | Password history | Store last 5 hashes; reject reuse | Cannot reuse last 5 passwords |
 | 9 | Forgot password screen | Send reset link/code to email | Secure token, time-limited |
-| 10 | TFA (optional) | Email or SMS code after password auth | Code sent and verified correctly |
+| 10 | TFA (optional) | Email code after password auth, controlled by `TfaEmailEnabled` | Code sent and verified correctly |
 | 11 | Role-based authorization | `[Authorize(Roles = "...")]` on all controllers | Each role sees only permitted pages/actions |
 | 12 | Session management | Secure cookies, timeout | Sessions expire appropriately |
 | 13 | Admin password reset | Admin/PM can reset passwords for coordinators | Reset to default (ID number), force change on next login |
@@ -607,7 +671,7 @@ Complex form with multiple foreign key dropdowns (Locality, District, Sector, Ty
 | 3 | Employee Code field | Numeric input | Required |
 | 4 | Name fields | First + Last name text inputs | Required |
 | 5 | ID Number field | Text input, used as username | Required, unique |
-| 6 | Role dropdown | From Roles lookup table | Required |
+| 6 | Role dropdown | From EmployeeRoles lookup table | Required |
 | 7 | Reporting Employee checkbox | Toggle showing/hiding reporting panels | Conditional UI |
 | 8 | Password field | Hidden (dots/asterisks) | Never visible |
 | 9 | Notes field | Free text textarea | Optional |
@@ -701,11 +765,11 @@ If the employee has more than one active allocation, show a project/allocation s
 | 12 | Subject 1 | Dropdown filtered by allocation | Required |
 | 13 | Subject 2 | Dropdown filtered by allocation | Optional |
 | 14 | Discussion Held | Dropdown from closed list (NOT yes/no) | Optional |
-| 15 | Conclusions — Class | Dropdown from Classes table | Optional |
+| 15 | Conclusions — Class | Dropdown from SchoolClasses table | Optional |
 | 16 | Conclusions — Ed. Framework | Dropdown | Optional |
 | 17 | Conclusions — Location | Dropdown | Optional |
 | 18 | Grade Level | Dropdown from Grade Levels | Optional |
-| 19 | Class | Dropdown from Classes | Optional |
+| 19 | Class | Dropdown from SchoolClasses | Optional |
 | 20 | Notes | Free text (unlimited) | Used in similarity check |
 
 ### 5.3 Validation Engine
@@ -1040,44 +1104,86 @@ Build a one-time import tool that:
 
 ---
 
+## Needed Implementation From Traceability Audit
+
+The latest spec/code audit is documented in `SPEC_TRACEABILITY_AUDIT.md`. The following items are required to close the remaining implementation gaps.
+
+### High Priority
+
+- [x] Date validation month boundary: enforce the reporting-month rule in `ReportValidationService` and Excel import.
+- [x] Monthly hour allocation validation: validate total monthly `MeetingDuration` per allocation against `Allocations.MonthlyEmploymentScope`.
+- [x] Developer-level required/optional field configuration: replace hard-coded required report fields with configurable field metadata/constants and keep forward-only behavior.
+- [x] Report-row conclusion fields: add proper FK/navigation/configuration for `ConclusionFrameworkId` and `ConclusionLocationId`, fix display and dropdown sources.
+- [x] Allocation-scoped dropdown completeness: filter grade levels, classes, and conclusion fields from selected allocation where allocation junctions exist.
+- [x] Employee list spec completion: all Blue Card fields, allocation multi-value display, page-size selector, column sorting, locked indicator, notes columns, and project view.
+- [x] Bulk employee allocation change: add selected-employee allocation update workflow or explicitly remove from accepted scope.
+- [x] Separate global allocation list: combined employee/allocation list with filtering, sorting, pagination, and Excel export.
+- [x] Initial client data migration/import tool: import lookup, employee, allocation, framework/institution data from client Excel files with validation report.
+
+### Medium Priority
+
+- [x] Client logo: `IBrandingService` + `SiteLogoViewComponent` drive every logo slot from `SystemConstant.SiteLogoPath`; `/Admin/Branding` hot-swap (Gap 8). Real client asset still pending.
+- [x] Terms of Use versioning: `TermsOfUseVersion` + `TermsOfUseAcceptance` + `RequireTermsAcceptedFilter` forces re-acceptance on new version; `/Admin/TermsOfUse` publishes (Gap 1). Final client text still pending.
+- [x] Account unlock UX: add explicit Admin/PM unlock action and clarify self-service unlock.
+- [x] Excel template download: add blank `.xlsx` template download for report upload.
+- [~] Employee report Excel lookup resolution: batch multi-employee import resolves text/codes via `ILookupResolver`; single-employee upload still expects numeric IDs (by client preference).
+- [x] Hebrew/RTL PDF quality: `PdfReportService` rewritten on QuestPDF + Noto Sans Hebrew; right-aligned RTL table (Gap 10).
+- [x] Lookup UI special-field coverage: Locality `NationalCode` and Framework `InstitutionSymbol`/`EducationalStageId` editable in UI (Gap 11).
+- [x] Lookup delete checks: `LookupController.CanDeleteItemAsync` covers all 17 lookup tables including frameworks, institutions, authorities, educationalstages, educationtypes, localitydistrictnational (Gap 9).
+- [x] Dashboard cascading behavior: `/Dashboard/FilterOptions` JSON endpoint + live bidirectional cascading on Dashboard and Summary (Gap 5).
+- [x] Dashboard sorting: apply `SortBy`/`SortDesc` and clickable headers.
+- [x] Summary Excel export: add export for the summary/approval screen.
+- [x] Inspector export restriction: both inspector roles export approved-only from the dashboard.
+- [x] Employee delete: implement soft-delete/status deactivation.
+- [x] Email failure audit: `NotificationLog` + `NotificationDispatcher` writes + `NotificationRetryService` retry + `/Admin/NotificationLogs` admin screen (Gap 6).
+
+### Low Priority / Production Hardening
+
+- [ ] Email template rich text editor (deferred — plain textarea acceptable per plan).
+- [x] Optimistic concurrency tokens on reports/users/allocations: `RowVersion` on `Report`, `ReportRow`, `User`, `Allocation`; Hebrew conflict message (Gap 3).
+- [x] General audit trail for sensitive changes: `AuditLog` + `AuditLogService` + instrumentation across employee/allocation/report/auth/lookup/admin/terms + `/Admin/AuditLog` with CSV export (Gap 7).
+- [x] Operational runbook for deployment, rollback, backup restore, SMTP, scheduled jobs: [docs/OPERATIONS.md](docs/OPERATIONS.md) (Gap 13).
+
+---
+
 ## Critical Business Rules Checklist
 
 This checklist ensures no rule is missed during implementation. **Each must be verified with a test.**
 
-- [ ] Password: min 8 chars, letters+digits
-- [ ] Password: lock after 3 failed attempts
-- [ ] Password: history of last 5
-- [ ] Password: force change every 3 months
-- [ ] Password: force change on first login
-- [ ] Terms of Use: shown on first login
-- [ ] Only admin can promote to admin
-- [ ] Lookup table deletion: check usage before allowing
-- [ ] Only one reporting month active at a time
-- [ ] Institution symbol unique per educational stage
-- [ ] Employee dropdown values filtered by their allocations
-- [ ] Draft status for incomplete reports
-- [ ] All dates in current or previous months (unless future reporting enabled)
-- [ ] No reporting on employee's rest day
-- [ ] Daily max 9 hours (unless unlimited)
-- [ ] Monthly row limit per allocation
-- [ ] Annual row limit per allocation
-- [ ] Allocation stores MonthlyRowAllocation and AnnualRowAllocation used by validation
-- [ ] ReportRows stores AllocationId so row limits are validated per allocation
-- [ ] Duplicate row detection (same date + same values + empty/identical notes)
-- [ ] Notes similarity percentage check uses normalized Levenshtein similarity within the same report
-- [ ] Submission deadline enforcement
-- [ ] Excel overwrite: only unapproved reports
-- [ ] Employee Excel upload: current month only
-- [ ] PM Excel upload: can include locked months
-- [ ] Approval email sent to employee
-- [ ] Rejection email with reasons sent to employee
-- [ ] Inspector scoping by program/district/sector: AND within one assignment row, OR across assignment rows, NULL as wildcard
-- [ ] View-only inspector: export approved reports only
-- [ ] Reminder service: every X days, starting Y days before deadline
-- [ ] Cascading filters on dashboard
-- [ ] Bulk approval with checkboxes
-- [ ] Bulk employee status change
-- [ ] Document attachment at employee and report-row level
-- [ ] All fields: remove "hours" (שעות) terminology per client request
-- [ ] Field required/optional: developer-level toggle, forward-only changes
-- [ ] Employee card changes propagate to report display fields
+- [x] Password: min 8 chars, letters+digits
+- [x] Password: lock after 3 failed attempts
+- [x] Password: history of last 5
+- [x] Password: force change every 3 months
+- [x] Password: force change on first login
+- [x] Terms of Use: shown on first login
+- [x] Only admin can promote to admin
+- [x] Lookup table deletion: check usage before allowing (all 17 lookup tables — Gap 9)
+- [x] Only one reporting month active at a time
+- [x] Institution symbol unique per educational stage
+- [x] Employee dropdown values filtered by their allocations
+- [~] Draft status for incomplete reports: empty reports remain Draft; partially filled invalid rows are not persisted because `ReportRows` requires complete rows
+- [x] All dates in current or previous months (unless future reporting enabled)
+- [x] No reporting on employee's rest day
+- [x] Daily max 9 hours (unless unlimited)
+- [x] Monthly row limit per allocation
+- [x] Annual row limit per allocation
+- [x] Allocation stores MonthlyRowAllocation and AnnualRowAllocation used by validation
+- [x] ReportRows stores AllocationId so row limits are validated per allocation
+- [x] Duplicate row detection (same date + same values + empty/identical notes)
+- [x] Notes similarity percentage check uses normalized Levenshtein similarity within the same report
+- [x] Submission deadline enforcement
+- [x] Excel overwrite: only editable/unapproved reports
+- [x] Employee Excel upload: active reporting month and only when allocation allows upload
+- [x] PM Excel upload: can include locked months
+- [x] Approval email sent to employee
+- [x] Rejection email with reasons sent to employee
+- [x] Inspector scoping by program/district/sector: AND within one assignment row, OR across assignment rows, NULL as wildcard
+- [x] View-only inspector: export approved reports only
+- [x] Reminder service: every X days, starting Y days before deadline
+- [x] Cascading filters on dashboard
+- [x] Bulk approval with checkboxes
+- [x] Bulk employee status change
+- [x] Document attachment at employee and report-row level
+- [x] All user-facing report/allocation fields use employment/output-duration terminology rather than "hours"
+- [x] Field required/optional: developer-level toggle, forward-only changes
+- [x] Employee card changes propagate to report display fields

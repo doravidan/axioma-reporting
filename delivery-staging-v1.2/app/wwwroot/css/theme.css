@@ -1,0 +1,176 @@
+/* ──────────────────────────────────────────────────────────────────────
+ * theme.css — Axioma "Site & Sound חינוך" brand palette
+ * Sampled from wwwroot/images/logo.png via scripts/extract_logo_colors.py
+ *
+ * Top three dominant non-white/non-black, non-greyscale colors:
+ *   --axioma-primary  : #F1601F   (logo orange — wordmark + right bar)
+ *   --axioma-accent   : #1D144D   (logo deep navy — left bar)
+ *   --axioma-secondary: #7D3739   (logo maroon — middle bar)
+ *
+ * Applied scope (deliberately narrow):
+ *   .navbar / .app-navbar background        → primary
+ *   .btn-primary background + border        → primary
+ *   .btn-primary:hover/:focus               → primary darkened
+ *   .card-header.bg-primary                 → primary
+ *   .nav-link.active highlight              → primary tint
+ *
+ * Bootstrap success / danger / warning / info are intentionally untouched.
+ * Loaded AFTER site.css so it overrides app-navbar / btn-primary.
+ * ────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --axioma-primary: #F1601F;
+  --axioma-primary-hover: #d04f15;
+  --axioma-primary-active: #ad400e;
+  --axioma-accent: #1D144D;
+  --axioma-secondary: #7D3739;
+}
+
+/* Navbar — replace the cool-blue with the brand orange */
+.app-navbar,
+.navbar.app-navbar {
+  background: var(--axioma-primary) !important;
+  border-color: var(--axioma-primary-hover) !important;
+}
+
+.app-navbar .nav-link:hover,
+.app-navbar .nav-link:focus,
+.app-navbar .show > .nav-link,
+.app-navbar .nav-link.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+/* Logout button — orange tint on hover instead of blue */
+.app-logout-btn {
+  color: var(--axioma-secondary);
+}
+
+.app-logout-btn:hover,
+.app-logout-btn:focus {
+  color: var(--axioma-secondary);
+  background: #fff3ec;
+  border-color: #fff3ec;
+}
+
+/* Bootstrap btn-primary — re-skin in brand orange */
+.btn-primary {
+  --bs-btn-bg: var(--axioma-primary);
+  --bs-btn-border-color: var(--axioma-primary);
+  --bs-btn-hover-bg: var(--axioma-primary-hover);
+  --bs-btn-hover-border-color: var(--axioma-primary-hover);
+  --bs-btn-active-bg: var(--axioma-primary-active);
+  --bs-btn-active-border-color: var(--axioma-primary-active);
+  --bs-btn-disabled-bg: var(--axioma-primary);
+  --bs-btn-disabled-border-color: var(--axioma-primary);
+}
+
+/* Card header — the "blue card" override (see CLIENT_FEEDBACK item #11) */
+.card-header.bg-primary {
+  background-color: var(--axioma-primary) !important;
+  color: #fff !important;
+}
+
+/* Active nav-link highlight (e.g. dashboard side menu) */
+.nav-pills .nav-link.active,
+.nav-pills .show > .nav-link {
+  background-color: var(--axioma-primary);
+}
+
+/* Skip link colour (accessibility) — keep contrast with brand */
+.skip-link {
+  background: var(--axioma-accent);
+}
+
+/* ── Choices.js — RTL container (Choices renders LTR by default) ──────── */
+.choices {
+  direction: rtl;
+  text-align: right;
+}
+
+.choices[data-type*="select-multiple"] .choices__inner,
+.choices__inner {
+  direction: rtl;
+  text-align: right;
+}
+
+.choices__list--dropdown,
+.choices__list[aria-expanded] {
+  direction: rtl;
+  text-align: right;
+}
+
+.choices__list--multiple .choices__item {
+  margin-inline-end: 3.75px;
+  margin-inline-start: 0;
+  background-color: var(--axioma-primary);
+  border-color: var(--axioma-primary-hover);
+}
+
+.choices__list--multiple .choices__item .choices__button {
+  margin-inline-start: 8px;
+  margin-inline-end: 0;
+  border-inline-start: 1px solid #fff;
+  border-inline-end: 0;
+  padding-inline-start: 16px;
+  padding-inline-end: 0;
+}
+
+.choices__input {
+  direction: rtl;
+  text-align: right;
+}
+
+/* ── /MyAllocations tile cards ────────────────────────────────────────── */
+.myalloc-banner {
+  background: linear-gradient(135deg, var(--axioma-primary), var(--axioma-secondary));
+  color: #fff;
+  border-radius: 12px;
+  padding: 1.5rem 1.75rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 6px 18px rgba(31, 27, 77, 0.15);
+}
+
+.myalloc-banner h2 {
+  margin: 0 0 .25rem;
+  font-weight: 800;
+  font-size: 1.6rem;
+}
+
+.myalloc-banner .myalloc-deadline {
+  font-size: 1.05rem;
+  opacity: .95;
+}
+
+.myalloc-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1rem;
+  border-radius: 12px;
+  border: 2px solid var(--axioma-primary);
+  background: #fff;
+  color: var(--axioma-accent);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 1.15rem;
+  min-height: 180px;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.myalloc-tile:hover,
+.myalloc-tile:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(232, 91, 31, 0.25);
+  background: #fff7f2;
+  color: var(--axioma-accent);
+  text-decoration: none;
+}
+
+.myalloc-tile-icon {
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: .75rem;
+}

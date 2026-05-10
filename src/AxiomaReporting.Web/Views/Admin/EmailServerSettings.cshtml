@@ -1,0 +1,75 @@
+﻿@model AxiomaReporting.Core.Entities.EmailServerSetting?
+@{
+  ViewData["Title"] = "הגדרות SMTP";
+}
+<div class="container mt-3" style="max-width:700px">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>הגדרות שרת דוא"ל (SMTP)</h3>
+    <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  <div class="card">
+    <div class="card-body">
+      <form asp-action="SaveEmailServerSettings" method="post">
+        @Html.AntiForgeryToken()
+
+        <div class="row mb-3">
+          <div class="col-md-8">
+            <label class="form-label">שרת SMTP <span class="text-danger">*</span></label>
+            <input name="smtpServer" class="form-control" required
+                   value="@Model?.SmtpServer" placeholder="smtp.example.com" />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">פורט <span class="text-danger">*</span></label>
+            <input name="port" type="number" class="form-control" required
+                   value="@(Model?.Port != 0 ? Model?.Port : 587)" min="1" max="65535" />
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">שם משתמש <span class="text-danger">*</span></label>
+          <input name="username" class="form-control" required
+                 value="@Model?.Username" autocomplete="username" />
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">סיסמה</label>
+          <input name="password" type="password" class="form-control"
+                 placeholder="@(Model != null ? "השאר ריק לשמור על הסיסמה הנוכחית" : "")"
+                 autocomplete="new-password" />
+        </div>
+
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <label class="form-label">כתובת שולח <span class="text-danger">*</span></label>
+            <input name="fromAddress" type="email" class="form-control" required
+                   value="@Model?.FromAddress" placeholder="noreply@example.com" />
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">שם שולח</label>
+            <input name="fromName" class="form-control"
+                   value="@Model?.FromName" placeholder="מערכת אקסיומא" />
+          </div>
+        </div>
+
+        <div class="mb-4 form-check">
+          <input name="useSsl" type="checkbox" class="form-check-input" id="useSsl"
+                 value="true" @(Model?.UseSsl != false ? "checked" : "") />
+          <label class="form-check-label" for="useSsl">השתמש ב-SSL/TLS</label>
+        </div>
+
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary">שמור הגדרות</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

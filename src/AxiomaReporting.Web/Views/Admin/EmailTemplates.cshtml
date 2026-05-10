@@ -1,0 +1,90 @@
+﻿@model List<AxiomaReporting.Core.Entities.EmailTemplate>
+@{
+  ViewData["Title"] = "תבניות מייל";
+}
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>תבניות מייל</h3>
+    <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  @foreach (var template in Model)
+  {
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>@template.TypeDescription</strong>
+        <button type="button" class="btn btn-sm btn-outline-secondary btn-edit"
+                data-id="@template.Id"
+                data-type="@template.TypeDescription"
+                data-subject="@template.Subject"
+                data-body="@template.Body">
+          ✏️ עריכה
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="mb-2">
+          <strong>נושא:</strong> @template.Subject
+        </div>
+        <div>
+          <strong>גוף:</strong>
+          <pre class="bg-light p-2 rounded small" style="white-space:pre-wrap">@template.Body</pre>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (!Model.Any())
+  {
+    <div class="alert alert-info">אין תבניות מוגדרות</div>
+  }
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editModalTitle">עריכת תבנית: <span id="editTypeLabel"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <form id="editForm" method="post">
+        @Html.AntiForgeryToken()
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">נושא <span class="text-danger">*</span></label>
+            <input id="editSubject" name="subject" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">גוף ההודעה <span class="text-danger">*</span></label>
+            <textarea id="editBody" name="body" class="form-control" rows="10" required></textarea>
+            <div class="form-text text-muted">ניתן להשתמש ב-HTML ובמשתני תבנית</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.btn-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('editTypeLabel').textContent = btn.getAttribute('data-type');
+      document.getElementById('editSubject').value = btn.getAttribute('data-subject');
+      document.getElementById('editBody').value = btn.getAttribute('data-body');
+      document.getElementById('editForm').action = '/Admin/UpdateEmailTemplate/' + btn.getAttribute('data-id');
+      new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
+  });
+</script>

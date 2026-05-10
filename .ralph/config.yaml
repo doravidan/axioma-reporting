@@ -1,0 +1,47 @@
+# RALPH Configuration for Axioma Employee Reporting System
+project:
+  name: "Axioma Employee Reporting System"
+  language: "C#"
+  framework: "ASP.NET Core"
+  database: "SQL Server Express"
+  orm: "Entity Framework Core"
+
+# Quality gates - all must pass before marking a story complete
+quality:
+  commands:
+    - "dotnet build --no-restore"
+    - "dotnet test --no-build --verbosity normal"
+  required: true
+
+# Parallel execution settings
+parallel:
+  enabled: true
+  max_agents: 4
+  conflict_strategy: "ask"
+  timeout_minutes: 45
+
+# Boundaries - never modify these files
+boundaries:
+  - "SPEC.md"
+  - "IMPLEMENTATION_PLAN.md"
+  - ".ralph/config.yaml"
+  - ".claude/skills/**"
+
+# Patterns to follow
+patterns:
+  architecture: "Clean Architecture (Core, Infrastructure, Web)"
+  naming: "PascalCase for classes/methods, camelCase for variables, UPPER_SNAKE for constants"
+  testing: "xUnit + FluentAssertions + Testcontainers"
+  database: "Code-First EF Core with Fluent API"
+  api: "ASP.NET Core MVC with Razor Pages or Blazor"
+  auth: "ASP.NET Core Identity with cookie auth"
+  validation: "FluentValidation"
+  excel: "ClosedXML for import/export"
+  email: "MailKit for SMTP"
+  background: "IHostedService for background jobs"
+  rtl: "Full RTL support for Hebrew UI"
+
+# Commit format
+commit:
+  format: "feat|fix|refactor|test|docs: [STORY-ID] - description"
+  co_author: "RALPH <noreply@anthropic.com>"

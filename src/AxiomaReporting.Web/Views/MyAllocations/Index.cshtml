@@ -1,0 +1,119 @@
+@model AxiomaReporting.Web.Models.MyAllocationsViewModel
+@{
+  ViewData["Title"] = "פעילות חודשית";
+  var monthNames = new[] { "", "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+                                 "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר" };
+  string activeMonthLabel = Model.ActiveMonth == null
+    ? "אין חודש דיווח פעיל"
+    : (!string.IsNullOrWhiteSpace(Model.ActiveMonth.Description)
+        ? Model.ActiveMonth.Description
+        : $"{monthNames[Model.ActiveMonth.Month]} {Model.ActiveMonth.Year}");
+
+  string JoinValues(IEnumerable<string?> values)
+  {
+    var items = values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+    return items.Count == 0 ? "-" : string.Join(", ", items);
+  }
+
+  string Whole(decimal? value) => value.HasValue ? decimal.Truncate(value.Value).ToString("0") : "-";
+  string Daily(decimal? value) => value.HasValue ? value.Value.ToString("0.##") : "ללא הגבלה";
+}
+
+@if (Model.ActiveMonth != null)
+{
+  <section class="myalloc-banner" role="region" aria-label="חודש דיווח פעיל">
+    <h2>@activeMonthLabel</h2>
+    <div class="myalloc-deadline">
+      מועד אחרון לדיווח:
+      <strong>@Model.ActiveMonth.LastReportingDate.ToString("dd/MM/yyyy")</strong>
+    </div>
+  </section>
+}
+else
+{
+  <div class="alert alert-warning" role="alert" aria-live="polite">
+    אין כרגע חודש דיווח פעיל במערכת. אנא פנה למנהל הפרויקט.
+  </div>
+}
+
+<div class="row g-4">
+  <div class="col-12 col-md-6">
+    <a class="myalloc-tile" asp-controller="Report" asp-action="Index"
+       aria-label="עדכון פעילות חודשית">
+      <span class="myalloc-tile-icon" aria-hidden="true">📋</span>
+      <span>עדכון פעילות חודשית</span>
+    </a>
+  </div>
+
+  @if (Model.AllowExcelUpload)
+  {
+    <div class="col-12 col-md-6">
+      <a class="myalloc-tile" asp-controller="Report" asp-action="Index"
+         asp-route-allocationId="@Model.ExcelUploadAllocationId"
+         aria-label="העלאת אקסל חודשי">
+        <span class="myalloc-tile-icon" aria-hidden="true">📤</span>
+        <span>העלאת אקסל חודשי</span>
+      </a>
+    </div>
+  }
+</div>
+
+@if (Model.AllocationCount == 0)
+{
+  <div class="alert alert-info mt-4" role="alert" aria-live="polite">
+    לא הוגדרו עבורך הקצאות פעילות. אנא פנה למרכז הפרויקט.
+  </div>
+}
+else
+{
+  <section class="mt-4" aria-labelledby="my-allocations-heading">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+      <h3 id="my-allocations-heading" class="mb-0">ההקצאות שלי</h3>
+      <a asp-action="ExportExcel" class="btn btn-success">יצא לאקסל</a>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-striped table-hover align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th scope="col"><span class="visually-hidden">פעולות</span></th>
+            <th scope="col">פרויקט</th>
+            <th scope="col">תוכנית</th>
+            <th scope="col">מחוז</th>
+            <th scope="col">מגזר</th>
+            <th scope="col">היקף פעילות חודשי</th>
+            <th scope="col">היקף יומי</th>
+            <th scope="col">היקף פעילות שנתי</th>
+            <th scope="col">משך תפוקה</th>
+            <th scope="col">העלאת אקסל</th>
+            <th scope="col">הערות</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var allocation in Model.Allocations)
+          {
+            <tr>
+              <td>
+                <a asp-action="Details" asp-route-id="@allocation.Id"
+                   class="btn btn-sm btn-primary"
+                   aria-label="צפייה בפרטי הקצאה">
+                  צפה
+                </a>
+              </td>
+              <td>@allocation.Project?.Description</td>
+              <td>@JoinValues(allocation.AllocationPrograms.Select(x => x.Program?.Description))</td>
+              <td>@JoinValues(allocation.AllocationDistricts.Select(x => x.District?.Description))</td>
+              <td>@JoinValues(allocation.AllocationSectors.Select(x => x.Sector?.Description))</td>
+              <td>@Whole(allocation.MonthlyEmploymentScope)</td>
+              <td>@Daily(allocation.DailyEmploymentScope)</td>
+              <td>@Whole(allocation.AnnualEmploymentScope)</td>
+              <td>@(string.IsNullOrWhiteSpace(allocation.OutputDuration) ? "-" : allocation.OutputDuration)</td>
+              <td>@(allocation.AllowExcelUpload ? "כן" : "לא")</td>
+              <td>@(string.IsNullOrWhiteSpace(allocation.Notes) ? "-" : allocation.Notes)</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}

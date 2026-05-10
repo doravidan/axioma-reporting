@@ -58,10 +58,10 @@ A **WEB-based system** to receive employee activity reports and process them as 
 
 ### 3.2 Two-Factor Authentication (TFA) — Optional
 
-- After password authentication, a code is sent via email or phone (SMS).
+- Implementation decision, 2026-04-12: TFA uses email only.
+- After password authentication, a code is sent via email.
 - User must enter the code to complete login.
-- SMS authentication is supported.
-- Client requested cost estimate for SMS usage (for authentication + reminder notifications).
+- SMS authentication is out of scope. SMS reminders remain a future optional add-on only if the client selects a provider and approves that scope.
 
 ### 3.3 Password Recovery
 
@@ -185,7 +185,7 @@ Opens a sub-menu with administrative options:
 | First Name (שם פרטי) | Text | Required |
 | Last Name (שם משפחה) | Text | Required |
 | ID Number (ת.ז) | Text | Used as username |
-| Role (תפקיד) | Selection from Roles table | e.g., Teacher, Manager |
+| Role (תפקיד) | Selection from EmployeeRoles table | e.g., Teacher, Manager |
 | Reporting Employee (עובד מדווח) | Checkbox | If checked: employee must fill monthly report; shows green allocation panel and lower-right reporting panel |
 | Password | Hidden | Not displayed in clear text |
 | Notes (הערות) | Free text | Added field |
@@ -219,6 +219,13 @@ Allocation cardinality: an employee may have multiple allocations across project
 - Remove values by clicking the red X icon.
 - Initial data loaded from Excel files provided by client during setup.
 
+### 6.3.1 Project → Program Cascading Filter
+
+- The Program dropdown on an allocation is filtered to the Programs mapped to the currently selected Project via the `ProjectPrograms` junction.
+- If a Project has no `ProjectPrograms` rows, all active Programs are shown (backward-compatible default).
+- Admin/Project Manager manages Project→Programs mappings on the **"ניהול תוכניות לפי פרויקט"** screen (`/Admin/ProjectPrograms`).
+- The AJAX endpoint `GET /Employee/ProgramsForProject?projectId=N` returns the filtered set as JSON for the client-side cascade. On first render the server pre-filters the options so no flash of "all programs" is seen.
+
 ### 6.4 Screen Separation
 
 The client requested clear separation between:
@@ -251,6 +258,14 @@ The client requested clear separation between:
 - When an employee has multiple sectors, districts, etc., the display must handle showing multiple values per row.
 - Display employees per project view is needed.
 
+### 7.4 Allocation Dashboard (דשבורד הקצאות)
+
+- Dedicated screen at `/Employee/AllocationList` listing every allocation in the system.
+- Filter bar (per-column): Project (dropdown), Program (multi-select), District (multi-select), Sector (multi-select), ID, Employee Code, First Name, Last Name, Monthly Employment Scope, Annual Employment Scope, Output Duration (multi-select substring), Notes.
+- **"הצג הכל" (Show All) toggle** above the filter bar: when off, multi-value columns are intersected with the filter selection; when on, every defined value for that row is shown comma-separated.
+- Per-row pencil icon (`aria-label="פרטי הקצאה"`) → navigates to the allocation edit screen.
+- Excel export respects all active filters and the Show All toggle.
+
 ---
 
 ## 8. Reporting — Excel Upload
@@ -270,7 +285,25 @@ The client requested clear separation between:
 
 - Employee upload is for the **current open month only**.
 - Project Manager can upload Excel to an employee's environment **even for locked months**.
-- Bulk upload of all employees for all programs for month X — available only to System Admin / Project Manager (requires additional development — separate quote).
+- **Batch multi-employee Excel upload** (client-provided template with Hebrew text values, not IDs) is available to System Admin and Project Manager only. See §8.3.
+
+### 8.3 Batch Multi-Employee Excel Upload
+
+Flow: Admin/PM uploads one Excel containing monthly rows for many employees. Rows are validated individually; valid rows are imported per employee (creating the target employee's monthly `Report` in status "In Entry" if missing), invalid rows are rejected.
+
+**Input format (tolerant):**
+- Single sheet with Hebrew headers. The header row is detected dynamically by scanning rows 1–15 for the cell "קוד עובד".
+- Lookup columns carry **text descriptions** (e.g., district "צפון"), not numeric IDs. A shared `ILookupResolver` resolves text to IDs with case-insensitive exact-description match; numeric input is also accepted.
+- A new lookup "סוג דיווח" (ReportType) is supported with seeded values "ארצי מחוזי" and "יישובי מוסדי", persisted as `ReportRow.ReportTypeId`.
+
+**Allocation resolution per row:** the service picks the single active allocation for the employee whose District/Locality/Framework/EducationalProgram sets all contain the row's resolved IDs. If zero or multiple match, the row is rejected with a specific Hebrew error.
+
+**On success per row:** a `ReportReceived` email is sent to the employee (one per affected employee, not per row).
+
+**On completion:**
+- `BatchImportSuccessUploader` email to the uploader with `RowsImported`, `EmployeesCount`, `Month`, `Year`.
+- If any errors occurred, a `BatchImportErrors` email with a PDF attachment listing every error (file row #, employee code, reporter name, Hebrew error text) is also sent to the uploader.
+- The results screen shows: summary counts, per-employee breakdown, a scrollable error table, and a "הורד רשימת שגיאות (PDF)" button.
 
 ---
 
@@ -329,11 +362,11 @@ Email sent to employee     Inspector writes rejection reason
 | 12 | נושא 1 | Subject 1 | Selection | Yes | Allocation table | From subjects allocated to employee's project |
 | 13 | נושא 2 | Subject 2 | Selection | No | Allocation table | From subjects allocated to employee's project |
 | 14 | קיום דיון | Discussion Held | Selection | No | Allocation table | From a closed list per project definitions (NOT a simple yes/no) |
-| 15 | מסקנות - כיתה | Conclusions — Class | Selection | No | Classes table | |
+| 15 | מסקנות - כיתה | Conclusions — Class | Selection | No | SchoolClasses table | |
 | 16 | מסקנות - מסגרת חינוכית | Conclusions — Educational Framework | Selection | No | Educational Frameworks table | |
 | 17 | מסקנות - ישוב/מחוז/ארצי | Conclusions — Locality/District/National | Selection | No | Lookup table | |
 | 18 | שכבה | Grade Level | Selection | No | Grade Levels table | |
-| 19 | כיתה | Class | Selection | No | Classes table | |
+| 19 | כיתה | Class | Selection | No | SchoolClasses table | |
 | 20 | הערות | Notes | Free text | No | User input | Unlimited characters. Included in duplicate detection via similarity percentage |
 
 ### 10.2 Field Configuration
@@ -500,14 +533,14 @@ A background service responsible for sending reminder notifications to employees
 | Authority Code | Auto-numeric |
 | Authority Description | Text |
 
-### 15.7 Table: Classes (טבלת כיתות)
+### 15.7 Table: SchoolClasses / Classes UI (טבלת כיתות)
 
 | Field | Type |
 |-------|------|
 | Class Code | Auto-numeric |
 | Class Description | Text |
 
-### 15.8 Table: Roles (טבלת תפקידים)
+### 15.8 Table: EmployeeRoles / Roles UI (טבלת תפקידים)
 
 | Field | Type |
 |-------|------|
@@ -589,7 +622,7 @@ A background service responsible for sending reminder notifications to employees
 | Type Code | Auto-numeric |
 | Type Description | Text |
 
-### 15.19 Table: Locality/District/National Lookup (טבלת איתור ישוב/מחוז/ארצי)
+### 15.19 Table: LocalityDistrictNationals / Locality-District-National Lookup (טבלת איתור ישוב/מחוז/ארצי)
 
 | Field | Type |
 |-------|------|
@@ -677,6 +710,9 @@ Contains various fixed system parameters. System Admin can **edit** but **not de
 | Report rejected | Employee | Rejection reasons included |
 | Reminder — report not submitted | Employee | Sent per schedule (X days interval, starting Y days before deadline) |
 | Reminder — report needs correction | Employee | Sent per same schedule |
+| Batch Excel import — success (per row) | Each affected employee | Standard `ReportReceived` template |
+| Batch Excel import — uploader summary | Uploader (Admin/PM) | `BatchImportSuccessUploader` — rows imported, employees affected, month/year |
+| Batch Excel import — errors | Uploader (Admin/PM) | `BatchImportErrors` — summary body + attached PDF listing every rejected row |
 
 ---
 

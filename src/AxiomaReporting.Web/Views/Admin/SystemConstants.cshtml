@@ -1,0 +1,91 @@
+﻿@model List<AxiomaReporting.Core.Entities.SystemConstant>
+@{
+  ViewData["Title"] = "קבועי מערכת";
+}
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>קבועי מערכת</h3>
+    <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table table-hover table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:30%">מפתח</th>
+            <th>ערך</th>
+            <th>תיאור</th>
+            <th style="width:120px">פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (!Model.Any())
+          {
+            <tr><td colspan="4" class="text-center text-muted py-4">אין קבועים</td></tr>
+          }
+          @foreach (var c in Model)
+          {
+            <tr>
+              <td><code>@c.Key</code></td>
+              <td>@c.Value</td>
+              <td class="text-muted small">@c.Description</td>
+              <td>
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-edit"
+                        data-id="@c.Id"
+                        data-key="@c.Key"
+                        data-value="@c.Value">
+                  ✏️
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalTitle" aria-hidden="true">
+  <div class="modal-dialog" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editModalTitle">עדכון קבוע: <span id="editKeyLabel"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <form id="editForm" method="post">
+        @Html.AntiForgeryToken()
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">ערך <span class="text-danger">*</span></label>
+            <input id="editValue" name="value" class="form-control" required />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.btn-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('editKeyLabel').textContent = btn.getAttribute('data-key');
+      document.getElementById('editValue').value = btn.getAttribute('data-value');
+      document.getElementById('editForm').action = '/Admin/UpdateSystemConstant/' + btn.getAttribute('data-id');
+      new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
+  });
+</script>

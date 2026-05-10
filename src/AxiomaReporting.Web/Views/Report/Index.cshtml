@@ -1,0 +1,714 @@
+﻿@model List<AxiomaReporting.Core.Entities.ReportRow>
+@{
+  ViewData["Title"] = "דיווח חודשי";
+  var employee = ViewBag.Employee as AxiomaReporting.Core.Entities.User;
+  var month = ViewBag.ActiveMonth as AxiomaReporting.Core.Entities.ReportingMonth;
+  var report = ViewBag.Report as AxiomaReporting.Core.Entities.Report;
+  var allocation = ViewBag.Allocation as AxiomaReporting.Core.Entities.Allocation;
+  bool canEdit = ViewBag.CanEdit ?? false;
+  int allocationId = ViewBag.AllocationId ?? 0;
+  bool deadlinePassed = ViewBag.DeadlinePassed ?? false;
+  bool deadlineOverrideActive = ViewBag.DeadlineOverrideActive ?? false;
+  string? deadlineBlockMessage = ViewBag.DeadlineBlockMessage as string;
+  string reportRowVersion = report?.RowVersion != null
+    ? Convert.ToBase64String(report.RowVersion)
+    : string.Empty;
+  var attachmentsByRow = ViewBag.Attachments as Dictionary<int, List<AxiomaReporting.Core.Entities.DocumentAttachment>>
+    ?? new Dictionary<int, List<AxiomaReporting.Core.Entities.DocumentAttachment>>();
+
+  var districts = allocation?.AllocationDistricts.Select(x => x.District).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.District>();
+  var localities = allocation?.AllocationLocalities.Select(x => x.Locality).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.Locality>();
+  var frameworks = allocation?.AllocationFrameworks.Select(x => x.Framework).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.Framework>();
+  var edPrograms = allocation?.AllocationEducationalPrograms.Select(x => x.EducationalProgram).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.EducationalProgram>();
+  var domains = allocation?.AllocationDomains.Select(x => x.Domain).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.Domain>();
+  var subjects = allocation?.AllocationSubjects.Select(x => x.Subject).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.Subject>();
+  var discCodes = allocation?.AllocationDiscussionCodes.Select(x => x.DiscussionCode).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.DiscussionCode>();
+  var gradeLevels = allocation?.AllocationGradeLevels.Select(x => x.GradeLevel).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.GradeLevel>();
+  var classes = allocation?.AllocationClasses.Select(x => x.SchoolClass).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.SchoolClass>();
+  var locDist = allocation?.AllocationLocalityDistrictNationals.Select(x => x.LocalityDistrictNational).Where(x => x != null).Select(x => x!).ToList()
+    ?? new List<AxiomaReporting.Core.Entities.LocalityDistrictNational>();
+  var requiredFields = ViewBag.RequiredReportFields as HashSet<string> ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+  bool Req(string field) => requiredFields.Contains(field);
+  string Star(string field) => Req(field) ? " *" : "";
+  var durationTokens = (allocation?.OutputDuration ?? "")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+  var durationOptions = durationTokens
+    .Where(t => decimal.TryParse(t, out _))
+    .Select(decimal.Parse)
+    .OrderBy(v => v)
+    .ToList();
+  var durationUnlimited = durationTokens.Any(t =>
+    t.Equals("Unlimited", StringComparison.OrdinalIgnoreCase) ||
+    t.Equals("ללא הגבלה", StringComparison.OrdinalIgnoreCase));
+
+  var inlineLookupData = new Dictionary<string, object>
+  {
+    ["DistrictId"] = districts.Select(x => new { id = x.Id, text = x.Description }),
+    ["LocalityId"] = localities.Select(x => new { id = x.Id, text = x.Description }),
+    ["FrameworkId"] = frameworks.Select(x => new { id = x.Id, text = x.Description }),
+    ["EducationalProgramId"] = edPrograms.Select(x => new { id = x.Id, text = x.Description }),
+    ["DomainId"] = domains.Select(x => new { id = x.Id, text = x.Description }),
+    ["Subject1Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
+    ["Subject2Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
+    ["DiscussionCodeId"] = discCodes.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionClassId"] = classes.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionFrameworkId"] = frameworks.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionLocationId"] = locDist.Select(x => new { id = x.Id, text = x.Description }),
+    ["GradeLevelId"] = gradeLevels.Select(x => new { id = x.Id, text = x.Description }),
+    ["ClassId"] = classes.Select(x => new { id = x.Id, text = x.Description })
+  };
+}
+
+<div class="container-fluid mt-3">
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+  @if (TempData["Errors"] != null)
+  {
+    <div class="alert alert-danger" role="alert" aria-live="assertive" aria-atomic="true">
+      @Html.Raw(string.Join("<br/>", (TempData["Errors"]!.ToString() ?? "").Split('|')))
+      @if (TempData["ExcelErrorPdf"] != null)
+      {
+        <div class="mt-2">
+          <a href="@TempData["ExcelErrorPdf"]" target="_blank" class="btn btn-sm btn-outline-danger">הורד PDF שגיאות</a>
+        </div>
+      }
+    </div>
+  }
+
+  @if (!string.IsNullOrEmpty(deadlineBlockMessage))
+  {
+    <div class="alert alert-warning" role="alert" aria-live="polite" aria-atomic="true">
+      @deadlineBlockMessage
+    </div>
+  }
+  else if (deadlineOverrideActive)
+  {
+    <div class="alert alert-info" role="alert" aria-live="polite" aria-atomic="true">
+      מצב דריסה — המועד עבר
+    </div>
+  }
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-3"><strong>עובד:</strong> @employee?.FirstName @employee?.LastName</div>
+        <div class="col-md-3"><strong>ת.ז:</strong> @employee?.IdNumber</div>
+        <div class="col-md-3"><strong>קוד עובד:</strong> @employee?.EmployeeCode</div>
+        <div class="col-md-3"><strong>חודש:</strong> @month?.Description</div>
+        <div class="col-md-3"><strong>סטטוס:</strong> @report?.Status?.Name</div>
+        <div class="col-md-3"><strong>שורות בהקצאה:</strong> @Model.Count / @allocation?.MonthlyRowAllocation</div>
+        <div class="col-md-6 text-start">
+          @{
+            var allocsList = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
+          }
+          @if (allocsList != null && allocsList.Count > 1)
+          {
+            <a asp-action="Index" asp-route-userId="@employee?.Id" class="btn btn-outline-secondary btn-sm">שנה פרויקט</a>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0" id="reportTableCaption">שורות דיווח</h5>
+      @if (canEdit)
+      {
+        <button class="btn btn-primary btn-sm" onclick="addRow()" aria-label="הוסף שורת דיווח חדשה">+ הוסף שורה</button>
+      }
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm mb-0" id="reportTable" aria-labelledby="reportTableCaption">
+          <thead class="table-light">
+            <tr>
+              <th scope="col" class="sortable" aria-sort="none">מס"ד</th>
+              <th scope="col" class="sortable" aria-sort="none">תאריך</th>
+              <th scope="col" class="sortable" aria-sort="none">משך</th>
+              <th scope="col" class="sortable" aria-sort="none">מחוז</th>
+              <th scope="col" class="sortable" aria-sort="none">ישוב</th>
+              <th scope="col" class="sortable" aria-sort="none">מסגרת</th>
+              <th scope="col" class="sortable" aria-sort="none">תוכנית</th>
+              <th scope="col" class="sortable" aria-sort="none">תחום</th>
+              <th scope="col" class="sortable" aria-sort="none">נושא 1</th>
+              <th scope="col" class="sortable" aria-sort="none">נושא 2</th>
+              <th scope="col" class="sortable" aria-sort="none">קוד דיון</th>
+              <th scope="col" class="sortable" aria-sort="none">מסקנה-כיתה</th>
+              <th scope="col" class="sortable" aria-sort="none">מסקנה-מסגרת</th>
+              <th scope="col" class="sortable" aria-sort="none">מסקנה-מיקום</th>
+              <th scope="col" class="sortable" aria-sort="none">שכבה</th>
+              <th scope="col" class="sortable" aria-sort="none">כיתה</th>
+              <th scope="col">מסמכים</th>
+              <th scope="col">הערות</th>
+              @if (canEdit) { <th scope="col">פעולות</th> }
+            </tr>
+          </thead>
+          <tbody>
+            @foreach (var row in Model)
+            {
+              var rowFiles = attachmentsByRow.TryGetValue(row.Id, out var files)
+                ? files
+                : new List<AxiomaReporting.Core.Entities.DocumentAttachment>();
+              var rowVersionB64 = row.RowVersion != null ? Convert.ToBase64String(row.RowVersion) : "";
+              <tr data-row-id="@row.Id" data-row-version="@rowVersionB64">
+                <td>@row.SequenceNumber</td>
+                <td>@row.MeetingDate.ToString("dd/MM/yyyy")</td>
+                <td>@row.MeetingDuration</td>
+                <td>@row.District?.Description</td>
+                <td>@row.Locality?.Description</td>
+                <td>@row.Framework?.Description</td>
+                <td>@row.EducationalProgram?.Description</td>
+                <td>@row.Domain?.Description</td>
+                <td>@row.Subject1?.Description</td>
+                <td>@row.Subject2?.Description</td>
+                <td>@row.DiscussionCode?.Description</td>
+                <td>@row.ConclusionClass?.Description</td>
+                <td>@row.ConclusionFramework?.Description</td>
+                <td>@row.ConclusionLocation?.Description</td>
+                <td>@row.GradeLevel?.Description</td>
+                <td>@row.Class?.Description</td>
+                <td>
+                  @if (rowFiles.Any())
+                  {
+                    foreach (var file in rowFiles)
+                    {
+                      <div class="small">
+                        <a href="@file.FilePath" target="_blank" aria-label="פתח קובץ @file.FileName בלשונית חדשה">@file.FileName</a>
+                        @if (canEdit)
+                        {
+                          <button type="button" class="btn btn-link btn-sm p-0 text-danger"
+                                  onclick="deleteAttachment(@file.Id)"
+                                  aria-label="מחק קובץ @file.FileName">מחק</button>
+                        }
+                      </div>
+                    }
+                  }
+                  else
+                  {
+                    <span class="text-muted" aria-label="אין מסמכים מצורפים">---</span>
+                  }
+                  @if (canEdit)
+                  {
+                    <label class="visually-hidden" for="file-upload-@row.Id">הוסף מסמך לשורה @row.SequenceNumber</label>
+                    <input type="file" id="file-upload-@row.Id" class="form-control form-control-sm mt-1"
+                           onchange="uploadAttachment(@row.Id, this)"
+                           aria-label="הוסף מסמך לשורה @row.SequenceNumber" />
+                  }
+                </td>
+                <td>@row.Notes</td>
+                @if (canEdit)
+                {
+                  <td>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editRow(@row.Id)"
+                            aria-label="ערוך שורה @row.SequenceNumber">ערוך</button>
+                    <button class="btn btn-sm btn-outline-dark" onclick="inlineEditRow(@row.Id)"
+                            aria-label="ערוך שורה @row.SequenceNumber בטבלה">עריכה בשורה</button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="duplicateRow(@row.Id)"
+                            aria-label="שכפל שורה @row.SequenceNumber">שכפל</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRow(@row.Id)"
+                            aria-label="מחק שורה @row.SequenceNumber">מחק</button>
+                  </td>
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  @if (canEdit && report?.StatusId is 1 or 2 or 5)
+  {
+    <div class="mt-3 d-flex flex-wrap gap-2">
+      <form asp-action="Submit" asp-route-reportId="@report?.Id" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="allocationId" value="@allocationId" />
+        <input type="hidden" name="rowVersion" value="@reportRowVersion" />
+        <button type="submit" class="btn btn-success"
+                onclick="return confirm('האם להגיש את הדיווח?')">הגשת דיווח</button>
+      </form>
+      @if (allocation?.AllowExcelUpload == true)
+      {
+        <a asp-action="DownloadExcelTemplate" class="btn btn-outline-secondary btn-sm">הורד תבנית אקסל</a>
+        <form asp-action="UploadExcel" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+          @Html.AntiForgeryToken()
+          <input type="hidden" name="reportId" value="@report?.Id" />
+          <input type="hidden" name="allocationId" value="@allocationId" />
+          <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
+          <button type="submit" class="btn btn-outline-primary btn-sm"
+                  onclick="return confirm('העלאת אקסל תחליף את שורות ההקצאה הנוכחיות. להמשיך?')">ייבוא אקסל</button>
+        </form>
+      }
+    </div>
+  }
+</div>
+
+@if (canEdit)
+{
+  <div class="modal fade" id="rowModal" tabindex="-1"
+       aria-labelledby="rowModalTitle" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-xl" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="rowModalTitle">עריכת שורת דיווח</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון עריכה"></button>
+        </div>
+        <div class="modal-body">
+          <form id="rowForm" aria-label="טופס שורת דיווח" novalidate>
+            @Html.AntiForgeryToken()
+            <input type="hidden" id="rowId" name="row.Id" value="0" />
+            <input type="hidden" id="rowRowVersion" name="rowVersion" value="" />
+            <input type="hidden" name="reportId" value="@report?.Id" />
+            <input type="hidden" name="allocationId" value="@allocationId" />
+            <div class="row g-2">
+              <div class="col-md-2">
+                <label class="form-label" for="fieldDate">תאריך@(Star("MeetingDate"))</label>
+                <input type="date" id="fieldDate" name="row.MeetingDate" class="form-control"
+                       required="@Req("MeetingDate")" aria-required="@(Req("MeetingDate") ? "true" : "false")"
+                       aria-describedby="rowErrors" />
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldDuration">משך תפוקה@(Star("MeetingDuration"))</label>
+                @if (durationOptions.Any() && !durationUnlimited)
+                {
+                  <select id="fieldDuration" name="row.MeetingDuration" class="form-select"
+                          required="@Req("MeetingDuration")" aria-required="@(Req("MeetingDuration") ? "true" : "false")"
+                          aria-describedby="rowErrors">
+                    <option value="">בחר...</option>
+                    @foreach (var value in durationOptions)
+                    {
+                      <option value="@value">@value</option>
+                    }
+                  </select>
+                }
+                else
+                {
+                  <input type="number" id="fieldDuration" name="row.MeetingDuration" class="form-control"
+                         step="0.5" min="0.5" required="@Req("MeetingDuration")"
+                         aria-required="@(Req("MeetingDuration") ? "true" : "false")"
+                         aria-describedby="rowErrors" />
+                }
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldDistrict">מחוז@(Star("DistrictId"))</label>
+                <select id="fieldDistrict" name="row.DistrictId" class="form-select"
+                        required="@Req("DistrictId")" aria-required="@(Req("DistrictId") ? "true" : "false")">
+                  <option value="">בחר...</option>
+                  @foreach (var item in districts) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldLocality">ישוב@(Star("LocalityId"))</label>
+                <select id="fieldLocality" name="row.LocalityId" class="form-select"
+                        required="@Req("LocalityId")" aria-required="@(Req("LocalityId") ? "true" : "false")">
+                  <option value="">בחר...</option>
+                  @foreach (var item in localities) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldFramework">מסגרת@(Star("FrameworkId"))</label>
+                <select id="fieldFramework" name="row.FrameworkId" class="form-select"
+                        required="@Req("FrameworkId")" aria-required="@(Req("FrameworkId") ? "true" : "false")">
+                  <option value="">בחר...</option>
+                  @foreach (var item in frameworks) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldEduProgram">תוכנית@(Star("EducationalProgramId"))</label>
+                <select id="fieldEduProgram" name="row.EducationalProgramId" class="form-select"
+                        required="@Req("EducationalProgramId")" aria-required="@(Req("EducationalProgramId") ? "true" : "false")">
+                  <option value="">בחר...</option>
+                  @foreach (var item in edPrograms) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldDomain">תחום@(Star("DomainId"))</label>
+                <select id="fieldDomain" name="row.DomainId" class="form-select"
+                        required="@Req("DomainId")" aria-required="@(Req("DomainId") ? "true" : "false")">
+                  <option value="">בחר...</option>
+                  @foreach (var item in domains) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldSubject1">נושא 1@(Star("Subject1Id"))</label>
+                <select id="fieldSubject1" name="row.Subject1Id" class="form-select"
+                        required="@Req("Subject1Id")" aria-required="@(Req("Subject1Id") ? "true" : "false")">
+                  <option value="">בחר...</option>
+                  @foreach (var item in subjects) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldSubject2">נושא 2@(Star("Subject2Id"))</label>
+                <select id="fieldSubject2" name="row.Subject2Id" class="form-select"
+                        required="@Req("Subject2Id")" aria-required="@(Req("Subject2Id") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in subjects) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldDiscussion">קוד דיון@(Star("DiscussionCodeId"))</label>
+                <select id="fieldDiscussion" name="row.DiscussionCodeId" class="form-select"
+                        required="@Req("DiscussionCodeId")" aria-required="@(Req("DiscussionCodeId") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in discCodes) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldConclusionClass">מסקנה - כיתה@(Star("ConclusionClassId"))</label>
+                <select id="fieldConclusionClass" name="row.ConclusionClassId" class="form-select"
+                        required="@Req("ConclusionClassId")" aria-required="@(Req("ConclusionClassId") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in classes) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldConclusionFramework">מסקנה - מסגרת@(Star("ConclusionFrameworkId"))</label>
+                <select id="fieldConclusionFramework" name="row.ConclusionFrameworkId" class="form-select"
+                        required="@Req("ConclusionFrameworkId")" aria-required="@(Req("ConclusionFrameworkId") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in frameworks) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldConclusionLocation">מסקנה - מיקום@(Star("ConclusionLocationId"))</label>
+                <select id="fieldConclusionLocation" name="row.ConclusionLocationId" class="form-select"
+                        required="@Req("ConclusionLocationId")" aria-required="@(Req("ConclusionLocationId") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in locDist) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldGradeLevel">שכבה@(Star("GradeLevelId"))</label>
+                <select id="fieldGradeLevel" name="row.GradeLevelId" class="form-select"
+                        required="@Req("GradeLevelId")" aria-required="@(Req("GradeLevelId") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in gradeLevels) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" for="fieldClass">כיתה@(Star("ClassId"))</label>
+                <select id="fieldClass" name="row.ClassId" class="form-select"
+                        required="@Req("ClassId")" aria-required="@(Req("ClassId") ? "true" : "false")">
+                  <option value="">---</option>
+                  @foreach (var item in classes) { <option value="@item.Id">@item.Description</option> }
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label" for="fieldNotes">הערות@(Star("Notes"))</label>
+                <textarea id="fieldNotes" name="row.Notes" class="form-control" rows="2"
+                          required="@Req("Notes")" aria-required="@(Req("Notes") ? "true" : "false")"></textarea>
+              </div>
+            </div>
+            <div id="rowErrors" class="alert alert-danger mt-2" role="alert"
+                 aria-live="assertive" aria-atomic="true" style="display:none"></div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="button" class="btn btn-primary" onclick="saveRow()">שמור שורה</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let rowModal = null;
+    const inlineLookupData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(inlineLookupData));
+    const inlineDurationOptions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(durationOptions));
+    const inlineDurationUnlimited = @Json.Serialize(durationUnlimited);
+    const inlineReportId = @report?.Id;
+    const inlineAllocationId = @allocationId;
+
+    function htmlEscape(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function selectHtml(name, value, optional) {
+      const items = inlineLookupData[name] || [];
+      const emptyText = optional ? '---' : 'בחר...';
+      const options = [`<option value="">${emptyText}</option>`].concat(items.map(item => {
+        const selected = String(item.id) === String(value ?? '') ? ' selected' : '';
+        return `<option value="${htmlEscape(item.id)}"${selected}>${htmlEscape(item.text)}</option>`;
+      }));
+      return `<select class="form-select form-select-sm inline-field" data-name="row.${name}">${options.join('')}</select>`;
+    }
+
+    function durationHtml(value) {
+      if (inlineDurationOptions.length && !inlineDurationUnlimited) {
+        const options = ['<option value="">בחר...</option>'].concat(inlineDurationOptions.map(item => {
+          const selected = String(item) === String(value ?? '') ? ' selected' : '';
+          return `<option value="${htmlEscape(item)}"${selected}>${htmlEscape(item)}</option>`;
+        }));
+        return `<select class="form-select form-select-sm inline-field" data-name="row.MeetingDuration">${options.join('')}</select>`;
+      }
+
+      return `<input type="number" step="0.5" min="0.5" class="form-control form-control-sm inline-field" data-name="row.MeetingDuration" value="${htmlEscape(value ?? '')}" />`;
+    }
+
+    async function inlineEditRow(id) {
+      const tr = document.querySelector(`tr[data-row-id="${id}"]`);
+      if (!tr || tr.dataset.inlineEditing === 'true') return;
+
+      const resp = await fetch('/Report/GetRow?rowId=' + id);
+      if (!resp.ok) {
+        alert('לא ניתן לטעון את השורה לעריכה');
+        return;
+      }
+
+      const row = await resp.json();
+      tr.dataset.inlineEditing = 'true';
+      tr.dataset.originalHtml = tr.innerHTML;
+      const cells = tr.children;
+
+      cells[1].innerHTML = `<input type="date" class="form-control form-control-sm inline-field" data-name="row.MeetingDate" value="${htmlEscape(row.meetingDate)}" />`;
+      cells[2].innerHTML = durationHtml(row.meetingDuration);
+      cells[3].innerHTML = selectHtml('DistrictId', row.districtId, false);
+      cells[4].innerHTML = selectHtml('LocalityId', row.localityId, false);
+      cells[5].innerHTML = selectHtml('FrameworkId', row.frameworkId, false);
+      cells[6].innerHTML = selectHtml('EducationalProgramId', row.educationalProgramId, false);
+      cells[7].innerHTML = selectHtml('DomainId', row.domainId, false);
+      cells[8].innerHTML = selectHtml('Subject1Id', row.subject1Id, false);
+      cells[9].innerHTML = selectHtml('Subject2Id', row.subject2Id, true);
+      cells[10].innerHTML = selectHtml('DiscussionCodeId', row.discussionCodeId, true);
+      cells[11].innerHTML = selectHtml('ConclusionClassId', row.conclusionClassId, true);
+      cells[12].innerHTML = selectHtml('ConclusionFrameworkId', row.conclusionFrameworkId, true);
+      cells[13].innerHTML = selectHtml('ConclusionLocationId', row.conclusionLocationId, true);
+      cells[14].innerHTML = selectHtml('GradeLevelId', row.gradeLevelId, true);
+      cells[15].innerHTML = selectHtml('ClassId', row.classId, true);
+      cells[17].innerHTML = `<textarea class="form-control form-control-sm inline-field" data-name="row.Notes" rows="2">${htmlEscape(row.notes || '')}</textarea>
+        <div class="inline-row-errors text-danger small fw-bold mt-1" role="alert"></div>`;
+      cells[18].innerHTML = `
+        <button type="button" class="btn btn-sm btn-primary" onclick="saveInlineRow(${id})">שמור</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelInlineRow(${id})">ביטול</button>`;
+    }
+
+    function cancelInlineRow(id) {
+      const tr = document.querySelector(`tr[data-row-id="${id}"]`);
+      if (!tr?.dataset.originalHtml) return;
+      tr.innerHTML = tr.dataset.originalHtml;
+      tr.dataset.inlineEditing = 'false';
+      delete tr.dataset.originalHtml;
+    }
+
+    async function saveInlineRow(id) {
+      const tr = document.querySelector(`tr[data-row-id="${id}"]`);
+      if (!tr) return;
+
+      const token = document.querySelector('[name=__RequestVerificationToken]').value;
+      const data = new FormData();
+      data.append('__RequestVerificationToken', token);
+      data.append('reportId', inlineReportId);
+      data.append('allocationId', inlineAllocationId);
+      data.append('row.Id', id);
+      data.append('rowVersion', tr.getAttribute('data-row-version') || '');
+      tr.querySelectorAll('.inline-field').forEach(field => {
+        data.append(field.dataset.name, field.value || '');
+      });
+
+      const resp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
+      const result = await resp.json();
+      if (result.success) {
+        location.reload();
+        return;
+      }
+
+      const errorBox = tr.querySelector('.inline-row-errors');
+      if (errorBox) {
+        errorBox.innerHTML = (result.errors || [result.error || 'שגיאה בשמירת השורה']).join('<br/>');
+      } else {
+        alert(result.error || 'שגיאה בשמירת השורה');
+      }
+    }
+
+    document.querySelectorAll('#reportTable th.sortable').forEach((header, index) => {
+      header.style.cursor = 'pointer';
+      header.setAttribute('tabindex', '0');
+      header.setAttribute('title', 'לחץ למיון לפי עמודה זו');
+      header.addEventListener('click', () => sortReportTable(index, header));
+      header.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          sortReportTable(index, header);
+        }
+      });
+    });
+
+    function sortReportTable(index, header) {
+      const tbody = document.querySelector('#reportTable tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const descending = header.dataset.sortDir !== 'desc';
+      document.querySelectorAll('#reportTable th.sortable').forEach(th => {
+        th.dataset.sortDir = '';
+        th.setAttribute('aria-sort', 'none');
+      });
+      header.dataset.sortDir = descending ? 'desc' : 'asc';
+      header.setAttribute('aria-sort', descending ? 'descending' : 'ascending');
+
+      rows.sort((a, b) => {
+        const left = a.children[index]?.innerText.trim() || '';
+        const right = b.children[index]?.innerText.trim() || '';
+        const leftNum = Number(left.replace(',', '.'));
+        const rightNum = Number(right.replace(',', '.'));
+        const compare = Number.isNaN(leftNum) || Number.isNaN(rightNum)
+          ? left.localeCompare(right, 'he')
+          : leftNum - rightNum;
+        return descending ? -compare : compare;
+      });
+      rows.forEach(row => tbody.appendChild(row));
+    }
+
+    function setSelect(id, value) {
+      document.getElementById(id).value = value || '';
+    }
+
+    function addRow() {
+      document.getElementById('rowForm').reset();
+      document.getElementById('rowId').value = '0';
+      document.getElementById('rowRowVersion').value = '';
+      document.getElementById('rowErrors').style.display = 'none';
+      rowModal = rowModal || new bootstrap.Modal(document.getElementById('rowModal'));
+      rowModal.show();
+    }
+
+    async function editRow(id) {
+      document.getElementById('rowErrors').style.display = 'none';
+      const resp = await fetch('/Report/GetRow?rowId=' + id);
+      if (!resp.ok) {
+        alert('לא ניתן לטעון את השורה לעריכה');
+        return;
+      }
+
+      const row = await resp.json();
+      document.getElementById('rowId').value = row.id;
+      document.getElementById('rowRowVersion').value = row.rowVersion || '';
+      document.getElementById('fieldDate').value = row.meetingDate;
+      document.getElementById('fieldDuration').value = row.meetingDuration;
+      setSelect('fieldDistrict', row.districtId);
+      setSelect('fieldLocality', row.localityId);
+      setSelect('fieldFramework', row.frameworkId);
+      setSelect('fieldEduProgram', row.educationalProgramId);
+      setSelect('fieldDomain', row.domainId);
+      setSelect('fieldSubject1', row.subject1Id);
+      setSelect('fieldSubject2', row.subject2Id);
+      setSelect('fieldDiscussion', row.discussionCodeId);
+      setSelect('fieldConclusionClass', row.conclusionClassId);
+      setSelect('fieldConclusionFramework', row.conclusionFrameworkId);
+      setSelect('fieldConclusionLocation', row.conclusionLocationId);
+      setSelect('fieldGradeLevel', row.gradeLevelId);
+      setSelect('fieldClass', row.classId);
+      document.getElementById('fieldNotes').value = row.notes || '';
+      rowModal = rowModal || new bootstrap.Modal(document.getElementById('rowModal'));
+      rowModal.show();
+    }
+
+    async function duplicateRow(id) {
+      document.getElementById('rowErrors').style.display = 'none';
+      const resp = await fetch('/Report/GetRow?rowId=' + id);
+      if (!resp.ok) {
+        alert('לא ניתן לטעון את השורה לשכפול');
+        return;
+      }
+
+      const row = await resp.json();
+      document.getElementById('rowId').value = '0';
+      document.getElementById('rowRowVersion').value = '';
+      document.getElementById('fieldDate').value = row.meetingDate;
+      document.getElementById('fieldDuration').value = row.meetingDuration;
+      setSelect('fieldDistrict', row.districtId);
+      setSelect('fieldLocality', row.localityId);
+      setSelect('fieldFramework', row.frameworkId);
+      setSelect('fieldEduProgram', row.educationalProgramId);
+      setSelect('fieldDomain', row.domainId);
+      setSelect('fieldSubject1', row.subject1Id);
+      setSelect('fieldSubject2', row.subject2Id);
+      setSelect('fieldDiscussion', row.discussionCodeId);
+      setSelect('fieldConclusionClass', row.conclusionClassId);
+      setSelect('fieldConclusionFramework', row.conclusionFrameworkId);
+      setSelect('fieldConclusionLocation', row.conclusionLocationId);
+      setSelect('fieldGradeLevel', row.gradeLevelId);
+      setSelect('fieldClass', row.classId);
+      document.getElementById('fieldNotes').value = row.notes || '';
+      rowModal = rowModal || new bootstrap.Modal(document.getElementById('rowModal'));
+      rowModal.show();
+    }
+
+    async function saveRow() {
+      const form = document.getElementById('rowForm');
+      const data = new FormData(form);
+      const errDiv = document.getElementById('rowErrors');
+      errDiv.style.display = 'none';
+
+      const resp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
+      const result = await resp.json();
+      if (result.success) {
+        location.reload();
+      } else {
+        errDiv.innerHTML = (result.errors || [result.error]).join('<br/>');
+        errDiv.style.display = 'block';
+      }
+    }
+
+    async function deleteRow(rowId) {
+      if (!confirm('האם למחוק שורה זו?')) return;
+      const token = document.querySelector('[name=__RequestVerificationToken]').value;
+      const tr = document.querySelector('tr[data-row-id="' + rowId + '"]');
+      const rv = tr ? (tr.getAttribute('data-row-version') || '') : '';
+      const data = new FormData();
+      data.append('rowId', rowId);
+      data.append('rowVersion', rv);
+      data.append('__RequestVerificationToken', token);
+      const resp = await fetch('/Report/DeleteRow', { method: 'POST', body: data });
+      const result = await resp.json().catch(() => ({ success: false }));
+      if (result.success) {
+        location.reload();
+      } else {
+        alert(result.error || 'שגיאה במחיקת שורה');
+      }
+    }
+
+    async function uploadAttachment(rowId, input) {
+      if (!input.files.length) return;
+      const token = document.querySelector('[name=__RequestVerificationToken]').value;
+      const data = new FormData();
+      data.append('reportRowId', rowId);
+      data.append('file', input.files[0]);
+      data.append('__RequestVerificationToken', token);
+      const resp = await fetch('/Report/UploadAttachment', { method: 'POST', body: data });
+      const result = await resp.json();
+      if (result.success) location.reload();
+      else alert(result.error || 'שגיאה בהעלאת מסמך');
+    }
+
+    async function deleteAttachment(attachmentId) {
+      if (!confirm('האם למחוק מסמך זה?')) return;
+      const token = document.querySelector('[name=__RequestVerificationToken]').value;
+      const data = new FormData();
+      data.append('attachmentId', attachmentId);
+      data.append('__RequestVerificationToken', token);
+      const resp = await fetch('/Report/DeleteAttachment', { method: 'POST', body: data });
+      const result = await resp.json();
+      if (result.success) location.reload();
+      else alert(result.error || 'שגיאה במחיקת מסמך');
+    }
+  </script>
+}

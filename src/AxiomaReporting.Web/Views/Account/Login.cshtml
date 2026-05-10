@@ -1,0 +1,48 @@
+@model AxiomaReporting.Core.DTOs.LoginDto
+@{
+  Layout = "_AnonymousLayout";
+  ViewData["Title"] = "כניסה למערכת";
+}
+<div class="login-card-wrapper">
+  <div class="card login-card">
+    <div class="card-body p-4">
+      <div class="login-logo">
+        @await Component.InvokeAsync("SiteLogo", new { cssClass = "login-logo-img", alt = "סייט וסאונד חינוך" })
+        <p class="text-muted mt-2 mb-0">מערכת דיווח פעילות חודשית</p>
+      </div>
+      @if (!ViewData.ModelState.IsValid)
+      {
+        <div id="loginErrors" class="alert alert-danger" role="alert"
+             aria-live="assertive" aria-atomic="true">
+          @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+          {
+            <div>@error.ErrorMessage</div>
+          }
+        </div>
+      }
+      <form asp-action="Login" method="post" novalidate
+            aria-describedby="@(!ViewData.ModelState.IsValid ? "loginErrors" : "")">
+        <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+        @Html.AntiForgeryToken()
+        <div class="mb-3">
+          <label asp-for="IdNumber" class="form-label">תעודת זהות</label>
+          <input asp-for="IdNumber" class="form-control" placeholder="הזן מספר ת.ז"
+                 autocomplete="username" aria-required="true" />
+        </div>
+        <div class="mb-3">
+          <label asp-for="Password" class="form-label">סיסמה</label>
+          <input asp-for="Password" type="password" class="form-control" placeholder="הזן סיסמה"
+                 autocomplete="current-password" aria-required="true" />
+        </div>
+        <div class="mb-3 form-check">
+          <input asp-for="RememberMe" type="checkbox" class="form-check-input" />
+          <label asp-for="RememberMe" class="form-check-label">זכור אותי</label>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">כניסה</button>
+      </form>
+      <div class="text-center mt-3">
+        <a asp-action="ForgotPassword">שכחתי סיסמה</a>
+      </div>
+    </div>
+  </div>
+</div>

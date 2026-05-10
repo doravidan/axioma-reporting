@@ -11,10 +11,18 @@ Replaces manual Excel-based workflows with an automated web platform.
 
 ## Key Documents
 
+- [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — **Start here** — comprehensive onboarding doc: architecture, DB schema, routes, services, auth, business rules
 - [SPEC.md](SPEC.md) — Full system specification (all requirements, rules, tables, fields)
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — Comprehensive implementation plan with database DDL, phases, acceptance criteria
-- [.claude/agents/](.claude/agents/) — 13 specialized agent definitions for parallel worktree development
+- [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) — Living record of what is built and what remains
+- [SPEC_TRACEABILITY_AUDIT.md](SPEC_TRACEABILITY_AUDIT.md) — Spec-to-code coverage matrix
+- [CLIENT_CLARIFICATIONS.md](CLIENT_CLARIFICATIONS.md) — Open questions and answers from the client
+- [DATA_IMPORT_MAPPING.md](DATA_IMPORT_MAPPING.md) — Excel seed-data column mapping reference
+- [TESTING.md](TESTING.md) — Test infrastructure overview
 - [prd.json](prd.json) — RALPH PRD with 24 user stories and dependencies
+- [tools/db-schema-viewer.html](tools/db-schema-viewer.html) — Interactive HTML schema browser
+- [docs/screenshots/](docs/screenshots/) — App screenshots
+- [.claude/agents/](.claude/agents/) — 13 specialized agent definitions for parallel worktree development
 
 ## Architecture
 
@@ -25,6 +33,13 @@ Clean Architecture:
   AxiomaReporting.Web            → ASP.NET Core MVC/Razor, Controllers, Views, wwwroot
   AxiomaReporting.Tests          → xUnit + FluentAssertions
 ```
+
+## Compliance
+
+- **IS 5568 / WCAG 2.1 AA** — Mandatory Israeli web accessibility standard. Already implemented:
+  skip-link, `lang="he"`, `aria-label` on all nav/buttons/modals, `role="alert"` + `aria-live` on all
+  alerts, `scope="col"` on tables, `aria-sort` on sortable headers, `for` on all modal form labels,
+  `aria-required` on required inputs, visible focus indicators (yellow outline). Any new UI must maintain compliance.
 
 ## Critical Business Rules (NEVER skip these)
 
@@ -150,7 +165,7 @@ Each agent is a separate file with focused instructions and assigned stories:
 | dashboard-builder | `dashboard-builder.md` | AX-019,020 | Dashboard, cascading filters, approvals |
 | background-services | `background-services.md` | AX-021 | Reminder service, email service |
 | ui-polish | `ui-polish.md` | AX-023 | RTL, branding, terminology, responsive polish |
-| data-migration | `data-migration.md` | AX-024 | One-time import tooling and initial data load |
+| data-migration | `data-migration.md` | AX-024 ✅ | One-time import tooling and initial data load |
 | qa-security | `qa-security.md` | AX-025 | Integrated QA, E2E, accessibility, security review |
 | deployment-ops | `deployment-ops.md` | AX-026 | IIS deployment, database, SSL, backups, monitoring |
 

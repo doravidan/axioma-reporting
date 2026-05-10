@@ -1,0 +1,100 @@
+@model List<AxiomaReporting.Web.Models.TermsOfUseVersionListItem>
+@{
+  ViewData["Title"] = "תנאי שימוש";
+}
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>ניהול גרסאות תנאי שימוש</h3>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="mb-0">פרסום גרסה חדשה</h5>
+    </div>
+    <div class="card-body">
+      <form asp-action="PublishTermsOfUse" method="post">
+        @Html.AntiForgeryToken()
+        <div class="mb-3">
+          <label for="effectiveFrom" class="form-label">תוקף מתאריך</label>
+          <input type="date" id="effectiveFrom" name="effectiveFrom" class="form-control"
+                 value="@DateTime.Today.ToString("yyyy-MM-dd")" />
+        </div>
+        <div class="mb-3">
+          <label for="bodyHtml" class="form-label">תוכן תנאי השימוש <span class="text-danger">*</span></label>
+          <textarea id="bodyHtml" name="bodyHtml" class="form-control" rows="12"
+                    aria-required="true" required></textarea>
+          <div class="form-text">התוכן מוצג כטקסט בטוח. פרסום גרסה חדשה יחייב את כל המשתמשים לאשר שוב בכניסה הבאה.</div>
+        </div>
+        <button type="submit" class="btn btn-primary">פרסם גרסה חדשה</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h5 class="mb-0">היסטוריית גרסאות</h5>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th scope="col" style="width:80px">גרסה</th>
+            <th scope="col">תוקף מ-</th>
+            <th scope="col">נוצר בתאריך</th>
+            <th scope="col">פורסם על ידי</th>
+            <th scope="col" style="width:120px">אישורים</th>
+            <th scope="col">תוכן</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (!Model.Any())
+          {
+            <tr><td colspan="6" class="text-center text-muted py-4">אין גרסאות</td></tr>
+          }
+          @foreach (var v in Model)
+          {
+            <tr>
+              <td>@v.VersionNumber</td>
+              <td>@v.EffectiveFrom.ToString("dd/MM/yyyy")</td>
+              <td>@v.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td>
+              <td>@v.PublishedByName</td>
+              <td>@v.AcceptanceCount</td>
+              <td>
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-preview"
+                        data-body="@v.BodyHtml"
+                        data-version="@v.VersionNumber">
+                  הצג
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="previewModalTitle">תצוגת גרסה</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <div class="modal-body" id="previewBody" style="white-space:pre-wrap;"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.btn-preview').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('previewModalTitle').textContent = 'תצוגת גרסה ' + btn.getAttribute('data-version');
+      document.getElementById('previewBody').textContent = btn.getAttribute('data-body') || '';
+      new bootstrap.Modal(document.getElementById('previewModal')).show();
+    });
+  });
+</script>

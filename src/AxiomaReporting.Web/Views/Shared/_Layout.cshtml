@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@ViewData["Title"] - סייט&amp;סאונד חינוך</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" />
+  <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+  <link rel="stylesheet" href="~/lib/choices.js/choices.min.css" asp-append-version="true" />
+  <link rel="stylesheet" href="~/css/theme.css" asp-append-version="true" />
+  <link rel="stylesheet" href="~/AxiomaReporting.Web.styles.css" asp-append-version="true" />
+</head>
+<body>
+  <a href="#main-content" class="skip-link">דלג לתוכן הראשי</a>
+  <header>
+    <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark app-navbar border-bottom box-shadow mb-3"
+         aria-label="ניווט ראשי">
+      <div class="container-fluid">
+        <a class="navbar-brand p-0 app-navbar-brand" asp-controller="Home" asp-action="Index"
+           aria-label="דף הבית - סייט וסאונד חינוך">
+          @await Component.InvokeAsync("SiteLogo", new { cssClass = "app-navbar-logo", maxHeightPx = 36, alt = "סייט וסאונד חינוך" })
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse"
+                aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="פתח תפריט ניווט">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between app-navbar-content">
+          @if (User.Identity?.IsAuthenticated == true)
+          {
+            <ul class="navbar-nav app-main-nav">
+              <li class="nav-item">
+                <a class="nav-link" asp-controller="Home" asp-action="Index">ראשי</a>
+              </li>
+              @if (User.IsInRole("6"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="MyAllocations" asp-action="Index">פעילות חודשית</a>
+                </li>
+              }
+              else
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Report" asp-action="Index">פעילות חודשית</a>
+                </li>
+              }
+              @if (!User.IsInRole("6"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Dashboard" asp-action="Index">דשבורד</a>
+                </li>
+              }
+              <li class="nav-item">
+                <a class="nav-link" asp-controller="Allocations" asp-action="Index">הקצאות</a>
+              </li>
+              @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Employee" asp-action="Index">עובדים</a>
+                </li>
+              }
+              @if (User.IsInRole("1") || User.IsInRole("2"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Admin" asp-action="ReportingMonths">חודשי דיווח</a>
+                </li>
+              }
+              @if (User.IsInRole("1"))
+              {
+                <li class="nav-item dropdown">
+                  <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">ניהול</a>
+                  <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" asp-controller="Lookup" asp-action="Index">טבלאות עזר</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="Frameworks">מסגרות</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="Institutions">מוסדות</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="InspectorAssignments">שיוכי מפקחים</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="SystemConstants">קבועי מערכת</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="Branding">לוגו המערכת</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="TermsOfUse">תנאי שימוש</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="EmailTemplates">תבניות מייל</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="EmailServerSettings">הגדרות שרת מייל</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="NotificationLogs">יומן התראות</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="AuditLog">יומן ביקורת</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="ProjectPrograms">ניהול תוכניות לפי פרויקט</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="DataMigration">ייבוא נתונים ראשוני</a></li>
+                  </ul>
+                </li>
+              }
+            </ul>
+            <ul class="navbar-nav me-auto app-user-nav">
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                  שלום, @User.FindFirst("FullName")?.Value
+                </a>
+                <ul class="dropdown-menu dropdown-menu-start">
+                  <li><a class="dropdown-item" asp-controller="Account" asp-action="ChangePassword">שינוי סיסמה</a></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <form asp-controller="Account" asp-action="Logout" method="post">
+                      @Html.AntiForgeryToken()
+                      <button type="submit" class="dropdown-item">יציאה</button>
+                    </form>
+                  </li>
+                </ul>
+              </li>
+              <li class="nav-item d-flex align-items-center">
+                <form asp-controller="Account" asp-action="Logout" method="post" class="m-0">
+                  @Html.AntiForgeryToken()
+                  <button type="submit" class="btn btn-light btn-sm app-logout-btn">התנתק</button>
+                </form>
+              </li>
+            </ul>
+          }
+        </div>
+      </div>
+    </nav>
+  </header>
+  <div class="container">
+    @if (TempData["Success"] != null)
+    {
+      <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+        @TempData["Success"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+      </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+      <div class="alert alert-danger alert-dismissible fade show" role="alert" aria-live="assertive" aria-atomic="true">
+        @TempData["Error"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+      </div>
+    }
+    <main id="main-content" role="main" class="pb-3">
+      @RenderBody()
+    </main>
+  </div>
+
+  <footer class="border-top footer text-muted mt-4">
+    <div class="container py-2">
+      &copy; 2026 סייט&amp;סאונד חינוך - מערכת דיווח פעילות חודשית
+    </div>
+  </footer>
+  <script src="~/lib/jquery/dist/jquery.min.js"></script>
+  <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="~/lib/jquery-validation/dist/jquery.validate.min.js"></script>
+  <script src="~/lib/jquery-validation/dist/localization/messages_he.js"></script>
+  <script src="~/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"></script>
+  <script src="~/lib/choices.js/choices.min.js" asp-append-version="true"></script>
+  <script src="~/js/site.js" asp-append-version="true"></script>
+  @await RenderSectionAsync("Scripts", required: false)
+  <script>
+    // Choices.js global init (UI/UX polish — AX-023, client-feedback #18).
+    // Attaches to every <select multiple> on the page so multi-selects render
+    // as tag chips with type-to-search, regardless of which view rendered them.
+    // Defensive: no-op if Choices.js asset hasn't loaded.
+    (function () {
+      if (typeof window.Choices === 'undefined') { return; }
+      document.querySelectorAll('select[multiple]').forEach(function (el) {
+        if (el.dataset.choicesInit) { return; }
+        try {
+          new window.Choices(el, {
+            removeItemButton: true,
+            searchPlaceholderValue: 'חיפוש…',
+            noResultsText: 'לא נמצאו תוצאות',
+            shouldSort: false,
+            itemSelectText: ''
+          });
+          el.dataset.choicesInit = '1';
+        } catch (e) { /* swallow — fallback to native widget */ }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+@model AxiomaReporting.Web.Models.AuditLogListViewModel
+@{
+  ViewData["Title"] = "יומן ביקורת";
+}
+<div class="container-fluid mt-3" dir="rtl">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>יומן ביקורת</h3>
+    <a asp-action="ExportAuditLog"
+       asp-route-action="@Model.Action"
+       asp-route-entityType="@Model.EntityType"
+       asp-route-entityId="@Model.EntityId"
+       asp-route-actorUserId="@Model.ActorUserId"
+       asp-route-fromDate="@(Model.FromDate?.ToString("yyyy-MM-dd"))"
+       asp-route-toDate="@(Model.ToDate?.ToString("yyyy-MM-dd"))"
+       class="btn btn-outline-primary btn-sm">ייצוא ל-CSV</a>
+  </div>
+
+  <form method="get" class="card card-body mb-3">
+    <div class="row g-2">
+      <div class="col-md-2">
+        <label class="form-label" for="f-action">פעולה מכילה</label>
+        <input id="f-action" name="action" value="@Model.Action" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-entityType">סוג ישות</label>
+        <input id="f-entityType" name="entityType" value="@Model.EntityType" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-entityId">מזהה ישות</label>
+        <input id="f-entityId" name="entityId" value="@Model.EntityId" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-actor">מזהה משתמש</label>
+        <input id="f-actor" type="number" name="actorUserId" value="@Model.ActorUserId" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-from">מתאריך</label>
+        <input id="f-from" type="date" name="fromDate" value="@(Model.FromDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-to">עד תאריך</label>
+        <input id="f-to" type="date" name="toDate" value="@(Model.ToDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+      </div>
+    </div>
+    <div class="mt-2 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm">סנן</button>
+      <a asp-action="AuditLog" class="btn btn-outline-secondary btn-sm">נקה</a>
+    </div>
+  </form>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table table-hover table-bordered mb-0" aria-label="רשומות יומן ביקורת">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">זמן</th>
+            <th scope="col">משתמש</th>
+            <th scope="col">פעולה</th>
+            <th scope="col">סוג ישות</th>
+            <th scope="col">מזהה</th>
+            <th scope="col">הערות</th>
+            <th scope="col">IP</th>
+            <th scope="col" style="width:90px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (!Model.Items.Any())
+          {
+            <tr><td colspan="8" class="text-center text-muted py-4">אין רשומות</td></tr>
+          }
+          @foreach (var item in Model.Items)
+          {
+            <tr>
+              <td>@item.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+              <td>
+                @if (item.ActorUserId.HasValue)
+                {
+                  <span>@item.ActorUserId (@item.ActorName)</span>
+                }
+                else
+                {
+                  <span class="text-muted">—</span>
+                }
+              </td>
+              <td><code>@item.Action</code></td>
+              <td>@item.EntityType</td>
+              <td>@item.EntityId</td>
+              <td class="small text-muted">@item.Notes</td>
+              <td class="small">@item.IpAddress</td>
+              <td>
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-details"
+                        data-before="@item.Before" data-after="@item.After"
+                        data-action-text="@item.Action" data-entity="@(item.EntityType + " " + item.EntityId)"
+                        aria-label="הצג פרטים">פרטים</button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  @if (Model.TotalPages > 1)
+  {
+    <nav aria-label="ניווט עמודים" class="mt-3">
+      <ul class="pagination justify-content-center">
+        @for (var p = 1; p <= Model.TotalPages; p++)
+        {
+          <li class="page-item @(p == Model.Page ? "active" : "")">
+            <a class="page-link" href="?page=@p&amp;pageSize=@Model.PageSize&amp;action=@Model.Action&amp;entityType=@Model.EntityType&amp;entityId=@Model.EntityId&amp;actorUserId=@Model.ActorUserId&amp;fromDate=@(Model.FromDate?.ToString("yyyy-MM-dd"))&amp;toDate=@(Model.ToDate?.ToString("yyyy-MM-dd"))">@p</a>
+          </li>
+        }
+      </ul>
+    </nav>
+  }
+</div>
+
+<!-- Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsModalTitle" aria-hidden="true" dir="rtl">
+  <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailsModalTitle">פרטי ביקורת</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>פעולה:</strong> <span id="modalAction"></span></p>
+        <p><strong>ישות:</strong> <span id="modalEntity"></span></p>
+        <div class="row">
+          <div class="col-md-6">
+            <h6>לפני</h6>
+            <pre id="modalBefore" class="border rounded p-2 bg-light" style="direction:ltr;white-space:pre-wrap;max-height:400px;overflow:auto"></pre>
+          </div>
+          <div class="col-md-6">
+            <h6>אחרי</h6>
+            <pre id="modalAfter" class="border rounded p-2 bg-light" style="direction:ltr;white-space:pre-wrap;max-height:400px;overflow:auto"></pre>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    function pretty(json) {
+      if (!json) return '—';
+      try { return JSON.stringify(JSON.parse(json), null, 2); }
+      catch (e) { return json; }
+    }
+    document.querySelectorAll('.btn-details').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('modalAction').textContent = btn.getAttribute('data-action-text') || '';
+        document.getElementById('modalEntity').textContent = btn.getAttribute('data-entity') || '';
+        document.getElementById('modalBefore').textContent = pretty(btn.getAttribute('data-before'));
+        document.getElementById('modalAfter').textContent = pretty(btn.getAttribute('data-after'));
+        new bootstrap.Modal(document.getElementById('detailsModal')).show();
+      });
+    });
+  })();
+</script>

@@ -1,0 +1,40 @@
+@{
+  ViewData["Title"] = "ניהול טבלאות עזר";
+  var tables = ViewBag.Tables as Dictionary<string, string>;
+}
+<div class="container-fluid mt-3">
+  <h2 class="mb-4">ניהול טבלאות עזר</h2>
+  <div class="row">
+    @foreach (var table in tables!)
+    {
+      <div class="col-md-3 mb-3">
+        <a asp-action="List" asp-route-tableName="@table.Key" class="btn btn-outline-primary w-100 py-2">
+          @table.Value
+        </a>
+      </div>
+    }
+  </div>
+
+  <hr />
+  <h5 class="mb-3">טבלאות מיוחדות</h5>
+  <div class="row">
+    <div class="col-md-3 mb-3">
+      <a asp-controller="Admin" asp-action="Frameworks" class="btn btn-outline-secondary w-100 py-2">מסגרות</a>
+    </div>
+    <div class="col-md-3 mb-3">
+      <a asp-controller="Admin" asp-action="Institutions" class="btn btn-outline-secondary w-100 py-2">מוסדות</a>
+    </div>
+    <div class="col-md-3 mb-3">
+      <a asp-controller="Admin" asp-action="ReportingMonths" class="btn btn-outline-secondary w-100 py-2">חודשי דיווח</a>
+    </div>
+    <div class="col-md-3 mb-3">
+      <a asp-controller="Admin" asp-action="SystemConstants" class="btn btn-outline-secondary w-100 py-2">קבועי מערכת</a>
+    </div>
+    <div class="col-md-3 mb-3">
+      <a asp-controller="Admin" asp-action="EmailTemplates" class="btn btn-outline-secondary w-100 py-2">תבניות מייל</a>
+    </div>
+    <div class="col-md-3 mb-3">
+      <a asp-controller="Admin" asp-action="EmailServerSettings" class="btn btn-outline-secondary w-100 py-2">הגדרות SMTP</a>
+    </div>
+  </div>
+</div>

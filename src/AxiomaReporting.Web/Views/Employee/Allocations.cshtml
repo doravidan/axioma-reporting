@@ -1,0 +1,587 @@
+@using System.Globalization
+@using System.Text.Json
+@model List<AxiomaReporting.Core.Entities.Allocation>
+@{
+  var employee = (AxiomaReporting.Core.Entities.User)ViewBag.Employee;
+  var projects = ((Microsoft.AspNetCore.Mvc.Rendering.SelectList)ViewBag.Projects).ToList();
+  var reportingMonths = ViewBag.ReportingMonths as List<AxiomaReporting.Core.Entities.ReportingMonth>
+    ?? new List<AxiomaReporting.Core.Entities.ReportingMonth>();
+  var durationOptions = (decimal[])ViewBag.OutputDurationOptions;
+
+  var districts = (List<AxiomaReporting.Core.Entities.District>)ViewBag.Districts;
+  var programs = (List<AxiomaReporting.Core.Entities.Program>)ViewBag.Programs;
+  var sectors = (List<AxiomaReporting.Core.Entities.Sector>)ViewBag.Sectors;
+  var localities = (List<AxiomaReporting.Core.Entities.Locality>)ViewBag.Localities;
+  var frameworks = (List<AxiomaReporting.Core.Entities.Framework>)ViewBag.Frameworks;
+  var subjects = (List<AxiomaReporting.Core.Entities.Subject>)ViewBag.Subjects;
+  var domains = (List<AxiomaReporting.Core.Entities.Domain>)ViewBag.Domains;
+  var educationalPrograms = (List<AxiomaReporting.Core.Entities.EducationalProgram>)ViewBag.EducationalPrograms;
+  var classes = (List<AxiomaReporting.Core.Entities.SchoolClass>)ViewBag.Classes;
+  var gradeLevels = (List<AxiomaReporting.Core.Entities.GradeLevel>)ViewBag.GradeLevels;
+  var discussionCodes = (List<AxiomaReporting.Core.Entities.DiscussionCode>)ViewBag.DiscussionCodes;
+  var localityDistrictNationals = (List<AxiomaReporting.Core.Entities.LocalityDistrictNational>)ViewBag.LocalityDistrictNationals;
+  int? selectedAllocationId = ViewBag.SelectedAllocationId as int?;
+
+  ViewData["Title"] = $"הקצאות - {employee.FirstName} {employee.LastName}";
+
+  string DecimalText(decimal? value) =>
+    value.HasValue ? value.Value.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+
+  string DurationValue(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+  bool DurationSelected(AxiomaReporting.Core.Entities.Allocation allocation, decimal value)
+  {
+    var raw = allocation.OutputDuration ?? string.Empty;
+    return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+      .Any(t => decimal.TryParse(t, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) && parsed == value);
+  }
+
+  bool DurationUnlimited(AxiomaReporting.Core.Entities.Allocation allocation) =>
+    (allocation.OutputDuration ?? string.Empty)
+      .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+      .Any(t => t.Equals("Unlimited", StringComparison.OrdinalIgnoreCase) || t.Equals("ללא הגבלה", StringComparison.OrdinalIgnoreCase));
+
+  var lookupData = new Dictionary<string, object>
+  {
+    ["DistrictIds"] = districts.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["ProgramIds"] = programs.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["SectorIds"] = sectors.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["LocalityIds"] = localities.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["FrameworkIds"] = frameworks.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["SubjectIds"] = subjects.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["DomainIds"] = domains.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["EducationalProgramIds"] = educationalPrograms.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["ClassIds"] = classes.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["GradeLevelIds"] = gradeLevels.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["DiscussionCodeIds"] = discussionCodes.Select(x => new { id = x.Id.ToString(), text = x.Description }),
+    ["LocalityDistrictNationalIds"] = localityDistrictNationals.Select(x => new { id = x.Id.ToString(), text = x.Description })
+  };
+
+  var categoryLabels = new Dictionary<string, string>
+  {
+    ["LocalityIds"] = "יישובים",
+    ["FrameworkIds"] = "מסגרות",
+    ["DomainIds"] = "תחומים",
+    ["SubjectIds"] = "נושאים",
+    ["DiscussionCodeIds"] = "קיום דיון",
+    ["ClassIds"] = "כיתה",
+    ["GradeLevelIds"] = "שכבה",
+    ["SectorIds"] = "מגזרים",
+    ["ProgramIds"] = "תוכניות",
+    ["DistrictIds"] = "מחוזות",
+    ["EducationalProgramIds"] = "תוכניות חינוכיות",
+    ["LocalityDistrictNationalIds"] = "יישוב/מחוז/ארצי"
+  };
+}
+
+<div class="container-fluid py-3 allocations-page" dir="rtl">
+  <div class="d-flex justify-content-between align-items-start mb-3 gap-3 flex-wrap">
+    <div>
+      <h2 class="mb-1">הקצאות</h2>
+      <h4 class="mb-0 fw-bold">@employee.FirstName @employee.LastName קוד עובד @employee.EmployeeCode ת.ז @employee.IdNumber</h4>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a asp-action="Edit" asp-route-id="@employee.Id" class="btn btn-outline-secondary">חזרה לכרטיס עובד</a>
+      <a asp-action="Index" class="btn btn-outline-primary">בית</a>
+      <a asp-action="CreateAllocation" asp-route-id="@employee.Id" class="btn btn-primary">הוסף הקצאה</a>
+    </div>
+  </div>
+
+  <div class="allocation-shortcuts mb-3" aria-label="קיצורי טבלאות הקצאה">
+    <a asp-controller="Lookup" asp-action="List" asp-route-tableName="districts" class="btn btn-outline-primary sticky-nav-button">
+      טבלת מחוזות בחירה
+    </a>
+    <a asp-controller="Admin" asp-action="ProjectPrograms" class="btn btn-outline-primary sticky-nav-button">
+      טבלת תוכניות
+    </a>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+  @if (TempData["Error"] != null)
+  {
+    <div class="alert alert-danger alert-dismissible fade show" role="alert" aria-live="assertive" aria-atomic="true">
+      @TempData["Error"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  @foreach (var alloc in Model)
+  {
+    var durationUnlimited = DurationUnlimited(alloc);
+    <section id="allocation-@alloc.Id"
+             class="allocation-card card mb-3 @(selectedAllocationId == alloc.Id ? "allocation-card-selected" : "")"
+             data-allocation-id="@alloc.Id">
+      <form method="post"
+            asp-action="EditAllocation"
+            asp-route-id="@employee.Id"
+            asp-route-allocationId="@alloc.Id">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="Id" value="@alloc.Id" />
+        <input type="hidden" name="UserId" value="@employee.Id" />
+        <div class="allocation-validation text-danger fw-bold mb-2" role="alert" aria-live="assertive" hidden></div>
+
+        <div class="d-flex justify-content-between align-items-start gap-3">
+          <h5 class="fw-bold mb-2">פרטי הקצאה</h5>
+          <div class="d-flex flex-column gap-2 allocation-actions">
+            <button type="button" class="btn btn-sm btn-primary allocation-edit">ערוך</button>
+            <button type="submit" class="btn btn-sm btn-primary">שמור</button>
+            <a class="btn btn-sm btn-primary"
+               asp-action="ExportAllocationsExcel"
+               asp-route-employeeCode="@employee.EmployeeCode"
+               asp-route-projectId="@alloc.ProjectId">יצא לטבלה</a>
+          </div>
+        </div>
+
+        <div class="row g-3 align-items-end allocation-fields">
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="project-@alloc.Id">פרויקט</label>
+            <select id="project-@alloc.Id" name="ProjectId" class="form-select form-select-sm allocation-editable" required>
+              <option value="">בחר פרויקט</option>
+              @foreach (var project in projects)
+              {
+                <option value="@project.Value" selected="@(project.Value == alloc.ProjectId.ToString())">@project.Text</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="program-summary-@alloc.Id">תוכנית</label>
+            <select id="program-summary-@alloc.Id" class="form-select form-select-sm allocation-category-shortcut allocation-editable" data-target-field="ProgramIds" required>
+              <option value="">בחר תוכנית</option>
+              @foreach (var program in programs)
+              {
+                <option value="@program.Id" selected="@(alloc.AllocationPrograms.Any(x => x.ProgramId == program.Id))">@program.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="monthly-scope-@alloc.Id">היקף פעילות חודשי</label>
+            <input id="monthly-scope-@alloc.Id" name="MonthlyEmploymentScope" type="number" step="1" min="0"
+                   value="@DecimalText(alloc.MonthlyEmploymentScope)" class="form-control form-control-sm allocation-editable" />
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="daily-scope-@alloc.Id">היקף פעילות יומי</label>
+            <select id="daily-scope-@alloc.Id" name="DailyEmploymentScope" class="form-select form-select-sm allocation-editable">
+              <option value="" selected="@(!alloc.DailyEmploymentScope.HasValue)">ללא הגבלה</option>
+              @for (var hour = 1; hour <= 9; hour++)
+              {
+                <option value="@hour" selected="@(alloc.DailyEmploymentScope == hour)">עד @hour שעות</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="annual-scope-@alloc.Id">היקף פעילות שנתי</label>
+            <input id="annual-scope-@alloc.Id" name="AnnualEmploymentScope" type="number" step="1" min="0"
+                   value="@DecimalText(alloc.AnnualEmploymentScope)" class="form-control form-control-sm allocation-editable" />
+          </div>
+
+          <div class="col-12 col-md-2">
+            <div class="form-check">
+              <input type="hidden" name="AllowExcelUpload" value="false" />
+              <input id="allow-excel-@alloc.Id" name="AllowExcelUpload" value="true" type="checkbox"
+                     class="form-check-input allocation-editable" @(alloc.AllowExcelUpload ? "checked" : "") />
+              <label class="form-check-label fw-bold" for="allow-excel-@alloc.Id">אפשר העלאת קובץ דיווח</label>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold">משך תפוקה</label>
+            <div class="duration-box">
+              @foreach (var duration in durationOptions)
+              {
+                var value = DurationValue(duration);
+                <div class="form-check">
+                  <input id="dur-@alloc.Id-@value.Replace(".", "_")" name="OutputDurationValues" value="@value"
+                         type="checkbox" class="form-check-input duration-value allocation-editable"
+                         @(DurationSelected(alloc, duration) ? "checked" : "") />
+                  <label class="form-check-label" for="dur-@alloc.Id-@value.Replace(".", "_")">@value</label>
+                </div>
+              }
+              <div class="form-check">
+                <input id="duration-unlimited-@alloc.Id" type="checkbox" class="form-check-input duration-unlimited allocation-editable"
+                       @(durationUnlimited ? "checked" : "") />
+                <label class="form-check-label" for="duration-unlimited-@alloc.Id">ללא הגבלה</label>
+              </div>
+              <input type="hidden" name="OutputDuration" class="duration-output" value="@(durationUnlimited ? "Unlimited" : string.Empty)" />
+            </div>
+          </div>
+
+          <div class="col-12 col-md-10">
+            <label class="form-label fw-bold" for="notes-@alloc.Id">הערות</label>
+            <textarea id="notes-@alloc.Id" name="Notes" class="form-control allocation-editable" rows="2">@alloc.Notes</textarea>
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="monthly-rows-@alloc.Id">מכסת שורות חודשית</label>
+            <input id="monthly-rows-@alloc.Id" name="MonthlyRowAllocation" type="number" min="0"
+                   value="@alloc.MonthlyRowAllocation" class="form-control form-control-sm allocation-editable" />
+          </div>
+
+          <div class="col-12 col-md-2">
+            <label class="form-label fw-bold" for="annual-rows-@alloc.Id">מכסת שורות שנתית</label>
+            <input id="annual-rows-@alloc.Id" name="AnnualRowAllocation" type="number" min="0"
+                   value="@alloc.AnnualRowAllocation" class="form-control form-control-sm allocation-editable" />
+          </div>
+
+          <div class="col-12 col-md-8">
+            <div class="allocation-picker">
+              <div class="row g-3 align-items-start">
+                <div class="col-12 col-md-3">
+                  <label class="form-label fw-bold text-primary" for="category-@alloc.Id">בחר טבלה לעריכה</label>
+                  <select id="category-@alloc.Id" class="form-select allocation-category allocation-editable">
+                    @foreach (var category in categoryLabels)
+                    {
+                      <option value="@category.Key">@category.Value</option>
+                    }
+                  </select>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label fw-bold allocation-available-label">בחר ערך להוספה</label>
+                  <input type="search" class="form-control form-control-sm allocation-search-available allocation-editable mb-2" placeholder="search" aria-label="חיפוש ערכים להוספה" />
+                  <select class="form-select allocation-available allocation-editable" size="6" aria-label="ערכים זמינים להוספה"></select>
+                  <button type="button" class="btn btn-sm btn-outline-primary mt-2 allocation-add allocation-editable-button">הוסף</button>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label fw-bold text-primary">ערכים שנבחרו</label>
+                  <input type="search" class="form-control form-control-sm allocation-search-selected allocation-editable mb-2" placeholder="search" aria-label="חיפוש ערכים שנבחרו" />
+                  <div class="allocation-selected-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <select class="allocation-store d-none" data-field="DistrictIds" name="DistrictIds" multiple>
+          @foreach (var item in alloc.AllocationDistricts) { <option value="@item.DistrictId" selected>@(item.District?.Description ?? item.DistrictId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="ProgramIds" name="ProgramIds" multiple>
+          @foreach (var item in alloc.AllocationPrograms) { <option value="@item.ProgramId" selected>@(item.Program?.Description ?? item.ProgramId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="SectorIds" name="SectorIds" multiple>
+          @foreach (var item in alloc.AllocationSectors) { <option value="@item.SectorId" selected>@(item.Sector?.Description ?? item.SectorId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="LocalityIds" name="LocalityIds" multiple>
+          @foreach (var item in alloc.AllocationLocalities) { <option value="@item.LocalityId" selected>@(item.Locality?.Description ?? item.LocalityId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="FrameworkIds" name="FrameworkIds" multiple>
+          @foreach (var item in alloc.AllocationFrameworks) { <option value="@item.FrameworkId" selected>@(item.Framework?.Description ?? item.FrameworkId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="SubjectIds" name="SubjectIds" multiple>
+          @foreach (var item in alloc.AllocationSubjects) { <option value="@item.SubjectId" selected>@(item.Subject?.Description ?? item.SubjectId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="DomainIds" name="DomainIds" multiple>
+          @foreach (var item in alloc.AllocationDomains) { <option value="@item.DomainId" selected>@(item.Domain?.Description ?? item.DomainId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="EducationalProgramIds" name="EducationalProgramIds" multiple>
+          @foreach (var item in alloc.AllocationEducationalPrograms) { <option value="@item.EducationalProgramId" selected>@(item.EducationalProgram?.Description ?? item.EducationalProgramId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="ClassIds" name="ClassIds" multiple>
+          @foreach (var item in alloc.AllocationClasses) { <option value="@item.ClassId" selected>@(item.SchoolClass?.Description ?? item.ClassId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="GradeLevelIds" name="GradeLevelIds" multiple>
+          @foreach (var item in alloc.AllocationGradeLevels) { <option value="@item.GradeLevelId" selected>@(item.GradeLevel?.Description ?? item.GradeLevelId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="DiscussionCodeIds" name="DiscussionCodeIds" multiple>
+          @foreach (var item in alloc.AllocationDiscussionCodes) { <option value="@item.DiscussionCodeId" selected>@(item.DiscussionCode?.Description ?? item.DiscussionCodeId.ToString())</option> }
+        </select>
+        <select class="allocation-store d-none" data-field="LocalityDistrictNationalIds" name="LocalityDistrictNationalIds" multiple>
+          @foreach (var item in alloc.AllocationLocalityDistrictNationals) { <option value="@item.LocalityDistrictNationalId" selected>@(item.LocalityDistrictNational?.Description ?? item.LocalityDistrictNationalId.ToString())</option> }
+        </select>
+      </form>
+
+      @if (User.IsInRole("1") || User.IsInRole("2"))
+      {
+        <form asp-action="UploadAllocationExcel" asp-route-id="@employee.Id" method="post"
+              enctype="multipart/form-data" class="mt-3 d-flex flex-wrap gap-2 align-items-center">
+          @Html.AntiForgeryToken()
+          <input type="hidden" name="allocationId" value="@alloc.Id" />
+          <select name="reportingMonthId" class="form-select form-select-sm" style="max-width:180px" required>
+            <option value="">חודש דיווח</option>
+            @foreach (var month in reportingMonths)
+            {
+              <option value="@month.Id">@month.Description</option>
+            }
+          </select>
+          <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" style="max-width:260px" required />
+          <button type="submit" class="btn btn-sm btn-outline-success"
+                  onclick="return confirm('ייבוא אקסל יחליף שורות קיימות של ההקצאה בחודש שנבחר. להמשיך?')">ייבוא קובץ דיווח</button>
+        </form>
+      }
+    </section>
+  }
+
+  @if (!Model.Any())
+  {
+    <div class="text-center text-muted py-4">אין הקצאות לעובד זה</div>
+  }
+</div>
+
+<style>
+  .allocations-page .allocation-card > form {
+    padding: 1rem;
+  }
+
+  .allocations-page .allocation-card > form + form {
+    padding-top: 0;
+    margin-top: 0 !important;
+  }
+
+  .allocations-page .allocation-card-selected {
+    background: #f8fbff;
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 .15rem rgba(13, 110, 253, .12);
+  }
+
+  .allocations-page .allocation-shortcuts {
+    display: flex;
+    justify-content: flex-start;
+    gap: .5rem;
+    flex-wrap: wrap;
+  }
+
+  .allocations-page .sticky-nav-button {
+    min-width: 160px;
+  }
+
+  .allocations-page .allocation-actions {
+    min-width: 86px;
+  }
+
+  .allocations-page .duration-box {
+    border: 1px solid #ced4da;
+    border-radius: .375rem;
+    padding: .4rem .7rem;
+    min-height: 142px;
+    background: #fff;
+  }
+
+  .allocations-page .allocation-picker {
+    border: 1px solid #ced4da;
+    border-radius: .375rem;
+    background: #f8f9fa;
+    padding: 1rem;
+  }
+
+  .allocations-page .allocation-selected-list {
+    border: 1px solid #ced4da;
+    border-radius: .375rem;
+    background: #fff;
+    min-height: 130px;
+    max-height: 180px;
+    overflow: auto;
+    padding: .35rem;
+  }
+
+  .allocations-page .selected-item {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .15rem .25rem;
+    font-weight: 600;
+  }
+
+  .allocations-page .remove-selection {
+    border: 0;
+    background: transparent;
+    color: #9b1c1c;
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .allocations-page [disabled] {
+    cursor: not-allowed;
+  }
+</style>
+
+@section Scripts {
+  <script>
+    const allocationLookupData = @Html.Raw(JsonSerializer.Serialize(lookupData));
+    const allocationCategoryLabels = @Html.Raw(JsonSerializer.Serialize(categoryLabels));
+
+    document.querySelectorAll('.allocation-card').forEach(card => {
+      const form = card.querySelector('form');
+      const validationBox = card.querySelector('.allocation-validation');
+      const categorySelect = card.querySelector('.allocation-category');
+      const available = card.querySelector('.allocation-available');
+      const selectedList = card.querySelector('.allocation-selected-list');
+      const availableSearch = card.querySelector('.allocation-search-available');
+      const selectedSearch = card.querySelector('.allocation-search-selected');
+      const availableLabel = card.querySelector('.allocation-available-label');
+
+      function currentField() {
+        return categorySelect.value;
+      }
+
+      function currentStore() {
+        return card.querySelector(`.allocation-store[data-field="${currentField()}"]`);
+      }
+
+      function selectedIds() {
+        return new Set(Array.from(currentStore().options).filter(o => o.selected).map(o => o.value));
+      }
+
+      function ensureStoreOption(field, option) {
+        const store = card.querySelector(`.allocation-store[data-field="${field}"]`);
+        let existing = Array.from(store.options).find(o => o.value === option.id);
+        if (!existing) {
+          existing = new Option(option.text, option.id, true, true);
+          store.add(existing);
+        }
+        existing.selected = true;
+      }
+
+      function renderPicker() {
+        const field = currentField();
+        const label = allocationCategoryLabels[field] || 'ערך';
+        const allOptions = allocationLookupData[field] || [];
+        const picked = selectedIds();
+        const availableNeedle = (availableSearch.value || '').trim().toLowerCase();
+        const selectedNeedle = (selectedSearch.value || '').trim().toLowerCase();
+
+        availableLabel.textContent = `בחר ${label} להוספה`;
+        available.innerHTML = '';
+        allOptions
+          .filter(o => !picked.has(String(o.id)))
+          .filter(o => !availableNeedle || o.text.toLowerCase().includes(availableNeedle))
+          .forEach(o => available.add(new Option(o.text, o.id)));
+
+        selectedList.innerHTML = '';
+        Array.from(currentStore().options)
+          .filter(o => o.selected)
+          .filter(o => !selectedNeedle || o.text.toLowerCase().includes(selectedNeedle))
+          .forEach(o => {
+            const row = document.createElement('div');
+            row.className = 'selected-item';
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'remove-selection';
+            remove.textContent = '×';
+            remove.disabled = card.dataset.editing !== 'true';
+            remove.setAttribute('aria-label', `הסר ${o.text}`);
+            remove.addEventListener('click', () => {
+              o.selected = false;
+              renderPicker();
+            });
+            const text = document.createElement('span');
+            text.textContent = o.text;
+            row.append(remove, text);
+            selectedList.append(row);
+          });
+      }
+
+      card.querySelector('.allocation-add')?.addEventListener('click', () => {
+        if (card.dataset.editing !== 'true') return;
+        const field = currentField();
+        Array.from(available.selectedOptions).forEach(option => {
+          const source = (allocationLookupData[field] || []).find(o => String(o.id) === option.value);
+          if (source) ensureStoreOption(field, source);
+        });
+        renderPicker();
+      });
+
+      available.addEventListener('dblclick', () => card.querySelector('.allocation-add')?.click());
+      categorySelect.addEventListener('change', renderPicker);
+      availableSearch.addEventListener('input', renderPicker);
+      selectedSearch.addEventListener('input', renderPicker);
+
+      card.querySelector('.allocation-category-shortcut')?.addEventListener('change', event => {
+        const field = event.currentTarget.dataset.targetField;
+        categorySelect.value = field;
+        const store = card.querySelector(`.allocation-store[data-field="${field}"]`);
+        if (field === 'ProgramIds' && store) {
+          Array.from(store.options).forEach(o => o.selected = false);
+          const selectedOption = event.currentTarget.selectedOptions[0];
+          if (selectedOption?.value) {
+            ensureStoreOption(field, { id: selectedOption.value, text: selectedOption.textContent });
+          }
+        }
+        renderPicker();
+      });
+
+      function setEditing(enabled) {
+        card.dataset.editing = enabled ? 'true' : 'false';
+        card.querySelectorAll('.allocation-editable').forEach(control => control.disabled = !enabled);
+        card.querySelectorAll('.allocation-editable-button').forEach(button => button.disabled = !enabled);
+        renderPicker();
+      }
+
+      function selectedProgramCount() {
+        const store = card.querySelector('.allocation-store[data-field="ProgramIds"]');
+        return Array.from(store?.options || []).filter(o => o.selected).length;
+      }
+
+      function validateForm() {
+        const messages = [];
+        const project = card.querySelector('[name="ProjectId"]');
+        const monthly = card.querySelector('[name="MonthlyEmploymentScope"]');
+        const annual = card.querySelector('[name="AnnualEmploymentScope"]');
+        const hasDuration = !!durationUnlimited?.checked || durationValues.some(cb => cb.checked);
+
+        if (!project?.value || Number(project.value) <= 0) messages.push('יש לבחור פרויקט');
+        if (selectedProgramCount() === 0) messages.push('יש לבחור תוכנית');
+        if (monthly?.value && Number(monthly.value) < 0) messages.push('היקף פעילות חודשי חייב להיות גדול או שווה לאפס');
+        if (annual?.value && Number(annual.value) < 0) messages.push('היקף פעילות שנתי חייב להיות גדול או שווה לאפס');
+        if (!hasDuration) messages.push('יש לבחור משך תפוקה אחד לפחות');
+
+        if (messages.length > 0) {
+          validationBox.textContent = messages.join(' | ');
+          validationBox.hidden = false;
+          setEditing(true);
+          return false;
+        }
+
+        validationBox.hidden = true;
+        validationBox.textContent = '';
+        return true;
+      }
+
+      card.querySelector('.allocation-edit')?.addEventListener('click', () => {
+        setEditing(true);
+        card.querySelector('.allocation-editable')?.focus();
+      });
+
+      const durationUnlimited = card.querySelector('.duration-unlimited');
+      const durationOutput = card.querySelector('.duration-output');
+      const durationValues = Array.from(card.querySelectorAll('.duration-value'));
+
+      function syncDurationMode() {
+        if (durationUnlimited?.checked) {
+          durationValues.forEach(cb => cb.checked = false);
+          durationOutput.value = 'Unlimited';
+        } else {
+          durationOutput.value = '';
+        }
+      }
+
+      durationUnlimited?.addEventListener('change', syncDurationMode);
+      durationValues.forEach(cb => cb.addEventListener('change', () => {
+        if (cb.checked && durationUnlimited) durationUnlimited.checked = false;
+        syncDurationMode();
+      }));
+
+      form?.addEventListener('submit', event => {
+        if (!validateForm()) {
+          event.preventDefault();
+          return;
+        }
+        card.querySelectorAll('.allocation-editable').forEach(control => control.disabled = false);
+      });
+
+      renderPicker();
+      syncDurationMode();
+      setEditing(false);
+    });
+
+    const selectedCard = document.querySelector('.allocation-card-selected');
+    selectedCard?.scrollIntoView({ block: 'start' });
+  </script>
+}

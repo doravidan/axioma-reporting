@@ -1,0 +1,94 @@
+@{
+  ViewData["Title"] = "שיוכי מפקחים";
+  var assignments = ViewBag.Assignments as List<AxiomaReporting.Core.Entities.InspectorAssignment>
+    ?? new List<AxiomaReporting.Core.Entities.InspectorAssignment>();
+  var inspectors = ViewBag.Inspectors as List<AxiomaReporting.Core.Entities.User>
+    ?? new List<AxiomaReporting.Core.Entities.User>();
+  var programs = ViewBag.Programs as List<AxiomaReporting.Core.Entities.Program>
+    ?? new List<AxiomaReporting.Core.Entities.Program>();
+  var districts = ViewBag.Districts as List<AxiomaReporting.Core.Entities.District>
+    ?? new List<AxiomaReporting.Core.Entities.District>();
+  var sectors = ViewBag.Sectors as List<AxiomaReporting.Core.Entities.Sector>
+    ?? new List<AxiomaReporting.Core.Entities.Sector>();
+}
+
+<div class="container-fluid mt-3">
+  <h3>שיוכי מפקחים</h3>
+  <p class="text-muted">בתוך שורה אחת התנאים מצטברים ב-AND. ערך ריק הוא wildcard. כמה שורות לאותו מפקח מחוברות ב-OR.</p>
+
+  <form asp-action="CreateInspectorAssignment" method="post" class="card card-body mb-3">
+    @Html.AntiForgeryToken()
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">מפקח</label>
+        <select name="inspectorUserId" class="form-select" required>
+          <option value="">בחר...</option>
+          @foreach (var inspector in inspectors)
+          {
+            <option value="@inspector.Id">@inspector.FirstName @inspector.LastName (@inspector.EmployeeCode)</option>
+          }
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">תוכנית</label>
+        <select name="programId" class="form-select">
+          <option value="">כל התוכניות</option>
+          @foreach (var item in programs) { <option value="@item.Id">@item.Description</option> }
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">מחוז</label>
+        <select name="districtId" class="form-select">
+          <option value="">כל המחוזות</option>
+          @foreach (var item in districts) { <option value="@item.Id">@item.Description</option> }
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">מגזר</label>
+        <select name="sectorId" class="form-select">
+          <option value="">כל המגזרים</option>
+          @foreach (var item in sectors) { <option value="@item.Id">@item.Description</option> }
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">הוסף שיוך</button>
+      </div>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>מפקח</th>
+          <th>תוכנית</th>
+          <th>מחוז</th>
+          <th>מגזר</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        @foreach (var item in assignments)
+        {
+          <tr>
+            <td>@item.Inspector?.FirstName @item.Inspector?.LastName</td>
+            <td>@(item.Program?.Description ?? "הכל")</td>
+            <td>@(item.District?.Description ?? "הכל")</td>
+            <td>@(item.Sector?.Description ?? "הכל")</td>
+            <td>
+              <form asp-action="DeleteInspectorAssignment" method="post" onsubmit="return confirm('למחוק שיוך?')">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@item.Id" />
+                <button type="submit" class="btn btn-sm btn-outline-danger">מחק</button>
+              </form>
+            </td>
+          </tr>
+        }
+        @if (!assignments.Any())
+        {
+          <tr><td colspan="5" class="text-center text-muted">אין שיוכים</td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

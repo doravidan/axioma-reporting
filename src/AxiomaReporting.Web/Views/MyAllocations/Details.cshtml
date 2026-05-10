@@ -1,0 +1,121 @@
+@model AxiomaReporting.Core.Entities.Allocation
+@{
+  ViewData["Title"] = "פרטי הקצאה";
+
+  string JoinValues(IEnumerable<string?> values)
+  {
+    var items = values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+    return items.Count == 0 ? "-" : string.Join(", ", items);
+  }
+
+  string Whole(decimal? value) => value.HasValue ? decimal.Truncate(value.Value).ToString("0") : "-";
+  string Daily(decimal? value) => value.HasValue ? value.Value.ToString("0.##") : "ללא הגבלה";
+}
+
+<div class="container-fluid py-3" dir="rtl">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+      <h2>פרטי הקצאה</h2>
+      <div class="text-muted">
+        @Model.User?.FirstName @Model.User?.LastName
+        @if (!string.IsNullOrWhiteSpace(Model.User?.EmployeeCode))
+        {
+          <span> | קוד עובד: @Model.User.EmployeeCode</span>
+        }
+      </div>
+    </div>
+    <a asp-action="Index" class="btn btn-outline-secondary">חזרה להקצאות</a>
+  </div>
+
+  <section class="card border-success mb-3" aria-labelledby="allocation-details-heading">
+    <div id="allocation-details-heading" class="card-header bg-success text-white fw-bold">פרטי הקצאה</div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-md-2">פרויקט</dt>
+        <dd class="col-md-4">@Model.Project?.Description</dd>
+
+        <dt class="col-md-2">היקף פעילות חודשי</dt>
+        <dd class="col-md-4">@Whole(Model.MonthlyEmploymentScope)</dd>
+
+        <dt class="col-md-2">היקף יומי</dt>
+        <dd class="col-md-4">@Daily(Model.DailyEmploymentScope)</dd>
+
+        <dt class="col-md-2">היקף פעילות שנתי</dt>
+        <dd class="col-md-4">@Whole(Model.AnnualEmploymentScope)</dd>
+
+        <dt class="col-md-2">מכסת שורות חודשית</dt>
+        <dd class="col-md-4">@(Model.MonthlyRowAllocation?.ToString() ?? "-")</dd>
+
+        <dt class="col-md-2">מכסת שורות שנתית</dt>
+        <dd class="col-md-4">@(Model.AnnualRowAllocation?.ToString() ?? "-")</dd>
+
+        <dt class="col-md-2">משך תפוקה</dt>
+        <dd class="col-md-4">@(string.IsNullOrWhiteSpace(Model.OutputDuration) ? "-" : Model.OutputDuration)</dd>
+
+        <dt class="col-md-2">אפשר העלאת אקסל</dt>
+        <dd class="col-md-4">@(Model.AllowExcelUpload ? "כן" : "לא")</dd>
+
+        <dt class="col-md-2">הערות</dt>
+        <dd class="col-md-10">@(string.IsNullOrWhiteSpace(Model.Notes) ? "-" : Model.Notes)</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section aria-labelledby="allocation-scope-heading">
+    <h3 id="allocation-scope-heading" class="h5 mb-2">שיוכים</h3>
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle">
+        <tbody>
+          <tr>
+            <th scope="row">תוכניות</th>
+            <td>@JoinValues(Model.AllocationPrograms.Select(x => x.Program?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">מחוזות</th>
+            <td>@JoinValues(Model.AllocationDistricts.Select(x => x.District?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">מגזרים</th>
+            <td>@JoinValues(Model.AllocationSectors.Select(x => x.Sector?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">ישובים</th>
+            <td>@JoinValues(Model.AllocationLocalities.Select(x => x.Locality?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">מסגרות</th>
+            <td>@JoinValues(Model.AllocationFrameworks.Select(x => x.Framework?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">תחומים</th>
+            <td>@JoinValues(Model.AllocationDomains.Select(x => x.Domain?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">נושאים</th>
+            <td>@JoinValues(Model.AllocationSubjects.Select(x => x.Subject?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">תוכניות חינוכיות</th>
+            <td>@JoinValues(Model.AllocationEducationalPrograms.Select(x => x.EducationalProgram?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">קיום דיון</th>
+            <td>@JoinValues(Model.AllocationDiscussionCodes.Select(x => x.DiscussionCode?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">כיתה</th>
+            <td>@JoinValues(Model.AllocationClasses.Select(x => x.SchoolClass?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">שכבה</th>
+            <td>@JoinValues(Model.AllocationGradeLevels.Select(x => x.GradeLevel?.Description))</td>
+          </tr>
+          <tr>
+            <th scope="row">ישובי / מחוזי / ארצי</th>
+            <td>@JoinValues(Model.AllocationLocalityDistrictNationals.Select(x => x.LocalityDistrictNational?.Description))</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

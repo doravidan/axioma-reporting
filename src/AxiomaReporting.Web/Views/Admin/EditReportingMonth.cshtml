@@ -1,0 +1,133 @@
+@model AxiomaReporting.Web.Models.ReportingMonthEditViewModel
+@{
+  ViewData["Title"] = "עריכת חודש דיווח";
+  var locked = Model.LockNonAdminFields;
+  var lockTitle = "ניתן לשינוי רק ע&quot;י מנהל פרויקט או מנהל מערכת";
+}
+
+<div class="container mt-3" dir="rtl">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>עריכת חודש דיווח</h3>
+    <a asp-action="ReportingMonths" class="btn btn-outline-secondary btn-sm">חזרה</a>
+  </div>
+
+  @if (Model.IsActive)
+  {
+    <div class="alert alert-warning" role="alert" aria-live="polite">
+      <strong>שים לב:</strong> זהו חודש דיווח <strong>פעיל</strong>.
+      @if (locked)
+      {
+        <span>שדות תאריך אחרון לדיווח ודיווח עתידי נעולים — ניתן לשינוי רק ע"י מנהל פרויקט או מנהל מערכת.</span>
+      }
+      else
+      {
+        <span>שינויים בשדות אלה עלולים להשפיע על דיווחים פתוחים.</span>
+      }
+    </div>
+  }
+
+  <form asp-action="EditReportingMonth" method="post" id="editReportingMonthForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="Id" />
+    <input type="hidden" asp-for="IsActive" />
+    <input type="hidden" asp-for="LockNonAdminFields" />
+
+    <div class="card">
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label" asp-for="Description">תיאור <span class="text-danger">*</span></label>
+          <input asp-for="Description" class="form-control" required maxlength="200" />
+          <span asp-validation-for="Description" class="text-danger"></span>
+        </div>
+
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label" asp-for="Month">חודש <span class="text-danger">*</span></label>
+            <select asp-for="Month" class="form-select" required>
+              @for (int i = 1; i <= 12; i++)
+              {
+                <option value="@i" selected="@(Model.Month == i)">@i</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label" asp-for="Year">שנה <span class="text-danger">*</span></label>
+            <input asp-for="Year" type="number" class="form-control" min="2020" max="2035" required />
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="LastReportingDate">
+            תאריך אחרון לדיווח <span class="text-danger">*</span>
+            @if (locked)
+            {
+              <span aria-hidden="true">🔒</span>
+            }
+          </label>
+          @if (locked)
+          {
+            <input type="date" id="LastReportingDate" class="form-control"
+                   value="@Model.LastReportingDate.ToString("yyyy-MM-dd")"
+                   disabled
+                   title="@lockTitle" />
+            <small class="text-muted">השדה נעול — ניתן לשינוי רק ע"י מנהל פרויקט או מנהל מערכת.</small>
+          }
+          else
+          {
+            <input type="date" id="LastReportingDate" name="LastReportingDate" class="form-control"
+                   value="@Model.LastReportingDate.ToString("yyyy-MM-dd")"
+                   required />
+          }
+        </div>
+
+        <div class="mb-3 form-check">
+          @if (locked)
+          {
+            <input type="checkbox" id="allowFuture" class="form-check-input"
+                   checked="@Model.AllowFutureReporting"
+                   disabled
+                   title="@lockTitle" />
+          }
+          else
+          {
+            <input type="checkbox" id="allowFuture" name="AllowFutureReporting" value="true" class="form-check-input"
+                   checked="@Model.AllowFutureReporting" />
+          }
+          <label class="form-check-label" for="allowFuture">
+            אפשר דיווח עתידי
+            @if (locked)
+            {
+              <span aria-hidden="true">🔒</span>
+            }
+          </label>
+          @if (locked)
+          {
+            <div><small class="text-muted">השדה נעול — ניתן לשינוי רק ע"י מנהל פרויקט או מנהל מערכת.</small></div>
+          }
+        </div>
+      </div>
+      <div class="card-footer d-flex justify-content-end gap-2">
+        <a asp-action="ReportingMonths" class="btn btn-secondary">ביטול</a>
+        <button type="submit" class="btn btn-primary">שמור</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  @if (Model.IsActive && !Model.LockNonAdminFields)
+  {
+    <script>
+      (function () {
+        var form = document.getElementById('editReportingMonthForm');
+        if (!form) return;
+        form.addEventListener('submit', function (e) {
+          if (!confirm('שינוי שדות חודש פעיל יכול להשפיע על דיווחים פתוחים. להמשיך?')) {
+            e.preventDefault();
+          }
+        });
+      })();
+    </script>
+  }
+}

@@ -1,0 +1,63 @@
+@model AxiomaReporting.Core.Entities.TermsOfUseVersion
+@{
+  ViewData["Title"] = "תנאי שימוש";
+  Layout = "_AnonymousLayout";
+  var returnUrl = ViewBag.ReturnUrl as string;
+}
+<div class="row justify-content-center py-4">
+  <div class="col-lg-10">
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h1 class="h4 mb-0">תנאי שימוש במערכת</h1>
+        @if (Model != null)
+        {
+          <small class="text-white-50">גרסה @Model.VersionNumber · תוקף מ-@Model.EffectiveFrom.ToString("dd/MM/yyyy")</small>
+        }
+      </div>
+      <div class="card-body">
+        @if (Model == null)
+        {
+          <p class="text-muted">לא הוגדרה גרסה של תנאי השימוש. נא לפנות למנהל המערכת.</p>
+        }
+        else
+        {
+          <div class="terms-body mb-4" style="max-height:60vh; overflow-y:auto; border:1px solid #dee2e6; border-radius:.25rem; padding:1rem; white-space:pre-wrap;">
+            @Html.Raw(Model.BodyHtml)
+          </div>
+
+          <form asp-action="AcceptTerms" method="post" id="acceptTermsForm">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" id="acceptCheckbox" aria-required="true" />
+              <label class="form-check-label" for="acceptCheckbox">
+                קראתי ואני מסכים לתנאי השימוש
+              </label>
+            </div>
+            <div class="d-flex justify-content-end gap-2">
+              <button type="submit" id="acceptBtn" class="btn btn-primary" disabled>
+                אישור והמשך
+              </button>
+            </div>
+          </form>
+          <form asp-controller="Account" asp-action="Logout" method="post" class="mt-2">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-link text-muted">יציאה</button>
+          </form>
+        }
+      </div>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+  <script>
+    (function () {
+      var chk = document.getElementById('acceptCheckbox');
+      var btn = document.getElementById('acceptBtn');
+      if (chk && btn) {
+        chk.addEventListener('change', function () { btn.disabled = !chk.checked; });
+      }
+    })();
+  </script>
+}

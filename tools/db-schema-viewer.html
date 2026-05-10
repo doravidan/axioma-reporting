@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axioma DB Schema Viewer</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d2e;
+    --surface2: #252840;
+    --border: #2e3256;
+    --accent: #6366f1;
+    --accent2: #8b5cf6;
+    --green: #10b981;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --cyan: #06b6d4;
+    --pink: #ec4899;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --pk: #fbbf24;
+    --fk: #34d399;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  /* Header */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 100; }
+  .logo { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { color: var(--text2); font-size: 13px; }
+  .stats { margin-right: auto; display: flex; gap: 16px; }
+  .stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: var(--text2); }
+  .stat span { color: var(--text); font-weight: 600; }
+
+  /* Search & filters */
+  .toolbar { padding: 16px 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .search { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; color: var(--text); font-size: 14px; width: 260px; outline: none; }
+  .search:focus { border-color: var(--accent); }
+  .search::placeholder { color: var(--text3); }
+  .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filter-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--text2); cursor: pointer; transition: all .15s; }
+  .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--text); background: rgba(99,102,241,.15); }
+  .filter-btn.all.active { border-color: var(--text2); background: var(--surface2); }
+
+  /* Main layout */
+  .main { padding: 0 24px 40px; }
+
+  /* Section */
+  .section { margin-bottom: 32px; }
+  .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .section-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .section-title { font-size: 15px; font-weight: 600; }
+  .section-count { background: var(--surface2); border-radius: 10px; padding: 2px 8px; font-size: 11px; color: var(--text2); }
+  .tables-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+
+  /* Table card */
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; transition: border-color .2s, box-shadow .2s; }
+  .table-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 32px rgba(99,102,241,.12); }
+  .table-card.highlighted { border-color: var(--cyan); box-shadow: 0 0 0 2px var(--cyan), 0 8px 32px rgba(6,182,212,.15); }
+  .table-card.dimmed { opacity: .35; }
+
+  .table-header { padding: 12px 16px; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; background: var(--surface2); }
+  .table-icon { font-size: 16px; }
+  .table-name { font-weight: 600; font-size: 14px; font-family: 'Cascadia Code', 'Fira Code', monospace; flex: 1; }
+  .table-col-count { font-size: 11px; color: var(--text3); background: var(--bg); border-radius: 8px; padding: 2px 7px; }
+  .expand-btn { color: var(--text3); font-size: 12px; transition: transform .2s; }
+  .table-card.collapsed .expand-btn { transform: rotate(-90deg); }
+
+  .table-body { display: grid; }
+  .table-card.collapsed .table-body { display: none; }
+
+  /* Column row */
+  .col-row { padding: 7px 16px; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); font-size: 12px; transition: background .1s; }
+  .col-row:hover { background: rgba(255,255,255,.03); }
+  .col-badge { font-size: 9px; font-weight: 700; border-radius: 4px; padding: 1px 5px; min-width: 24px; text-align: center; flex-shrink: 0; }
+  .badge-pk { background: rgba(251,191,36,.2); color: var(--pk); border: 1px solid rgba(251,191,36,.3); }
+  .badge-fk { background: rgba(52,211,153,.15); color: var(--fk); border: 1px solid rgba(52,211,153,.25); cursor: pointer; }
+  .badge-fk:hover { background: rgba(52,211,153,.3); }
+  .badge-col { background: transparent; color: transparent; border: 1px solid transparent; }
+  .col-name { font-family: 'Cascadia Code', 'Fira Code', monospace; color: var(--text); flex: 1; }
+  .col-name.nullable::after { content: '?'; color: var(--text3); }
+  .col-type { color: var(--text3); font-size: 11px; }
+  .fk-ref { color: var(--fk); font-size: 10px; margin-right: auto; cursor: pointer; }
+  .fk-ref:hover { text-decoration: underline; }
+
+  /* Legend */
+  .legend { display: flex; gap: 16px; align-items: center; margin-right: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
+
+  /* Category colors */
+  .cat-lookup .table-header { border-right: 3px solid var(--green); }
+  .cat-system .table-header { border-right: 3px solid var(--yellow); }
+  .cat-core .table-header { border-right: 3px solid var(--accent); }
+  .cat-junction .table-header { border-right: 3px solid var(--pink); }
+
+  .dot-lookup { background: var(--green); }
+  .dot-system { background: var(--yellow); }
+  .dot-core { background: var(--accent); }
+  .dot-junction { background: var(--pink); }
+
+  /* Tooltip */
+  .tooltip { position: fixed; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--text); pointer-events: none; z-index: 999; display: none; max-width: 240px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="logo">🗄️ Axioma DB Schema</div>
+    <div class="subtitle">AxiomaReporting — SQL Server Express</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><span id="totalTables">0</span> טבלאות</div>
+    <div class="stat"><span id="totalCols">0</span> עמודות</div>
+    <div class="stat"><span id="totalFK">0</span> FK יחסים</div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><span class="col-badge badge-pk">PK</span> מפתח ראשי</div>
+    <div class="legend-item"><span class="col-badge badge-fk">FK</span> מפתח זר</div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <input class="search" type="text" placeholder="🔍  חיפוש טבלה או עמודה..." id="searchInput" oninput="filterTables()" />
+  <div class="filter-group">
+    <button class="filter-btn all active" onclick="setFilter('all', this)">הכל</button>
+    <button class="filter-btn" onclick="setFilter('lookup', this)" style="border-color:var(--green);color:var(--green)">Lookup טבלאות</button>
+    <button class="filter-btn" onclick="setFilter('system', this)" style="border-color:var(--yellow);color:var(--yellow)">System טבלאות</button>
+    <button class="filter-btn" onclick="setFilter('core', this)" style="border-color:var(--accent);color:var(--accent)">Core עסקי</button>
+    <button class="filter-btn" onclick="setFilter('junction', this)" style="border-color:var(--pink);color:var(--pink)">Junction טבלאות</button>
+  </div>
+  <button class="filter-btn" onclick="toggleAll(true)" style="margin-right:8px">פתח הכל ▼</button>
+  <button class="filter-btn" onclick="toggleAll(false)">סגור הכל ▲</button>
+</div>
+
+<div class="main" id="main"></div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const schema = {
+  lookup: {
+    label: "Lookup Tables",
+    dotClass: "dot-lookup",
+    tables: [
+      { name: "Districts", icon: "🗺️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Sectors", icon: "🏢", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Localities", icon: "📍", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"NationalCode",t:"int",null:true},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Authorities", icon: "🏛️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Projects", icon: "📁", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Programs", icon: "📋", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "EducationalPrograms", icon: "🎓", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Subjects", icon: "📚", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Domains", icon: "🌐", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Frameworks", icon: "🏫", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"InstitutionSymbol",t:"nvarchar"},{n:"EducationalStageId",t:"int",null:true,fk:"EducationalStages"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "SchoolClasses", icon: "🏷️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "GradeLevels", icon: "📊", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "EmployeeRoles", icon: "👔", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "EducationalStages", icon: "🎒", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "EducationTypes", icon: "📝", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "LocalityDistrictNationals", icon: "🗾", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "DiscussionCodes", icon: "💬", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Institutions", icon: "🏗️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"InstitutionSymbol",t:"int"},{n:"Name",t:"nvarchar"},{n:"IsActive",t:"bit"},{n:"LocalityId",t:"int",null:true,fk:"Localities"},{n:"DistrictId",t:"int",null:true,fk:"Districts"},{n:"SectorId",t:"int",null:true,fk:"Sectors"},{n:"TypeId",t:"int",null:true,fk:"EducationTypes"},{n:"EducationalStageId",t:"int",null:true,fk:"EducationalStages"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+    ]
+  },
+  system: {
+    label: "System Tables",
+    dotClass: "dot-system",
+    tables: [
+      { name: "ReportStatuses", icon: "🔖", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Name",t:"nvarchar"},{n:"Description",t:"nvarchar",null:true}
+      ]},
+      { name: "UserStatuses", icon: "🚦", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Name",t:"nvarchar"}
+      ]},
+      { name: "UserRoles", icon: "🔐", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Name",t:"nvarchar"},{n:"Description",t:"nvarchar",null:true}
+      ]},
+      { name: "SystemConstants", icon: "⚙️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Key",t:"nvarchar"},{n:"Value",t:"nvarchar"},{n:"Description",t:"nvarchar",null:true},{n:"UpdatedBy",t:"int",null:true},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "EmailServerSettings", icon: "📧", columns: [
+        {n:"Id",t:"int",pk:true},{n:"SmtpServer",t:"nvarchar"},{n:"Port",t:"int"},{n:"Username",t:"nvarchar"},{n:"Password",t:"nvarchar"},{n:"FromAddress",t:"nvarchar"},{n:"FromName",t:"nvarchar",null:true},{n:"UseSsl",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "EmailTemplates", icon: "📨", columns: [
+        {n:"Id",t:"int",pk:true},{n:"TypeDescription",t:"nvarchar"},{n:"Subject",t:"nvarchar"},{n:"Body",t:"nvarchar(max)"},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+    ]
+  },
+  core: {
+    label: "Core Business Tables",
+    dotClass: "dot-core",
+    tables: [
+      { name: "Users", icon: "👤", columns: [
+        {n:"Id",t:"int",pk:true},{n:"EmployeeCode",t:"nvarchar"},{n:"IdNumber",t:"nvarchar"},{n:"FirstName",t:"nvarchar"},{n:"LastName",t:"nvarchar"},{n:"PasswordHash",t:"nvarchar"},{n:"RoleId",t:"int",fk:"EmployeeRoles"},{n:"UserRoleId",t:"int",fk:"UserRoles"},{n:"StatusId",t:"int",fk:"UserStatuses"},{n:"IsReportingEmployee",t:"bit"},{n:"RestDay",t:"int",null:true},{n:"AllowFutureReporting",t:"bit"},{n:"Notes",t:"nvarchar",null:true},{n:"Email",t:"nvarchar",null:true},{n:"Phone",t:"nvarchar",null:true},{n:"MustChangePassword",t:"bit"},{n:"FailedLoginAttempts",t:"int"},{n:"LastPasswordChange",t:"datetime2",null:true},{n:"AcceptedTermsOfUse",t:"bit"},{n:"CreatedBy",t:"int",null:true},{n:"UpdatedBy",t:"int",null:true},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Allocations", icon: "📌", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",fk:"Users"},{n:"ProjectId",t:"int",fk:"Projects"},{n:"AnnualEmploymentScope",t:"decimal",null:true},{n:"MonthlyEmploymentScope",t:"decimal",null:true},{n:"DailyEmploymentScope",t:"decimal",null:true},{n:"MonthlyRowAllocation",t:"int",null:true},{n:"AnnualRowAllocation",t:"int",null:true},{n:"OutputDuration",t:"nvarchar",null:true},{n:"AllowExcelUpload",t:"bit"},{n:"Notes",t:"nvarchar",null:true},{n:"IsActive",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "ReportingMonths", icon: "📅", columns: [
+        {n:"Id",t:"int",pk:true},{n:"Description",t:"nvarchar"},{n:"Month",t:"int"},{n:"Year",t:"int"},{n:"LastReportingDate",t:"datetime2"},{n:"IsActive",t:"bit"},{n:"AllowFutureReporting",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "Reports", icon: "📄", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",fk:"Users"},{n:"ReportingMonthId",t:"int",fk:"ReportingMonths"},{n:"StatusId",t:"int",fk:"ReportStatuses"},{n:"SubmittedAt",t:"datetime2",null:true},{n:"ApprovedAt",t:"datetime2",null:true},{n:"ApprovedBy",t:"int",null:true,fk:"Users"},{n:"RejectionReason",t:"nvarchar",null:true},{n:"RejectedAt",t:"datetime2",null:true},{n:"RejectedBy",t:"int",null:true,fk:"Users"},{n:"ImportedFromExcel",t:"bit"},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "ReportRows", icon: "📋", columns: [
+        {n:"Id",t:"int",pk:true},{n:"ReportId",t:"int",fk:"Reports"},{n:"AllocationId",t:"int",null:true,fk:"Allocations"},{n:"SequenceNumber",t:"int"},{n:"MeetingDate",t:"datetime2"},{n:"MeetingDuration",t:"decimal"},{n:"DistrictId",t:"int",fk:"Districts"},{n:"LocalityId",t:"int",fk:"Localities"},{n:"FrameworkId",t:"int",fk:"Frameworks"},{n:"EducationalProgramId",t:"int",fk:"EducationalPrograms"},{n:"DomainId",t:"int",fk:"Domains"},{n:"Subject1Id",t:"int",fk:"Subjects"},{n:"Subject2Id",t:"int",null:true,fk:"Subjects"},{n:"DiscussionCodeId",t:"int",null:true,fk:"DiscussionCodes"},{n:"ConclusionClassId",t:"int",null:true,fk:"SchoolClasses"},{n:"ConclusionFrameworkId",t:"int",null:true,fk:"Frameworks"},{n:"ConclusionLocationId",t:"int",null:true,fk:"LocalityDistrictNationals"},{n:"GradeLevelId",t:"int",null:true,fk:"GradeLevels"},{n:"ClassId",t:"int",null:true,fk:"SchoolClasses"},{n:"Notes",t:"nvarchar",null:true},{n:"CreatedAt",t:"datetime2"},{n:"UpdatedAt",t:"datetime2",null:true}
+      ]},
+      { name: "DocumentAttachments", icon: "📎", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",null:true,fk:"Users"},{n:"ReportRowId",t:"int",null:true,fk:"ReportRows"},{n:"FileName",t:"nvarchar"},{n:"FilePath",t:"nvarchar"},{n:"FileSize",t:"bigint"},{n:"MimeType",t:"nvarchar"},{n:"UploadedAt",t:"datetime2"},{n:"UploadedBy",t:"int",fk:"Users"}
+      ]},
+      { name: "InspectorAssignments", icon: "🔍", columns: [
+        {n:"Id",t:"int",pk:true},{n:"InspectorUserId",t:"int",fk:"Users"},{n:"ProgramId",t:"int",null:true,fk:"Programs"},{n:"DistrictId",t:"int",null:true,fk:"Districts"},{n:"SectorId",t:"int",null:true,fk:"Sectors"}
+      ]},
+      { name: "ReminderLogs", icon: "🔔", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",fk:"Users"},{n:"ReportingMonthId",t:"int",null:true,fk:"ReportingMonths"},{n:"TemplateType",t:"nvarchar"},{n:"SentAt",t:"datetime2"}
+      ]},
+      { name: "PasswordHistories", icon: "🔑", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",fk:"Users"},{n:"PasswordHash",t:"nvarchar"},{n:"CreatedAt",t:"datetime2"}
+      ]},
+      { name: "PasswordResetTokens", icon: "🗝️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",fk:"Users"},{n:"TokenHash",t:"nvarchar"},{n:"ExpiresAt",t:"datetime2"},{n:"UsedAt",t:"datetime2",null:true},{n:"CreatedAt",t:"datetime2"}
+      ]},
+      { name: "TwoFactorCodes", icon: "🛡️", columns: [
+        {n:"Id",t:"int",pk:true},{n:"UserId",t:"int",fk:"Users"},{n:"CodeHash",t:"nvarchar"},{n:"ExpiresAt",t:"datetime2"},{n:"UsedAt",t:"datetime2",null:true},{n:"CreatedAt",t:"datetime2"}
+      ]},
+    ]
+  },
+  junction: {
+    label: "Junction Tables (Allocation M:M)",
+    dotClass: "dot-junction",
+    tables: [
+      { name: "AllocationDistricts", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"DistrictId",t:"int",fk:"Districts"}]},
+      { name: "AllocationSectors", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"SectorId",t:"int",fk:"Sectors"}]},
+      { name: "AllocationLocalities", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"LocalityId",t:"int",fk:"Localities"}]},
+      { name: "AllocationPrograms", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"ProgramId",t:"int",fk:"Programs"}]},
+      { name: "AllocationFrameworks", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"FrameworkId",t:"int",fk:"Frameworks"}]},
+      { name: "AllocationSubjects", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"SubjectId",t:"int",fk:"Subjects"}]},
+      { name: "AllocationDomains", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"DomainId",t:"int",fk:"Domains"}]},
+      { name: "AllocationEducationalPrograms", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"EducationalProgramId",t:"int",fk:"EducationalPrograms"}]},
+      { name: "AllocationClasses", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"ClassId",t:"int",fk:"SchoolClasses"}]},
+      { name: "AllocationGradeLevels", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"GradeLevelId",t:"int",fk:"GradeLevels"}]},
+      { name: "AllocationDiscussionCodes", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"DiscussionCodeId",t:"int",fk:"DiscussionCodes"}]},
+      { name: "AllocationLocalityDistrictNationals", icon: "🔗", columns: [{n:"AllocationId",t:"int",fk:"Allocations"},{n:"LocalityDistrictNationalId",t:"int",fk:"LocalityDistrictNationals"}]},
+    ]
+  }
+};
+
+let activeFilter = 'all';
+
+function renderAll() {
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  let totalTables = 0, totalCols = 0, totalFK = 0;
+
+  for (const [catKey, cat] of Object.entries(schema)) {
+    const section = document.createElement('div');
+    section.className = 'section';
+    section.dataset.cat = catKey;
+
+    section.innerHTML = `
+      <div class="section-header">
+        <div class="section-dot ${cat.dotClass}"></div>
+        <div class="section-title">${cat.label}</div>
+        <div class="section-count">${cat.tables.length} טבלאות</div>
+      </div>
+      <div class="tables-grid" id="grid-${catKey}"></div>
+    `;
+    main.appendChild(section);
+
+    const grid = section.querySelector('.tables-grid');
+    for (const tbl of cat.tables) {
+      totalTables++;
+      totalCols += tbl.columns.length;
+      const fkCount = tbl.columns.filter(c => c.fk).length;
+      totalFK += fkCount;
+
+      const card = document.createElement('div');
+      card.className = `table-card cat-${catKey}`;
+      card.dataset.name = tbl.name.toLowerCase();
+      card.dataset.cat = catKey;
+
+      let colsHTML = tbl.columns.map(col => {
+        let badge = '';
+        if (col.pk) badge = '<span class="col-badge badge-pk">PK</span>';
+        else if (col.fk) badge = `<span class="col-badge badge-fk" onclick="highlightTable('${col.fk}')" title="FK → ${col.fk}">FK</span>`;
+        else badge = '<span class="col-badge badge-col">  </span>';
+
+        let fkRef = col.fk ? `<span class="fk-ref" onclick="highlightTable('${col.fk}')">→ ${col.fk}</span>` : '';
+        let nameClass = col.null ? 'col-name nullable' : 'col-name';
+        return `<div class="col-row">
+          ${badge}
+          <span class="${nameClass}">${col.n}</span>
+          ${fkRef}
+          <span class="col-type">${col.t}</span>
+        </div>`;
+      }).join('');
+
+      card.innerHTML = `
+        <div class="table-header" onclick="toggleCard(this)">
+          <span class="table-icon">${tbl.icon}</span>
+          <span class="table-name">${tbl.name}</span>
+          <span class="table-col-count">${tbl.columns.length} cols</span>
+          <span class="expand-btn">▾</span>
+        </div>
+        <div class="table-body">${colsHTML}</div>
+      `;
+
+      grid.appendChild(card);
+    }
+  }
+
+  document.getElementById('totalTables').textContent = totalTables;
+  document.getElementById('totalCols').textContent = totalCols;
+  document.getElementById('totalFK').textContent = totalFK;
+}
+
+function toggleCard(header) {
+  const card = header.closest('.table-card');
+  card.classList.toggle('collapsed');
+}
+
+function toggleAll(expand) {
+  document.querySelectorAll('.table-card').forEach(c => {
+    c.classList.toggle('collapsed', !expand);
+  });
+}
+
+function highlightTable(name) {
+  document.querySelectorAll('.table-card').forEach(c => {
+    const tblName = c.querySelector('.table-name').textContent;
+    if (tblName === name) {
+      c.classList.add('highlighted');
+      c.classList.remove('dimmed', 'collapsed');
+      c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => c.classList.remove('highlighted'), 2500);
+    }
+  });
+}
+
+function setFilter(cat, btn) {
+  activeFilter = cat;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilter();
+}
+
+function applyFilter() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  document.querySelectorAll('.table-card').forEach(card => {
+    const matchCat = activeFilter === 'all' || card.dataset.cat === activeFilter;
+    const matchSearch = !q || card.dataset.name.includes(q) ||
+      [...card.querySelectorAll('.col-name')].some(el => el.textContent.toLowerCase().includes(q));
+    card.style.display = (matchCat && matchSearch) ? '' : 'none';
+  });
+  // Show/hide sections based on visible cards
+  document.querySelectorAll('.section').forEach(sec => {
+    const visible = [...sec.querySelectorAll('.table-card')].some(c => c.style.display !== 'none');
+    sec.style.display = visible ? '' : 'none';
+  });
+}
+
+function filterTables() {
+  applyFilter();
+}
+
+renderAll();
+toggleAll(false); // start collapsed
+</script>
+</body>
+</html>

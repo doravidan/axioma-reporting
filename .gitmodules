@@ -1,0 +1,6 @@
+[submodule "space-agent-src"]
+	path = space-agent-src
+	url = https://github.com/agent0ai/space-agent.git
+[submodule "spec-sparkle-engine-src"]
+	path = spec-sparkle-engine-src
+	url = https://github.com/doravidan/spec-sparkle-engine.git

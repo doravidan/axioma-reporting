@@ -1,0 +1,484 @@
+﻿@using AxiomaReporting.Infrastructure.Services
+@using AxiomaReporting.Core.Entities
+@{
+    ViewData["Title"] = "מסך סיכום ואישור דיווחים";
+    var rows = ViewBag.Rows as List<DashboardReportRow> ?? new List<DashboardReportRow>();
+    var filter = ViewBag.Filter as DashboardFilter ?? new DashboardFilter();
+    var reportingMonths = ViewBag.ReportingMonths as List<ReportingMonth> ?? new List<ReportingMonth>();
+    var districts = ViewBag.Districts as List<District> ?? new List<District>();
+    bool canApprove = ViewBag.CanApprove ?? false;
+    int total = ViewBag.TotalCount ?? 0;
+    var pendingCount = rows.Count(r => r.StatusId == 3);
+
+    string SortLink(string key) => Url.Action("Summary", new
+    {
+        Page = 1,
+        PageSize = filter.PageSize,
+        StatusId = filter.StatusId,
+        DistrictId = filter.DistrictId,
+        EmployeeName = filter.EmployeeName,
+        FromMonthId = filter.FromMonthId,
+        ToMonthId = filter.ToMonthId,
+        SortBy = key,
+        SortDesc = filter.SortBy == key ? !filter.SortDesc : false
+    }) ?? "#";
+}
+
+<div class="container-fluid mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>מסך סיכום ואישור דיווחים</h3>
+        <div class="d-flex gap-2">
+            <a asp-action="SummaryExportExcel"
+               asp-route-StatusId="@filter.StatusId"
+               asp-route-FromMonthId="@filter.FromMonthId"
+               asp-route-ToMonthId="@filter.ToMonthId"
+               asp-route-DistrictId="@filter.DistrictId"
+               asp-route-EmployeeName="@filter.EmployeeName"
+               asp-route-SortBy="@filter.SortBy"
+               asp-route-SortDesc="@filter.SortDesc"
+               class="btn btn-outline-success btn-sm">ייצוא סיכום</a>
+            <a asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לדשבורד</a>
+        </div>
+    </div>
+
+    <!-- Live-filter toast + announcer -->
+    <div id="filterLiveRegion" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="filterToast" class="alert alert-warning d-none" role="alert" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Filter bar -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-end" id="summaryFilterForm">
+                <input type="hidden" name="SortBy" value="@filter.SortBy" />
+                <input type="hidden" name="SortDesc" value="@filter.SortDesc" />
+                <div class="col-md-3">
+                    <label class="form-label form-label-sm">חודש</label>
+                    <select name="FromMonthId" class="form-select form-select-sm" data-live-filter="months">
+                        <option value="">כל החודשים</option>
+                        @foreach (var m in reportingMonths)
+                        {
+                            <option value="@m.Id" selected="@(filter.FromMonthId == m.Id ? "selected" : null)">@m.Description</option>
+                        }
+                    </select>
+                    <input type="hidden" name="ToMonthId" value="@filter.FromMonthId" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label form-label-sm">מחוז</label>
+                    <select name="DistrictId" class="form-select form-select-sm" data-live-filter="districts">
+                        <option value="">הכל</option>
+                        @foreach (var d in districts)
+                        {
+                            <option value="@d.Id" selected="@(filter.DistrictId == d.Id ? "selected" : null)">@d.Description</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label form-label-sm">סטטוס</label>
+                    <select name="StatusId" class="form-select form-select-sm" data-live-filter="statuses" data-preserve-options="1">
+                        <option value="">הכל</option>
+                        <option value="3" selected="@(filter.StatusId == 3 ? "selected" : null)">ממתין לאישור</option>
+                        <option value="4" selected="@(filter.StatusId == 4 ? "selected" : null)">מאושר</option>
+                        <option value="5" selected="@(filter.StatusId == 5 ? "selected" : null)">הוחזר לתיקון</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label form-label-sm">שם / קוד / ת.ז</label>
+                    <input name="EmployeeName" class="form-control form-control-sm" value="@filter.EmployeeName" placeholder="חיפוש עובד..." />
+                </div>
+                <div class="col-auto d-flex gap-2 align-items-end">
+                    <button type="submit" class="btn btn-primary btn-sm">הצג</button>
+                    <a href="@Url.Action("Summary")" class="btn btn-outline-secondary btn-sm">נקה</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+            @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert" aria-live="assertive" aria-atomic="true">
+            @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+        </div>
+    }
+
+    <!-- Summary stats -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card text-center border-secondary">
+                <div class="card-body py-2">
+                    <div class="h4 mb-0">@total</div>
+                    <small class="text-muted">סה"כ דיווחים</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center border-warning">
+                <div class="card-body py-2">
+                    <div class="h4 mb-0 text-warning">@rows.Count(r => r.StatusId == 3)</div>
+                    <small class="text-muted">ממתינים לאישור</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center border-success">
+                <div class="card-body py-2">
+                    <div class="h4 mb-0 text-success">@rows.Count(r => r.StatusId == 4)</div>
+                    <small class="text-muted">מאושרים</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center border-danger">
+                <div class="card-body py-2">
+                    <div class="h4 mb-0 text-danger">@rows.Count(r => r.StatusId == 5)</div>
+                    <small class="text-muted">הוחזרו לתיקון</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (canApprove && pendingCount > 0)
+    {
+        <form asp-action="BulkApprove" method="post" id="bulkForm">
+            @Html.AntiForgeryToken()
+
+            <div class="d-flex gap-2 mb-2 align-items-center">
+                <button type="button" onclick="selectAll(true)" class="btn btn-outline-secondary btn-sm">בחר הכל</button>
+                <button type="button" onclick="selectAll(false)" class="btn btn-outline-secondary btn-sm">בטל בחירה</button>
+                <button type="submit" class="btn btn-success btn-sm" id="bulkApproveBtn" disabled>
+                    אשר נבחרים (<span id="selectedCount">0</span>)
+                </button>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover table-bordered table-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:40px">
+                                <input type="checkbox" id="selectAllCb" title="בחר הכל" />
+                            </th>
+                            <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
+                            <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                            <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                            <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                            <th>שורות</th>
+                            <th>משך תפוקה</th>
+                            <th>יתרת שורות</th>
+                            <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                            <th>פעולות</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!rows.Any())
+                        {
+                            <tr>
+                                <td colspan="10" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                            </tr>
+                        }
+                        @foreach (var r in rows)
+                        {
+                            <tr>
+                                <td class="text-center">
+                                    @if (r.StatusId == 3)
+                                    {
+                                        <input type="checkbox" name="reportIds" value="@r.ReportId"
+                                               class="report-cb" onchange="updateCount()" />
+                                    }
+                                </td>
+                                <td>@r.FullName</td>
+                                <td>@r.EmployeeCode</td>
+                                <td>@r.MonthDescription</td>
+                                <td>
+                                    <span class="badge @(r.StatusId == 4 ? "bg-success" : r.StatusId == 5 ? "bg-danger" : r.StatusId == 3 ? "bg-warning text-dark" : "bg-secondary")">
+                                        @r.StatusName
+                                    </span>
+                                </td>
+                                <td>@r.RowCount</td>
+                                <td>@r.TotalDuration</td>
+                                <td>
+                                    @if (r.MonthlyRowAllocation.HasValue)
+                                    {
+                                        <span class="@(r.RemainingRows < 0 ? "text-danger fw-bold" : "")">@r.RemainingRows</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                                <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
+                                <td>
+                                    @if (r.StatusId == 3)
+                                    {
+                                        <form asp-controller="Report" asp-action="Approve"
+                                              asp-route-reportId="@r.ReportId" method="post" style="display:inline">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-success">אשר</button>
+                                        </form>
+                                        <button class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </form>
+    }
+    else
+    {
+        <!-- Read-only table when no approve permission or no pending items -->
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered table-sm align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
+                        <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                        <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                        <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                        <th>שורות</th>
+                        <th>משך תפוקה</th>
+                        <th>יתרת שורות</th>
+                        <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!rows.Any())
+                    {
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                        </tr>
+                    }
+                    @foreach (var r in rows)
+                    {
+                        <tr>
+                            <td>@r.FullName</td>
+                            <td>@r.EmployeeCode</td>
+                            <td>@r.MonthDescription</td>
+                            <td>
+                                <span class="badge @(r.StatusId == 4 ? "bg-success" : r.StatusId == 5 ? "bg-danger" : r.StatusId == 3 ? "bg-warning text-dark" : "bg-secondary")">
+                                    @r.StatusName
+                                </span>
+                            </td>
+                            <td>@r.RowCount</td>
+                            <td>@r.TotalDuration</td>
+                            <td>
+                                @if (r.MonthlyRowAllocation.HasValue)
+                                {
+                                    <span class="@(r.RemainingRows < 0 ? "text-danger fw-bold" : "")">@r.RemainingRows</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<!-- Reject Modal -->
+<div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="rejectModalLabel">סיבת דחייה</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
+            </div>
+            <form asp-controller="Report" asp-action="Reject" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="rejectReportId" name="reportId" />
+                <div class="modal-body">
+                    <label class="form-label">סיבת הדחייה (חובה)</label>
+                    <textarea name="rejectionReason" class="form-control" rows="4"
+                              placeholder="הזן את סיבת הדחייה..." required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+                    <button type="submit" class="btn btn-danger">דחה דיווח</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function selectAll(val) {
+            document.querySelectorAll('.report-cb').forEach(function (cb) { cb.checked = val; });
+            updateCount();
+        }
+
+        function updateCount() {
+            var count = document.querySelectorAll('.report-cb:checked').length;
+            document.getElementById('selectedCount').textContent = count;
+            document.getElementById('bulkApproveBtn').disabled = count === 0;
+        }
+
+        var selectAllCb = document.getElementById('selectAllCb');
+        if (selectAllCb) {
+            selectAllCb.addEventListener('change', function () {
+                selectAll(this.checked);
+            });
+        }
+
+        function openReject(reportId) {
+            document.getElementById('rejectReportId').value = reportId;
+            var modal = new bootstrap.Modal(document.getElementById('rejectModal'));
+            modal.show();
+        }
+
+        (function () {
+            var form = document.getElementById('summaryFilterForm');
+            if (!form) return;
+
+            var inputToField = {
+                'DistrictId': 'DistrictId',
+                'StatusId': 'StatusId',
+                'FromMonthId': 'FromMonthId',
+                'EmployeeName': 'EmployeeName'
+            };
+
+            function collectSelection() {
+                var sel = {};
+                Object.keys(inputToField).forEach(function (name) {
+                    var el = form.querySelector('[name="' + name + '"]');
+                    if (!el) return;
+                    var v = el.value;
+                    if (v === null || v === undefined || v === '') return;
+                    if (['DistrictId', 'StatusId', 'FromMonthId'].indexOf(name) >= 0) {
+                        var n = parseInt(v, 10);
+                        if (!isNaN(n)) {
+                            sel[inputToField[name]] = n;
+                            if (name === 'FromMonthId') sel['ToMonthId'] = n;
+                        }
+                    } else {
+                        sel[inputToField[name]] = v;
+                    }
+                });
+                return sel;
+            }
+
+            function showToast(msg) {
+                var t = document.getElementById('filterToast');
+                var live = document.getElementById('filterLiveRegion');
+                if (t) {
+                    t.textContent = msg;
+                    t.classList.remove('d-none');
+                    setTimeout(function () { t.classList.add('d-none'); }, 4000);
+                }
+                if (live) {
+                    live.textContent = msg;
+                }
+            }
+
+            function repopulate(selectEl, options) {
+                var currentValue = selectEl.value;
+                var preserve = selectEl.getAttribute('data-preserve-options') === '1';
+                if (preserve) {
+                    var validIds = {};
+                    options.forEach(function (o) { validIds[String(o.id)] = true; });
+                    var stillValid = true;
+                    Array.prototype.forEach.call(selectEl.options, function (opt) {
+                        if (opt.value === '') { opt.disabled = false; return; }
+                        var ok = !!validIds[opt.value];
+                        opt.disabled = !ok;
+                        if (opt.value === currentValue && !ok) stillValid = false;
+                    });
+                    if (!stillValid) {
+                        selectEl.value = '';
+                        return false;
+                    }
+                    return true;
+                }
+
+                var firstOption = selectEl.options[0];
+                var placeholder = firstOption && firstOption.value === '' ? firstOption : null;
+                selectEl.innerHTML = '';
+                if (placeholder) selectEl.appendChild(placeholder);
+
+                var optionIds = {};
+                options.forEach(function (o) {
+                    var opt = document.createElement('option');
+                    opt.value = String(o.id);
+                    opt.textContent = o.name;
+                    selectEl.appendChild(opt);
+                    optionIds[String(o.id)] = true;
+                });
+
+                if (currentValue && optionIds[currentValue]) {
+                    selectEl.value = currentValue;
+                    return true;
+                }
+                if (currentValue) {
+                    selectEl.value = '';
+                    return false;
+                }
+                return true;
+            }
+
+            var inFlight = null;
+            var debounceId = null;
+
+            function fetchOptions() {
+                var sel = collectSelection();
+                var q = encodeURIComponent(JSON.stringify(sel));
+                if (inFlight) inFlight.abort();
+                inFlight = new AbortController();
+                fetch('@Url.Action("FilterOptions", "Dashboard")' + '?selected=' + q, {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    signal: inFlight.signal
+                })
+                    .then(function (res) { return res.ok ? res.json() : null; })
+                    .then(function (data) {
+                        if (!data) return;
+                        var lostSelection = false;
+
+                        form.querySelectorAll('[data-live-filter]').forEach(function (sel) {
+                            var dim = sel.getAttribute('data-live-filter');
+                            var list = data[dim] || [];
+                            var ok = repopulate(sel, list);
+                            if (!ok) lostSelection = true;
+                        });
+
+                        // Keep ToMonthId hidden mirror in sync
+                        var fromMonth = form.querySelector('[name="FromMonthId"]');
+                        var toMonth = form.querySelector('[name="ToMonthId"]');
+                        if (fromMonth && toMonth) toMonth.value = fromMonth.value;
+
+                        if (lostSelection) {
+                            showToast('סינון עודכן — הבחירה הקודמת אינה תואמת');
+                        }
+                    })
+                    .catch(function () { /* ignore */ });
+            }
+
+            function onChangeDebounced() {
+                if (debounceId) clearTimeout(debounceId);
+                debounceId = setTimeout(fetchOptions, 250);
+            }
+
+            Object.keys(inputToField).forEach(function (name) {
+                var el = form.querySelector('[name="' + name + '"]');
+                if (!el) return;
+                var evt = el.tagName === 'SELECT' ? 'change' : 'input';
+                el.addEventListener(evt, onChangeDebounced);
+            });
+        })();
+    </script>
+}

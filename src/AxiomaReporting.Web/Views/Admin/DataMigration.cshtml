@@ -1,0 +1,278 @@
+@{
+    ViewData["Title"] = "ייבוא נתונים ראשוני (AX-024)";
+    var results = (TempData["ImportResults"] as string ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries);
+}
+
+<div class="container mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>ייבוא נתונים ראשוני</h3>
+        <div class="d-flex gap-2">
+            <a asp-action="ProjectPrograms" class="btn btn-outline-primary btn-sm">ניהול תוכניות לפי פרויקט</a>
+            <a asp-action="ReportingMonths" class="btn btn-outline-secondary btn-sm">חזרה</a>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <strong>כלי זה מיועד לייבוא ראשוני בלבד.</strong>
+        רשומות קיימות (לפי תיאור / ת.ז) לא יידרסו — יידלגו.
+        קבצי xlsx נטענים דרך הטפסים הרגילים. קובץ טבלאות xlsb של הלקוח נטען דרך הטופס הייעודי למטה.
+    </div>
+
+    @if (results.Any())
+    {
+        <div class="alert alert-secondary">
+            <strong>תוצאות הייבוא האחרון:</strong>
+            <ul class="mb-0 mt-1">
+                @foreach (var line in results)
+                {
+                    <li>@line</li>
+                }
+            </ul>
+        </div>
+    }
+
+    <div class="row g-4">
+
+        <!-- Lookup Tables Import -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                    <strong>ייבוא טבלאות עזר</strong>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        העלה קובץ Excel עם גיליונות בעלי השמות הבאים.
+                        שורה 1 = כותרת, עמודה A = תיאור.
+                    </p>
+                    <table class="table table-sm table-bordered small mb-3">
+                        <thead class="table-light">
+                            <tr><th>שם גיליון</th><th>תוכן</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>מחוזות</td><td>מחוזות</td></tr>
+                            <tr><td>מגזרים</td><td>מגזרים</td></tr>
+                            <tr><td>ישובים</td><td>ישובים</td></tr>
+                            <tr><td>רשויות</td><td>רשויות</td></tr>
+                            <tr><td>פרויקטים</td><td>פרויקטים</td></tr>
+                            <tr><td>תוכניות</td><td>תוכניות</td></tr>
+                            <tr><td>מסגרות</td><td>מסגרות: A=שם, B=סמל מוסד, C=שלב חינוך</td></tr>
+                            <tr><td>נושאים</td><td>נושאי דיווח</td></tr>
+                            <tr><td>תחומים</td><td>תחומי דיווח</td></tr>
+                            <tr><td>תוכניות חינוכיות</td><td>תוכניות חינוכיות</td></tr>
+                            <tr><td>שכבות</td><td>שכבות גיל</td></tr>
+                            <tr><td>כיתות</td><td>כיתות</td></tr>
+                            <tr><td>קודי דיון</td><td>קודי דיון</td></tr>
+                            <tr><td>ישוב מחוז ארצי</td><td>איתור ישוב/מחוז/ארצי</td></tr>
+                            <tr><td>שלבי חינוך</td><td>שלבי חינוך</td></tr>
+                            <tr><td>רמות השכלה</td><td>רמות השכלה</td></tr>
+                        </tbody>
+                    </table>
+                    <form asp-action="ImportLookups" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">קובץ Excel (xlsx)</label>
+                            <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">ייבא טבלאות עזר</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Employee Import -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white">
+                    <strong>ייבוא עובדים</strong>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        העלה קובץ Excel עם גיליון אחד. שורה 1 = כותרת.
+                        סיסמת ברירת מחדל = מספר ת.ז. המשתמש יתבקש לשנות סיסמה בהתחברות ראשונה.
+                    </p>
+                    <table class="table table-sm table-bordered small mb-3">
+                        <thead class="table-light">
+                            <tr><th>עמודה</th><th>תוכן</th><th>חובה</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>A</td><td>קוד עובד</td><td></td></tr>
+                            <tr><td>B</td><td>ת.ז</td><td class="fw-bold text-danger">✓</td></tr>
+                            <tr><td>C</td><td>שם פרטי</td><td class="fw-bold text-danger">✓</td></tr>
+                            <tr><td>D</td><td>שם משפחה</td><td></td></tr>
+                            <tr><td>E</td><td>מייל</td><td></td></tr>
+                            <tr><td>F</td><td>טלפון</td><td></td></tr>
+                            <tr><td>G</td><td>תפקיד עובד (תיאור)</td><td></td></tr>
+                            <tr><td>H</td><td>הערות</td><td></td></tr>
+                        </tbody>
+                    </table>
+                    <form asp-action="ImportEmployees" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">קובץ Excel (xlsx)</label>
+                            <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
+                        </div>
+                        <button type="submit" class="btn btn-success btn-sm">ייבא עובדים</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Institution Import -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-info text-white">
+                    <strong>ייבוא מוסדות</strong>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        שורה 1 = כותרת. ערכי בחירה יכולים להיות קוד מספרי או תיאור מדויק.
+                    </p>
+                    <table class="table table-sm table-bordered small mb-3">
+                        <tbody>
+                            <tr><td>A</td><td>סמל מוסד</td><td class="fw-bold text-danger">✓</td></tr>
+                            <tr><td>B</td><td>שם מוסד</td><td class="fw-bold text-danger">✓</td></tr>
+                            <tr><td>C</td><td>ישוב</td><td></td></tr>
+                            <tr><td>D</td><td>מחוז</td><td></td></tr>
+                            <tr><td>E</td><td>מגזר</td><td></td></tr>
+                            <tr><td>F</td><td>סוג חינוך</td><td></td></tr>
+                            <tr><td>G</td><td>שלב חינוך</td><td></td></tr>
+                        </tbody>
+                    </table>
+                    <form asp-action="ImportInstitutions" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">קובץ Excel (xlsx)</label>
+                            <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
+                        </div>
+                        <button type="submit" class="btn btn-info btn-sm text-white">ייבא מוסדות</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Allocation Import -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-warning">
+                    <strong>ייבוא הקצאות</strong>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        ערכים מרובים מופרדים בנקודה-פסיק (;). ערכי בחירה יכולים להיות קוד מספרי או תיאור מדויק.
+                    </p>
+                    <table class="table table-sm table-bordered small mb-3">
+                        <tbody>
+                            <tr><td>A</td><td>ת.ז עובד</td><td class="fw-bold text-danger">✓</td></tr>
+                            <tr><td>B</td><td>פרויקט</td><td class="fw-bold text-danger">✓</td></tr>
+                            <tr><td>C-J</td><td>היקפים, שורות, משך תפוקה, העלאת אקסל, הערות</td><td></td></tr>
+                            <tr><td>K-V</td><td>מחוזות, תוכניות, מגזרים, ישובים, מסגרות, נושאים, תחומים, תוכניות חינוכיות, כיתות, שכבות, קודי דיון, ישוב/מחוז/ארצי</td><td></td></tr>
+                        </tbody>
+                    </table>
+                    <form asp-action="ImportAllocations" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">קובץ Excel (xlsx)</label>
+                            <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
+                        </div>
+                        <button type="submit" class="btn btn-warning btn-sm">ייבא הקצאות</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Questionnaire Catalog Import -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-secondary text-white">
+                    <strong>ייבוא קטלוג שאלונים</strong>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        מתאים לקובץ "קובץ משותף שאלונים לכל התוכניות". הייבוא קורא את הגיליון "כללי - מאוחד"
+                        ומוסיף ערכי בחירה חסרים לטבלאות הרלוונטיות.
+                    </p>
+                    <table class="table table-sm table-bordered small mb-3">
+                        <tbody>
+                            <tr><td>A</td><td>פרויקט</td></tr>
+                            <tr><td>B</td><td>תוכנית חינוכית</td></tr>
+                            <tr><td>C</td><td>תחום</td></tr>
+                            <tr><td>D-E</td><td>נושא 1 / נושא 2</td></tr>
+                            <tr><td>F</td><td>קוד דיון</td></tr>
+                            <tr><td>G,K</td><td>כיתות</td></tr>
+                            <tr><td>H</td><td>מסגרת חינוכית</td></tr>
+                            <tr><td>I</td><td>ישוב/מחוז/ארצי</td></tr>
+                            <tr><td>J</td><td>שכבה</td></tr>
+                        </tbody>
+                    </table>
+                    <form asp-action="ImportQuestionnaireCatalog" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">קובץ שאלונים (xlsx)</label>
+                            <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
+                        </div>
+                        <button type="submit" class="btn btn-secondary btn-sm">ייבא קטלוג שאלונים</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Client XLSB Lookup Import -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-dark text-white">
+                    <strong>ייבוא טבלאות לקוח xlsb</strong>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        מתאים לקובץ "טבלאות.xlsb". הייבוא קורא את הגיליונות "גיליון מרכז רשימות לפי שדות",
+                        "יישוב" ו-"מוסדות".
+                    </p>
+                    <ul class="small text-muted">
+                        <li>טבלאות בחירה: מחוזות, מגזרים, שלבי חינוך, פרויקטים, תוכניות חינוכיות, תחומים, נושאים, קודי דיון וכיתות.</li>
+                        <li>ישובים נטענים מהגיליון "יישוב".</li>
+                        <li>מוסדות ורמות השכלה נטענים מהגיליון "מוסדות".</li>
+                    </ul>
+                    <form asp-action="ImportClientLookupXlsb" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">קובץ טבלאות לקוח (xlsb)</label>
+                            <input type="file" name="file" accept=".xlsb" class="form-control form-control-sm" required />
+                        </div>
+                        <button type="submit" class="btn btn-dark btn-sm">ייבא טבלאות xlsb</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Batch Report Import (multi-employee) -->
+    <div class="card mt-4 border-primary">
+        <div class="card-header bg-primary text-white">
+            <strong>ייבוא דיווחים מרוכז — קובץ רב-עובדים</strong>
+        </div>
+        <div class="card-body">
+            <p class="mb-2">
+                העלאת קובץ אקסל יחיד המכיל דיווחים של מספר עובדים (מאות שורות). שורות תקינות נקלטות למערכת;
+                שגיאות מוצגות על המסך וניתנות להורדה כ-PDF. הודעת קליטה תישלח לכל עובד מדווח.
+            </p>
+            <a asp-action="BatchReportImport" class="btn btn-primary btn-sm">פתיחת טופס ייבוא מרוכז</a>
+        </div>
+    </div>
+
+    <!-- Download Template -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <strong>הוראות שימוש</strong>
+        </div>
+        <div class="card-body small">
+            <ol>
+                <li>צור קובץ Excel חדש עבור <strong>טבלאות עזר</strong>. לכל טבלה — גיליון נפרד עם שם מדויק כמו בטבלה למעלה. שורה 1 = כותרת ("תיאור"), שורה 2 ואילך = ערכים.</li>
+                <li>צור קובץ Excel נפרד עבור <strong>עובדים</strong>. גיליון אחד, שורה 1 = כותרת, שורה 2 ואילך = נתוני עובד לפי העמודות.</li>
+                <li>לקטלוג השאלונים ניתן להעלות את קובץ xlsx של השאלונים כפי שסופק, כל עוד קיים בו גיליון "כללי - מאוחד".</li>
+                <li>לאחר ייבוא העובדים, ניתן לייבא הקצאות מקובץ או להוסיף אותן דרך <a asp-controller="Employee" asp-action="Index">ניהול עובדים</a>.</li>
+                <li>לאחר ייבוא הנתונים, פתח חודש דיווח פעיל דרך <a asp-action="ReportingMonths">חודשי דיווח</a>.</li>
+            </ol>
+        </div>
+    </div>
+</div>

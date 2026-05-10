@@ -1,0 +1,200 @@
+@model AxiomaReporting.Web.Models.NotificationLogListViewModel
+@{
+  ViewData["Title"] = "יומן התראות";
+  var types = new[] { "", "Report", "Reminder", "Account", "Excel", "Other" };
+  var statuses = new[] { "", "Pending", "Sent", "Failed", "Abandoned" };
+}
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>יומן התראות — שליחת מיילים</h3>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="get" asp-action="NotificationLogs" class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label" for="type">סוג</label>
+          <select id="type" name="type" class="form-select form-select-sm">
+            @foreach (var t in types)
+            {
+              <option value="@t" selected="@(Model.Type == t)">@(string.IsNullOrEmpty(t) ? "כל הסוגים" : t)</option>
+            }
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="status">סטטוס</label>
+          <select id="status" name="status" class="form-select form-select-sm">
+            @foreach (var s in statuses)
+            {
+              <option value="@s" selected="@(Model.Status == s)">@(string.IsNullOrEmpty(s) ? "כל הסטטוסים" : s)</option>
+            }
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="templateType">תבנית</label>
+          <input id="templateType" name="templateType" value="@Model.TemplateType" class="form-control form-control-sm" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="fromDate">מתאריך</label>
+          <input id="fromDate" name="fromDate" type="date" value="@(Model.FromDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="toDate">עד תאריך</label>
+          <input id="toDate" name="toDate" type="date" value="@(Model.ToDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="recipientEmail">נמען (מייל)</label>
+          <input id="recipientEmail" name="recipientEmail" value="@Model.RecipientEmail" class="form-control form-control-sm" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="userId">מזהה משתמש</label>
+          <input id="userId" name="userId" type="number" value="@Model.UserId" class="form-control form-control-sm" />
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+          <button type="submit" class="btn btn-primary btn-sm">סנן</button>
+          <a asp-action="NotificationLogs" class="btn btn-outline-secondary btn-sm">איפוס</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table table-hover table-bordered mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">נוצר</th>
+            <th scope="col">סוג</th>
+            <th scope="col">תבנית</th>
+            <th scope="col">נמען</th>
+            <th scope="col">נושא</th>
+            <th scope="col">סטטוס</th>
+            <th scope="col">ניסיונות</th>
+            <th scope="col">ניסיון אחרון</th>
+            <th scope="col">ניסיון הבא</th>
+            <th scope="col">שגיאה</th>
+            <th scope="col">פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (!Model.Items.Any())
+          {
+            <tr><td colspan="11" class="text-center text-muted py-4">אין רשומות להצגה</td></tr>
+          }
+          @foreach (var it in Model.Items)
+          {
+            <tr>
+              <td>@it.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td>
+              <td>@it.NotificationType</td>
+              <td>@it.TemplateType</td>
+              <td>
+                @it.RecipientEmail
+                @if (!string.IsNullOrWhiteSpace(it.RecipientName))
+                {
+                  <div class="text-muted small">@it.RecipientName</div>
+                }
+              </td>
+              <td>@it.Subject</td>
+              <td>
+                @switch (it.Status)
+                {
+                  case "Sent":
+                    <span class="badge bg-success">נשלח</span>
+                    break;
+                  case "Failed":
+                    <span class="badge bg-warning text-dark">נכשל</span>
+                    break;
+                  case "Abandoned":
+                    <span class="badge bg-danger">ננטש</span>
+                    break;
+                  case "Pending":
+                    <span class="badge bg-secondary">ממתין</span>
+                    break;
+                  default:
+                    <span class="badge bg-light text-dark">@it.Status</span>
+                    break;
+                }
+              </td>
+              <td>@it.AttemptCount</td>
+              <td>@(it.LastAttemptAt?.ToString("dd/MM/yyyy HH:mm"))</td>
+              <td>@(it.NextRetryAt?.ToString("dd/MM/yyyy HH:mm"))</td>
+              <td class="text-truncate" style="max-width: 220px;" title="@it.FailureReason">@it.FailureReason</td>
+              <td>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                        data-bs-target="#detailsModal" data-id="@it.Id" aria-label="הצג פרטי התראה">
+                  פרטים
+                </button>
+                @if (it.Status == "Failed" || it.Status == "Abandoned" || it.Status == "Sent")
+                {
+                  <form asp-action="ResendNotification" asp-route-id="@it.Id" method="post" class="d-inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-sm btn-outline-warning"
+                            onclick="return confirm('לשלוח את ההתראה שוב?')">שלח שוב</button>
+                  </form>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  @if (Model.TotalPages > 1)
+  {
+    <nav aria-label="ניווט עמודים" class="mt-3">
+      <ul class="pagination pagination-sm">
+        @for (int p = 1; p <= Model.TotalPages; p++)
+        {
+          <li class="page-item @(p == Model.Page ? "active" : "")">
+            <a class="page-link"
+               asp-action="NotificationLogs"
+               asp-route-page="@p"
+               asp-route-pageSize="@Model.PageSize"
+               asp-route-type="@Model.Type"
+               asp-route-status="@Model.Status"
+               asp-route-templateType="@Model.TemplateType"
+               asp-route-fromDate="@(Model.FromDate?.ToString("yyyy-MM-dd"))"
+               asp-route-toDate="@(Model.ToDate?.ToString("yyyy-MM-dd"))"
+               asp-route-recipientEmail="@Model.RecipientEmail"
+               asp-route-userId="@Model.UserId">@p</a>
+          </li>
+        }
+      </ul>
+    </nav>
+  }
+
+  <div class="text-muted small mt-2">סה"כ: @Model.TotalCount רשומות</div>
+</div>
+
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailsModalTitle">פרטי התראה</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון"></button>
+      </div>
+      <div class="modal-body" id="detailsModalBody">
+        <div class="text-center text-muted py-4">טוען...</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+  <script>
+    document.getElementById('detailsModal').addEventListener('show.bs.modal', function (event) {
+      var button = event.relatedTarget;
+      var id = button.getAttribute('data-id');
+      var body = document.getElementById('detailsModalBody');
+      body.innerHTML = '<div class="text-center text-muted py-4">טוען...</div>';
+      fetch('@Url.Action("NotificationLogDetails", "Admin")?id=' + encodeURIComponent(id))
+        .then(r => r.text())
+        .then(html => { body.innerHTML = html; })
+        .catch(() => { body.innerHTML = '<div class="alert alert-danger">שגיאה בטעינת פרטים</div>'; });
+    });
+  </script>
+}

@@ -1,0 +1,16 @@
+@model AxiomaReporting.Web.ViewComponents.SiteLogoModel
+@{
+  // Url.Content expects "~/foo" form. SystemConstants values start with "/".
+  var src = Model.Path.StartsWith("~") ? Url.Content(Model.Path) : Model.Path;
+  string? style = Model.MaxHeightPx.HasValue
+    ? $"max-height:{Model.MaxHeightPx.Value}px; width:auto;"
+    : null;
+}
+@if (style is null)
+{
+  <img src="@src" alt="@Model.Alt" class="@Model.CssClass" />
+}
+else
+{
+  <img src="@src" alt="@Model.Alt" class="@Model.CssClass" style="@style" />
+}

@@ -1,0 +1,76 @@
+## .NET / C#
+
+# Build outputs
+bin/
+obj/
+
+## Python (seed scripts)
+
+# Bytecode cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code
+.vscode/
+
+# Rider
+.idea/
+
+# Test results
+TestResults/
+coverage/
+*.trx
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!**/packages/repositories.config
+.nuget/
+
+# ASP.NET Core
+wwwroot/lib/
+
+# Publish output
+publish/
+_publish/
+
+# User secrets
+secrets.json
+appsettings.*.json
+!appsettings.Development.json
+.claude/settings.local.json
+
+# Logs
+*.log
+logs/
+.run-web*.log
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Entity Framework migrations (keep the folder, ignore nothing — migrations are checked in)
+# Add exceptions here if needed
+
+# Temp files
+*.tmp
+*.temp
+
+# Azure artifacts
+**/azureauth.json

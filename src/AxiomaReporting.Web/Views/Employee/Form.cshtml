@@ -1,0 +1,223 @@
+﻿@model AxiomaReporting.Core.DTOs.EmployeeDto
+@using AxiomaReporting.Web.Helpers
+@{
+  bool isEdit = ViewBag.IsEdit == true;
+  ViewData["Title"] = isEdit ? "עריכת עובד" : "הוספת עובד";
+  // Server-side rest-day allowlist (Sun/Fri/Sat only) per client Fix #8.
+  var restDays = SelectListProviders.RestDayOptionsWithSelection(Model.RestDay);
+  bool isAdminOrPM = ViewBag.IsAdminOrPM == true;
+  var attachments = ViewBag.Attachments as List<AxiomaReporting.Core.Entities.DocumentAttachment>
+    ?? new List<AxiomaReporting.Core.Entities.DocumentAttachment>();
+}
+
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>@ViewData["Title"]</h3>
+    <a asp-action="Index" class="btn btn-outline-secondary">חזרה לרשימה</a>
+  </div>
+
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
+      @TempData["Success"]
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
+    </div>
+  }
+
+  <form method="post" asp-action="@(isEdit ? "Edit" : "Create")"
+        asp-route-id="@Model.Id">
+    @Html.AntiForgeryToken()
+
+    <div class="card border-primary">
+      <div class="card-header bg-primary text-white fw-bold">פרטי עובד</div>
+      <div class="card-body">
+        <div class="row g-3">
+
+          <div class="col-md-4">
+            <label asp-for="EmployeeCode" class="form-label">קוד עובד <span class="text-danger">*</span></label>
+            <input asp-for="EmployeeCode" class="form-control" required inputmode="numeric" pattern="\d*" />
+            <span asp-validation-for="EmployeeCode" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="IdNumber" class="form-label">מספר זהות <span class="text-danger">*</span></label>
+            <input asp-for="IdNumber" class="form-control" required
+                   data-val-israeliid="מספר תעודת זהות אינו תקין" />
+            <span asp-validation-for="IdNumber" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="FirstName" class="form-label">שם פרטי <span class="text-danger">*</span></label>
+            <input asp-for="FirstName" class="form-control" required />
+            <span asp-validation-for="FirstName" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="LastName" class="form-label">שם משפחה <span class="text-danger">*</span></label>
+            <input asp-for="LastName" class="form-control" required />
+            <span asp-validation-for="LastName" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="Email" class="form-label">דוא"ל</label>
+            <input asp-for="Email" type="email" class="form-control" />
+            <span asp-validation-for="Email" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="Phone" class="form-label">טלפון</label>
+            <input asp-for="Phone" class="form-control"
+                   data-val-israeliphone="מספר טלפון אינו תקין" />
+            <span asp-validation-for="Phone" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="RoleId" class="form-label">תפקיד <span class="text-danger">*</span></label>
+            <select asp-for="RoleId" asp-items="ViewBag.EmployeeRoles" class="form-select">
+              <option value="">-- בחר תפקיד --</option>
+            </select>
+            <span asp-validation-for="RoleId" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            @if (isAdminOrPM)
+            {
+              <label asp-for="UserRoleId" class="form-label">תפקיד מערכת <span class="text-danger">*</span></label>
+              <select asp-for="UserRoleId" asp-items="ViewBag.UserRoles" class="form-select">
+                <option value="">-- בחר תפקיד מערכת --</option>
+              </select>
+              <span asp-validation-for="UserRoleId" class="text-danger small"></span>
+            }
+            else
+            {
+              <label class="form-label">תפקיד מערכת</label>
+              <input type="hidden" asp-for="UserRoleId" />
+              <input type="text" class="form-control" readonly
+                     value="@(ViewBag.UserRoles is Microsoft.AspNetCore.Mvc.Rendering.SelectList sl ? sl.FirstOrDefault(x => x.Value == Model.UserRoleId.ToString())?.Text : "")" />
+            }
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="StatusId" class="form-label">סטטוס <span class="text-danger">*</span></label>
+            <select asp-for="StatusId" asp-items="ViewBag.Statuses" class="form-select">
+              <option value="">-- בחר סטטוס --</option>
+            </select>
+            <span asp-validation-for="StatusId" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4">
+            <label asp-for="RestDay" class="form-label">יום מנוחה</label>
+            <select asp-for="RestDay" class="form-select">
+              @foreach (var day in restDays)
+              {
+                <option value="@day.Value" selected="@day.Selected">@day.Text</option>
+              }
+            </select>
+            <span asp-validation-for="RestDay" class="text-danger small"></span>
+          </div>
+
+          <div class="col-12">
+            <label asp-for="Notes" class="form-label">הערות</label>
+            <textarea asp-for="Notes" class="form-control" rows="3"></textarea>
+            <span asp-validation-for="Notes" class="text-danger small"></span>
+          </div>
+
+          <div class="col-md-4 d-flex align-items-center gap-3 mt-2">
+            <div class="form-check">
+              <input asp-for="IsReportingEmployee" class="form-check-input" type="checkbox"
+                     id="isReportingEmployee" />
+              <label asp-for="IsReportingEmployee" class="form-check-label" for="isReportingEmployee">
+                עובד מדווח
+              </label>
+            </div>
+            <div class="form-check">
+              <input asp-for="AllowFutureReporting" class="form-check-input" type="checkbox"
+                     id="allowFutureReporting" />
+              <label asp-for="AllowFutureReporting" class="form-check-label" for="allowFutureReporting">
+                אפשר דיווח עתידי
+              </label>
+            </div>
+          </div>
+
+          @if (isEdit)
+          {
+            <div class="col-12">
+              <a asp-action="Allocations" asp-route-id="@Model.Id" class="btn btn-outline-success">
+                ניהול הקצאות
+              </a>
+            </div>
+          }
+
+        </div>
+      </div>
+      <div class="card-footer d-flex gap-2">
+        <button type="submit" class="btn btn-primary">שמור</button>
+        <a asp-action="Index" class="btn btn-outline-secondary">ביטול</a>
+      </div>
+    </div>
+  </form>
+
+  @if (isEdit)
+  {
+    <div class="card mt-3">
+      <div class="card-header fw-bold">מסמכי עובד</div>
+      <div class="card-body">
+        <form asp-action="UploadAttachment" asp-route-id="@Model.Id" method="post"
+              enctype="multipart/form-data" class="d-flex gap-2 align-items-center mb-3">
+          @Html.AntiForgeryToken()
+          <input type="file" name="file" class="form-control" required />
+          <button type="submit" class="btn btn-outline-primary">העלה מסמך</button>
+        </form>
+
+        @if (attachments.Any())
+        {
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>שם קובץ</th>
+                  <th>גודל</th>
+                  <th>תאריך העלאה</th>
+                  <th>פעולות</th>
+                </tr>
+              </thead>
+              <tbody>
+                @foreach (var file in attachments)
+                {
+                  <tr>
+                    <td><a href="@file.FilePath" target="_blank">@file.FileName</a></td>
+                    <td>@(Math.Round(file.FileSize / 1024m, 1)) KB</td>
+                    <td>@file.UploadedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td>
+                      <form asp-action="DeleteAttachment" asp-route-id="@Model.Id" method="post"
+                            onsubmit="return confirm('למחוק את המסמך?')" style="display:inline">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="attachmentId" value="@file.Id" />
+                        <button type="submit" class="btn btn-sm btn-outline-danger">מחק</button>
+                      </form>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+        else
+        {
+          <div class="text-muted">אין מסמכים לעובד.</div>
+        }
+      </div>
+    </div>
+  }
+</div>
+
+@section Scripts {
+  @await Html.PartialAsync("_ValidationScriptsPartial")
+  <script>
+    // Show allocations link when IsReportingEmployee is checked (for new employee after save)
+    document.getElementById('isReportingEmployee').addEventListener('change', function () {
+      const hint = document.getElementById('allocationHint');
+      if (hint) hint.classList.toggle('d-none', !this.checked);
+    });
+  </script>
+}
