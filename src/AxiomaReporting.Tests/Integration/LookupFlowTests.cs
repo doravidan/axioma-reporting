@@ -183,7 +183,7 @@ public class LookupFlowTests : IDisposable
     var client = await SignInAdmin();
 
     // Activate month2 via the admin route.
-    // The ActivateReportingMonth action uses ExecuteUpdateAsync (to deactivate all) then
+    // The ActivateReportingMonth action deactivates all months, then
     // FindAsync + SaveChanges (to activate the chosen month).
     // In the EF Core 8 in-memory provider both operations work — verify via DB after the POST.
     var monthsHtml = await client.GetStringAsync("/Admin/ReportingMonths");

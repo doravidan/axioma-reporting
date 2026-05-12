@@ -163,10 +163,20 @@
       <div class="card-header fw-bold">מסמכי עובד</div>
       <div class="card-body">
         <form asp-action="UploadAttachment" asp-route-id="@Model.Id" method="post"
-              enctype="multipart/form-data" class="d-flex gap-2 align-items-center mb-3">
+              enctype="multipart/form-data" class="row g-2 align-items-end mb-3">
           @Html.AntiForgeryToken()
-          <input type="file" name="file" class="form-control" required />
-          <button type="submit" class="btn btn-outline-primary">העלה מסמך</button>
+          <div class="col-md-4">
+            <label for="employeeAttachmentFile" class="form-label">קובץ</label>
+            <input type="file" id="employeeAttachmentFile" name="file" class="form-control" required />
+          </div>
+          <div class="col-md-6">
+            <label for="employeeAttachmentDescription" class="form-label">תיאור</label>
+            <input type="text" id="employeeAttachmentDescription" name="description" class="form-control"
+                   maxlength="1000" />
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-primary w-100">העלה מסמך</button>
+          </div>
         </form>
 
         @if (attachments.Any())
@@ -176,6 +186,7 @@
               <thead>
                 <tr>
                   <th>שם קובץ</th>
+                  <th>תיאור</th>
                   <th>גודל</th>
                   <th>תאריך העלאה</th>
                   <th>פעולות</th>
@@ -186,6 +197,7 @@
                 {
                   <tr>
                     <td><a href="@file.FilePath" target="_blank">@file.FileName</a></td>
+                    <td>@(string.IsNullOrWhiteSpace(file.Description) ? "-" : file.Description)</td>
                     <td>@(Math.Round(file.FileSize / 1024m, 1)) KB</td>
                     <td>@file.UploadedAt.ToString("dd/MM/yyyy HH:mm")</td>
                     <td>

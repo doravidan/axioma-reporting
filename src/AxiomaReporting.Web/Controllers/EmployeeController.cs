@@ -22,6 +22,7 @@ public class EmployeeController : Controller
   private static readonly HashSet<string> AllowedAttachmentExtensions =
     new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx" };
   private const long MaxAttachmentBytes = 10 * 1024 * 1024;
+  private const int MaxAttachmentDescriptionLength = 1000;
 
   private readonly IEmployeeService _employeeService;
   private readonly ICurrentUserService _currentUser;
@@ -324,7 +325,7 @@ public class EmployeeController : Controller
   [HttpPost]
   [ValidateAntiForgeryToken]
   [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
-  public async Task<IActionResult> UploadAttachment(int id, IFormFile file)
+  public async Task<IActionResult> UploadAttachment(int id, IFormFile file, string? description)
   {
     var user = await _employeeService.GetByIdAsync(id);
     if (user == null) return NotFound();
@@ -352,6 +353,11 @@ public class EmployeeController : Controller
     Directory.CreateDirectory(uploadsDir);
     var storedFileName = $"{Guid.NewGuid()}{extension}";
     var filePath = Path.Combine(uploadsDir, storedFileName);
+    var attachmentDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+    if (attachmentDescription?.Length > MaxAttachmentDescriptionLength)
+    {
+      attachmentDescription = attachmentDescription.Substring(0, MaxAttachmentDescriptionLength);
+    }
 
     await using (var stream = new FileStream(filePath, FileMode.CreateNew))
       await file.CopyToAsync(stream);
@@ -360,6 +366,7 @@ public class EmployeeController : Controller
     {
       UserId = id,
       FileName = Path.GetFileName(file.FileName),
+      Description = attachmentDescription,
       FilePath = $"/uploads/employees/{storedFileName}",
       FileSize = file.Length,
       MimeType = file.ContentType,
@@ -423,20 +430,14 @@ public class EmployeeController : Controller
     var user = await _employeeService.GetByIdAsync(id);
     if (user == null) return NotFound();
 
-    var allocations = await _employeeService.GetAllocationsAsync(id);
-
-    ViewBag.Employee = user;
-    ViewBag.SelectedAllocationId = Request.Query.TryGetValue("allocationId", out var allocationId)
-      && int.TryParse(allocationId, out var selectedAllocationId)
-        ? selectedAllocationId
-        : (int?)null;
-    await PopulateAllocationDropdownsAsync(projectId: null);
-    ViewBag.OutputDurationOptions = OUTPUT_DURATION_OPTIONS;
-    ViewBag.ReportingMonths = await _db.ReportingMonths
-      .OrderByDescending(m => m.Year)
-      .ThenByDescending(m => m.Month)
-      .ToListAsync();
-    return View(allocations);
+    return RedirectToAction("Index", "Allocations", new
+    {
+      employeeId = user.Id,
+      employeeCode = user.EmployeeCode,
+      idNumber = user.IdNumber,
+      showAll = true,
+      pageSize = 500
+    });
   }
 
   [HttpPost]
@@ -488,7 +489,7 @@ public class EmployeeController : Controller
   [HttpPost]
   [ValidateAntiForgeryToken]
   [Route("Employee/{id}/Allocations/Create")]
-  public async Task<IActionResult> CreateAllocation(int id, AllocationDto dto)
+  public async Task<IActionResult> CreateAllocation(int id, AllocationDto dto, bool continueAdding = false)
   {
     dto.UserId = id;
     AddValidationErrors(new AllocationValidator().Validate(dto));
@@ -505,6 +506,9 @@ public class EmployeeController : Controller
 
     await _employeeService.CreateAllocationAsync(dto);
     TempData["Success"] = "ההקצאה נוצרה בהצלחה";
+    if (continueAdding)
+      return RedirectToAction(nameof(CreateAllocation), new { id });
+
     return RedirectToAction(nameof(Allocations), new { id });
   }
 
@@ -587,7 +591,7 @@ public class EmployeeController : Controller
     if (!updated) return NotFound();
 
     TempData["Success"] = "ההקצאה עודכנה בהצלחה";
-    return RedirectToAction(nameof(Allocations), new { id });
+    return RedirectToAction(nameof(EditAllocation), new { id, allocationId });
   }
 
   // POST /Employee/{id}/Allocations/{allocationId}/Delete
@@ -644,13 +648,8 @@ public class EmployeeController : Controller
       return RedirectToFilteredIndex();
     }
 
-    var existingUserIds = await _db.Allocations
-      .Where(a => selectedIds.Contains(a.UserId) && a.ProjectId == bulkProjectId)
-      .Select(a => a.UserId)
-      .ToListAsync();
-
     var created = 0;
-    foreach (var userId in selectedIds.Distinct().Except(existingUserIds))
+    foreach (var userId in selectedIds.Distinct())
     {
       _db.Allocations.Add(new Allocation
       {
@@ -669,38 +668,17 @@ public class EmployeeController : Controller
 
   [HttpGet]
   [Route("Employee/AllocationList")]
-  public async Task<IActionResult> AllocationList(AllocationListFilterModel filter)
+  public IActionResult AllocationList(AllocationListFilterModel filter)
   {
-    filter.Normalize();
-    var query = AllocationListQuery(filter);
-    var total = await query.CountAsync();
-    var page = Math.Max(filter.Page, 1);
-    var pageSize = filter.PageSize is < 1 or > 500 ? 20 : filter.PageSize;
-
-    var allocations = await ApplyAllocationSort(query, filter.SortBy, filter.SortDesc)
-      .Skip((page - 1) * pageSize)
-      .Take(pageSize)
-      .ToListAsync();
-
-    ViewBag.Filter = filter;
-    ViewBag.Search = filter.Search;
-    ViewBag.ProjectId = filter.ProjectId;
-    ViewBag.SortBy = filter.SortBy;
-    ViewBag.SortDesc = filter.SortDesc;
-    ViewBag.Page = page;
-    ViewBag.PageSize = pageSize;
-    ViewBag.TotalPages = (int)Math.Ceiling((double)total / pageSize);
-    ViewBag.Projects = await _db.Projects.Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync();
-    ViewBag.AllPrograms = await _db.Programs.Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync();
-    ViewBag.AllDistricts = await _db.Districts.Where(d => d.IsActive).OrderBy(d => d.Description).ToListAsync();
-    ViewBag.AllSectors = await _db.Sectors.Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync();
-    ViewBag.OutputDurationOptions = OUTPUT_DURATION_OPTIONS;
-    return View(allocations);
+    return RedirectToAction("Index", "Allocations", AllocationRouteValues(filter));
   }
 
   [HttpGet]
   public async Task<IActionResult> ExportAllocationsExcel(AllocationListFilterModel filter)
   {
+    return RedirectToAction("ExportExcel", "Allocations", AllocationRouteValues(filter));
+
+#pragma warning disable CS0162
     filter.Normalize();
     var allocations = await AllocationListQuery(filter)
       .OrderBy(a => a.User!.LastName)
@@ -713,7 +691,8 @@ public class EmployeeController : Controller
     var headers = new[]
     {
       "פרויקט", "תוכנית", "מחוז", "מגזר", "ת.ז", "קוד עובד", "שם פרטי", "שם משפחה",
-      "היקף פעילות חודשי", "היקף פעילות שנתי", "משך תפוקה", "הערות", "אפשר העלאת קובץ דיווח"
+      "היקף פעילות חודשי", "היקף פעילות יומי", "היקף פעילות שנתי", "הקצאת שורות חודשית",
+      "הקצאת שורות שנתית", "משך תפוקה", "הערות", "אפשר העלאת קובץ דיווח"
     };
     for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
 
@@ -729,10 +708,13 @@ public class EmployeeController : Controller
       ws.Cell(row, 7).Value = a.User?.FirstName;
       ws.Cell(row, 8).Value = a.User?.LastName;
       if (a.MonthlyEmploymentScope.HasValue) ws.Cell(row, 9).Value = (double)a.MonthlyEmploymentScope.Value;
-      if (a.AnnualEmploymentScope.HasValue) ws.Cell(row, 10).Value = (double)a.AnnualEmploymentScope.Value;
-      ws.Cell(row, 11).Value = a.OutputDuration;
-      ws.Cell(row, 12).Value = a.Notes;
-      ws.Cell(row, 13).Value = a.AllowExcelUpload ? "כן" : "לא";
+      ws.Cell(row, 10).Value = a.DailyEmploymentScope?.ToString("0.##") ?? "ללא הגבלה";
+      if (a.AnnualEmploymentScope.HasValue) ws.Cell(row, 11).Value = (double)a.AnnualEmploymentScope.Value;
+      if (a.MonthlyRowAllocation.HasValue) ws.Cell(row, 12).Value = a.MonthlyRowAllocation.Value;
+      if (a.AnnualRowAllocation.HasValue) ws.Cell(row, 13).Value = a.AnnualRowAllocation.Value;
+      ws.Cell(row, 14).Value = a.OutputDuration;
+      ws.Cell(row, 15).Value = a.Notes;
+      ws.Cell(row, 16).Value = a.AllowExcelUpload ? "כן" : "לא";
       row++;
     }
 
@@ -742,6 +724,7 @@ public class EmployeeController : Controller
     return File(stream.ToArray(),
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       $"employee_allocations_{DateTime.Now:yyyy-MM-dd}.xlsx");
+#pragma warning restore CS0162
   }
 
   // GET /Employee/ExportExcel
@@ -866,7 +849,7 @@ public class EmployeeController : Controller
 
   /// <summary>
   /// Build route values that preserve the active filter / sort / paging state across a
-  /// POST → RedirectToAction(Index) cycle (client Fix #14).
+  /// POST -> RedirectToAction(Index) cycle (client Fix #14).
   /// Reads from <c>Request.Form</c> first (the row-action form may carry hidden filter inputs),
   /// then <c>Request.Query</c> (when the form has no filter inputs but the user came from a
   /// filtered list URL).
@@ -925,6 +908,40 @@ public class EmployeeController : Controller
 
   private IActionResult RedirectToFilteredIndex() =>
     RedirectToAction(nameof(Index), CurrentFilterRouteValues());
+
+  private static Dictionary<string, object?> AllocationRouteValues(AllocationListFilterModel filter)
+  {
+    filter.Normalize();
+    var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+    {
+      ["search"] = filter.Search,
+      ["projectId"] = filter.ProjectId,
+      ["idNumber"] = filter.IdNumber,
+      ["employeeCode"] = filter.EmployeeCode,
+      ["firstName"] = filter.FirstName,
+      ["lastName"] = filter.LastName,
+      ["monthlyEmploymentScope"] = filter.MonthlyEmploymentScope,
+      ["annualEmploymentScope"] = filter.AnnualEmploymentScope,
+      ["notes"] = filter.Notes,
+      ["showAll"] = filter.ShowAll ? true : null,
+      ["sortBy"] = filter.SortBy,
+      ["sortDesc"] = filter.SortDesc ? true : null,
+      ["page"] = filter.Page > 1 ? filter.Page : null,
+      ["pageSize"] = filter.PageSize != 25 ? filter.PageSize : null
+    };
+
+    AddIndexed(values, "programIds", filter.ProgramIds);
+    AddIndexed(values, "districtIds", filter.DistrictIds);
+    AddIndexed(values, "sectorIds", filter.SectorIds);
+    AddIndexed(values, "outputDurations", filter.OutputDurations);
+    return values;
+  }
+
+  private static void AddIndexed<T>(Dictionary<string, object?> values, string key, IReadOnlyList<T> items)
+  {
+    for (var i = 0; i < items.Count; i++)
+      values[$"{key}[{i}]"] = items[i];
+  }
 
   private void AddValidationErrors(FluentValidation.Results.ValidationResult result)
   {
@@ -1096,7 +1113,7 @@ public class EmployeeController : Controller
       .ToListAsync();
   }
 
-  // GET /Employee/ProgramsForProject?projectId=N — JSON endpoint for cascading Program dropdown.
+  // GET /Employee/ProgramsForProject?projectId=N - JSON endpoint for cascading Program dropdown.
   [HttpGet]
   [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
   public async Task<IActionResult> ProgramsForProject(int projectId)

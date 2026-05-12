@@ -11,6 +11,7 @@ public class DocumentAttachmentConfiguration : IEntityTypeConfiguration<Document
     builder.ToTable("DocumentAttachments");
     builder.HasKey(e => e.Id);
     builder.Property(e => e.FileName).HasMaxLength(500).IsRequired();
+    builder.Property(e => e.Description).HasMaxLength(1000);
     builder.Property(e => e.FilePath).HasMaxLength(1000).IsRequired();
     builder.Property(e => e.MimeType).HasMaxLength(200).IsRequired();
 
@@ -23,6 +24,11 @@ public class DocumentAttachmentConfiguration : IEntityTypeConfiguration<Document
       .WithMany()
       .HasForeignKey(e => e.ReportRowId)
       .OnDelete(DeleteBehavior.Cascade);
+
+    builder.HasOne(e => e.Report)
+      .WithMany()
+      .HasForeignKey(e => e.ReportId)
+      .OnDelete(DeleteBehavior.NoAction);
 
     builder.HasOne(e => e.UploadedByUser)
       .WithMany()

@@ -176,14 +176,12 @@ namespace AxiomaReporting.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_Action_Timestamp",
                 table: "AuditLogs",
-                columns: new[] { "Action", "Timestamp" },
-                descending: new[] { false, true });
+                columns: new[] { "Action", "Timestamp" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_ActorUserId_Timestamp",
                 table: "AuditLogs",
-                columns: new[] { "ActorUserId", "Timestamp" },
-                descending: new[] { false, true });
+                columns: new[] { "ActorUserId", "Timestamp" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_EntityType_EntityId",
@@ -193,14 +191,12 @@ namespace AxiomaReporting.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_Timestamp",
                 table: "AuditLogs",
-                column: "Timestamp",
-                descending: new bool[0]);
+                column: "Timestamp");
 
             migrationBuilder.CreateIndex(
                 name: "IX_NotificationLogs_RecipientUserId_CreatedAt",
                 table: "NotificationLogs",
-                columns: new[] { "RecipientUserId", "CreatedAt" },
-                descending: new[] { false, true });
+                columns: new[] { "RecipientUserId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_NotificationLogs_RelatedReportId",
@@ -220,8 +216,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_NotificationLogs_TemplateType_CreatedAt",
                 table: "NotificationLogs",
-                columns: new[] { "TemplateType", "CreatedAt" },
-                descending: new[] { false, true });
+                columns: new[] { "TemplateType", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_TermsOfUseAcceptances_UserId_VersionId",

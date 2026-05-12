@@ -184,6 +184,24 @@ public class ReportExcelImportServiceTests : IDisposable
     _db.ReportRows.Select(r => r.Notes).Should().BeEquivalentTo("first row", "second row");
   }
 
+  [Fact]
+  public async Task ImportAsync_ClientHebrewWorkbook_WithDifferentEmployeeCode_ReturnsErrorWithoutSavingRows()
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.AddWorksheet("Rows");
+    AddClientHebrewHeader(ws, 2);
+    AddClientHebrewDataRow(ws, 3, "wrong employee");
+    ws.Cell(3, 2).Value = "OTHER_EMPLOYEE";
+
+    using var stream = ToStream(workbook);
+
+    var result = await _sut.ImportAsync(1, 1, stream, 1);
+
+    result.Success.Should().BeFalse();
+    result.Errors.Should().ContainSingle(e => e.Contains("קוד העובד בקובץ"));
+    _db.ReportRows.Should().BeEmpty();
+  }
+
   private static MemoryStream ValidWorkbook()
   {
     using var workbook = new XLWorkbook();

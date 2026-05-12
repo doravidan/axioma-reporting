@@ -34,6 +34,11 @@ builder.Services.AddScoped<AxiomaReporting.Web.Authorization.RequireTermsAccepte
 builder.Services.AddControllersWithViews(options =>
 {
   options.Filters.AddService<AxiomaReporting.Web.Authorization.RequireTermsAcceptedFilter>();
+  options.ModelBindingMessageProvider.SetValueMustNotBeNullAccessor(_ => "יש לבחור ערך");
+  options.ModelBindingMessageProvider.SetAttemptedValueIsInvalidAccessor((value, field) => "הערך שנבחר אינו תקין");
+  options.ModelBindingMessageProvider.SetMissingBindRequiredValueAccessor(field => $"חסר ערך חובה: {field}");
+  options.ModelBindingMessageProvider.SetMissingKeyOrValueAccessor(() => "חסר ערך חובה");
+  options.ModelBindingMessageProvider.SetValueIsInvalidAccessor(value => "הערך שנבחר אינו תקין");
 });
 
 var useDemoInMemory = string.Equals(

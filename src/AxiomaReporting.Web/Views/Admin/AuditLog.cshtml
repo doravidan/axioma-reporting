@@ -1,6 +1,42 @@
 @model AxiomaReporting.Web.Models.AuditLogListViewModel
 @{
   ViewData["Title"] = "יומן ביקורת";
+  string ActionLabel(string? value) => value switch
+  {
+    "Auth.LoginSucceeded" => "כניסה הצליחה",
+    "Auth.LoginFailed" => "כניסה נכשלה",
+    "Auth.Lockout" => "נעילת חשבון",
+    "Auth.Unlock" => "שחרור נעילה",
+    "User.PasswordReset" => "איפוס סיסמה",
+    "User.PasswordChanged" => "שינוי סיסמה",
+    "Employee.Create" => "יצירת עובד",
+    "Employee.Update" => "עדכון עובד",
+    "Employee.Deactivate" => "השבתת עובד",
+    "Employee.Reactivate" => "הפעלת עובד",
+    "Allocation.Create" => "יצירת הקצאה",
+    "Allocation.Update" => "עדכון הקצאה",
+    "Allocation.Delete" => "מחיקת הקצאה",
+    "Report.StatusChange" => "שינוי סטטוס דיווח",
+    "Terms.Accept" => "אישור תנאי שימוש",
+    _ => string.IsNullOrWhiteSpace(value) ? "" : "פעולת מערכת"
+  };
+  string EntityLabel(string? value) => value switch
+  {
+    "User" => "משתמש",
+    "Allocation" => "הקצאה",
+    "Report" => "דיווח",
+    "ReportRow" => "שורת דיווח",
+    "TermsOfUseVersion" => "גרסת תנאי שימוש",
+    _ => string.IsNullOrWhiteSpace(value) ? "" : "ישות מערכת"
+  };
+  string EntityIdLabel(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+      ? ""
+      : (System.Text.RegularExpressions.Regex.IsMatch(value, "[A-Za-z]") ? "מזהה מערכת" : value);
+  string NotesLabel(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+      ? ""
+      : (System.Text.RegularExpressions.Regex.IsMatch(value, "[A-Za-z]") ? "מידע מערכת" : value);
 }
 <div class="container-fluid mt-3" dir="rtl">
   <div class="d-flex justify-content-between align-items-center mb-3">
@@ -82,15 +118,15 @@
                   <span class="text-muted">—</span>
                 }
               </td>
-              <td><code>@item.Action</code></td>
-              <td>@item.EntityType</td>
-              <td>@item.EntityId</td>
-              <td class="small text-muted">@item.Notes</td>
+              <td>@ActionLabel(item.Action)</td>
+              <td>@EntityLabel(item.EntityType)</td>
+              <td>@EntityIdLabel(item.EntityId)</td>
+              <td class="small text-muted">@NotesLabel(item.Notes)</td>
               <td class="small">@item.IpAddress</td>
               <td>
                 <button type="button" class="btn btn-sm btn-outline-secondary btn-details"
                         data-before="@item.Before" data-after="@item.After"
-                        data-action-text="@item.Action" data-entity="@(item.EntityType + " " + item.EntityId)"
+                        data-action-text="@ActionLabel(item.Action)" data-entity="@(EntityLabel(item.EntityType) + " " + EntityIdLabel(item.EntityId))"
                         aria-label="הצג פרטים">פרטים</button>
               </td>
             </tr>

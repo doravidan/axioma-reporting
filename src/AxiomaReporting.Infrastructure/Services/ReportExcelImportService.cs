@@ -87,6 +87,13 @@ public class ReportExcelImportService : IReportExcelImportService
         if (IsEmptyDataRow(excelRow, clientHebrewFormat)) continue;
         if (clientHebrewFormat && IsClientHebrewHeaderRow(excelRow)) continue;
 
+        if (clientHebrewFormat && !IsRowForReportEmployee(excelRow, report.User))
+        {
+          var uploadedEmployeeCode = excelRow.Cell(2).GetString();
+          result.Errors.Add($"שורה {rowNumber}: קוד העובד בקובץ ({uploadedEmployeeCode}) אינו תואם לעובד שעבורו הועלה הדיווח ({report.User.EmployeeCode})");
+          continue;
+        }
+
         var row = clientHebrewFormat
           ? await ParseClientHebrewRowAsync(excelRow, reportId, allocationId)
           : ParseRow(excelRow, reportId, allocationId);
@@ -201,6 +208,14 @@ public class ReportExcelImportService : IReportExcelImportService
   {
     var columns = clientHebrewFormat ? Enumerable.Range(2, 18) : Enumerable.Range(1, 16);
     return columns.All(c => row.Cell(c).IsEmpty() || string.IsNullOrWhiteSpace(row.Cell(c).GetString()));
+  }
+
+  private static bool IsRowForReportEmployee(IXLRow row, User employee)
+  {
+    var employeeCode = row.Cell(2).GetString().Trim();
+    if (string.IsNullOrWhiteSpace(employeeCode)) return true;
+    return string.Equals(employeeCode, employee.EmployeeCode, StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(employeeCode, employee.IdNumber, StringComparison.OrdinalIgnoreCase);
   }
 
   private static ReportRow ParseRow(IXLRow row, int reportId, int allocationId)

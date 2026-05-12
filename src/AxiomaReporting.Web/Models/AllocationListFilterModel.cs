@@ -8,6 +8,7 @@ public class AllocationListFilterModel
 {
   public string? Search { get; set; }
 
+  public int? EmployeeId { get; set; }
   public int? ProjectId { get; set; }
   public List<int> ProgramIds { get; set; } = new();
   public List<int> DistrictIds { get; set; } = new();
@@ -43,6 +44,8 @@ public class AllocationListFilterModel
     FirstName = string.IsNullOrWhiteSpace(FirstName) ? null : FirstName.Trim();
     LastName = string.IsNullOrWhiteSpace(LastName) ? null : LastName.Trim();
     Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim();
+
+    if (EmployeeId <= 0) EmployeeId = null;
 
     ProgramIds = ProgramIds?.Where(x => x > 0).Distinct().ToList() ?? new();
     DistrictIds = DistrictIds?.Where(x => x > 0).Distinct().ToList() ?? new();

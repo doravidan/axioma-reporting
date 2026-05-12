@@ -16,14 +16,17 @@ public class AllocationDto
 
   [Range(0, int.MaxValue, ErrorMessage = "יש להזין מספר חיובי")]
   [Display(Name = "היקף פעילות שנתי")]
+  [DisplayFormat(DataFormatString = "{0:0}", ApplyFormatInEditMode = true)]
   public decimal? AnnualEmploymentScope { get; set; }
 
   [Range(0, int.MaxValue, ErrorMessage = "יש להזין מספר חיובי")]
   [Display(Name = "היקף פעילות חודשי")]
+  [DisplayFormat(DataFormatString = "{0:0}", ApplyFormatInEditMode = true)]
   public decimal? MonthlyEmploymentScope { get; set; }
 
   [Range(0, int.MaxValue, ErrorMessage = "יש להזין מספר חיובי")]
   [Display(Name = "היקף פעילות יומי")]
+  [DisplayFormat(DataFormatString = "{0:0}", ApplyFormatInEditMode = true)]
   public decimal? DailyEmploymentScope { get; set; }
 
   [Range(0, int.MaxValue, ErrorMessage = "יש להזין מספר שלם חיובי")]

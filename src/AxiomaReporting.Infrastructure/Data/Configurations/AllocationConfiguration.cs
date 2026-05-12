@@ -19,8 +19,7 @@ public class AllocationConfiguration : IEntityTypeConfiguration<Allocation>
     builder.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
     builder.Property(e => e.RowVersion).IsRowVersion();
 
-    // Unique constraint: one allocation per employee per project
-    builder.HasIndex(e => new { e.UserId, e.ProjectId }).IsUnique();
+    builder.HasIndex(e => new { e.UserId, e.ProjectId });
 
     builder.HasOne(e => e.User)
       .WithMany(u => u.Allocations)

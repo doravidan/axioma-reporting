@@ -1,6 +1,45 @@
 ﻿@model List<AxiomaReporting.Core.Entities.EmailTemplate>
 @{
   ViewData["Title"] = "תבניות מייל";
+  string TemplateLabel(string? value) => value switch
+  {
+    "ReportReceived" => "דיווח התקבל",
+    "ReportApproved" => "דיווח אושר",
+    "ReportRejected" => "דיווח הוחזר לתיקון",
+    "ReminderNotSubmitted" => "תזכורת לדיווח שלא הוגש",
+    "ReminderNeedsCorrection" => "תזכורת לדיווח לתיקון",
+    "PasswordReset" => "איפוס סיסמה",
+    "TwoFactorCode" => "קוד אימות",
+    "PasswordExpiryWarning" => "אזהרת תפוגת סיסמה",
+    "BatchImportSuccessUploader" => "קליטת קובץ מרוכז",
+    "BatchImportErrors" => "שגיאות בקליטת קובץ",
+    _ => value ?? ""
+  };
+  string DisplayTemplateBody(string? value)
+  {
+    var text = value ?? "";
+    var replacements = new Dictionary<string, string>
+    {
+      ["{{EmployeeName}}"] = "{{שם עובד}}",
+      ["{{UploaderName}}"] = "{{שם מעלה הקובץ}}",
+      ["{{Month}}"] = "{{חודש}}",
+      ["{{Year}}"] = "{{שנה}}",
+      ["{{RejectionReason}}"] = "{{סיבת החזרה}}",
+      ["{{Deadline}}"] = "{{מועד אחרון}}",
+      ["{{ResetLink}}"] = "{{קישור איפוס}}",
+      ["{{Code}}"] = "{{קוד}}",
+      ["{{Minutes}}"] = "{{דקות}}",
+      ["{{DaysLeft}}"] = "{{ימים שנותרו}}",
+      ["{{ExpiryDate}}"] = "{{תאריך תפוגה}}",
+      ["{{RowsImported}}"] = "{{שורות שנקלטו}}",
+      ["{{EmployeesCount}}"] = "{{מספר עובדים}}",
+      ["{{ErrorsCount}}"] = "{{מספר שגיאות}}",
+      ["{{ErrorList}}"] = "{{רשימת שגיאות}}"
+    };
+    foreach (var item in replacements)
+      text = text.Replace(item.Key, item.Value);
+    return text;
+  }
 }
 <div class="container-fluid mt-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
@@ -20,10 +59,10 @@
   {
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <strong>@template.TypeDescription</strong>
+        <strong>@TemplateLabel(template.TypeDescription)</strong>
         <button type="button" class="btn btn-sm btn-outline-secondary btn-edit"
                 data-id="@template.Id"
-                data-type="@template.TypeDescription"
+                data-type="@TemplateLabel(template.TypeDescription)"
                 data-subject="@template.Subject"
                 data-body="@template.Body">
           ✏️ עריכה
@@ -35,7 +74,7 @@
         </div>
         <div>
           <strong>גוף:</strong>
-          <pre class="bg-light p-2 rounded small" style="white-space:pre-wrap">@template.Body</pre>
+          <pre class="bg-light p-2 rounded small" style="white-space:pre-wrap">@DisplayTemplateBody(template.Body)</pre>
         </div>
       </div>
     </div>

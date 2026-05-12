@@ -84,7 +84,12 @@ public class AdminController : Controller
   public async Task<IActionResult> ActivateReportingMonth(int id)
   {
     // Only one reporting month can be active at a time (business rule #4)
-    await _db.ReportingMonths.ExecuteUpdateAsync(s => s.SetProperty(m => m.IsActive, false));
+    var reportingMonths = await _db.ReportingMonths.ToListAsync();
+    foreach (var reportingMonth in reportingMonths)
+    {
+      reportingMonth.IsActive = false;
+    }
+
     var month = await _db.ReportingMonths.FindAsync(id);
     if (month != null)
     {
@@ -1642,18 +1647,13 @@ public class AdminController : Controller
       after: new { termsVersion.Id, termsVersion.VersionNumber, termsVersion.EffectiveFrom, termsVersion.PublishedByUserId });
 
     // Force every user to re-accept the new version on their next request.
-    // Using ExecuteUpdateAsync avoids loading all users into memory. Providers that
-    // do not support it (test in-memory) will fall back through EF's shim where possible.
-    if (_db.Database.IsRelational())
+    var users = await _db.Users.ToListAsync();
+    foreach (var user in users)
     {
-      await _db.Users.ExecuteUpdateAsync(s => s.SetProperty(u => u.AcceptedTermsOfUse, false));
+      user.AcceptedTermsOfUse = false;
     }
-    else
-    {
-      var users = await _db.Users.ToListAsync();
-      foreach (var u in users) u.AcceptedTermsOfUse = false;
-      await _db.SaveChangesAsync();
-    }
+
+    await _db.SaveChangesAsync();
 
     TempData["Success"] = $"גרסה {nextVersion} של תנאי השימוש פורסמה. כל המשתמשים יתבקשו לאשר מחדש.";
     return RedirectToAction(nameof(TermsOfUse));

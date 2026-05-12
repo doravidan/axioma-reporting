@@ -51,8 +51,8 @@ public class AllocationsController : Controller
       .FirstOrDefaultAsync(a => a.Id == allocationId);
     if (allocation == null) return NotFound();
 
-    if (_currentUser.UserRole == UserRoleEnum.SystemAdmin)
-      return RedirectToAction("Allocations", "Employee", new { id = allocation.UserId, allocationId = allocation.Id });
+    if (_currentUser.UserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
+      return RedirectToAction("EditAllocation", "Employee", new { id = allocation.UserId, allocationId = allocation.Id });
 
     return View("~/Views/MyAllocations/Details.cshtml", allocation);
   }
@@ -76,7 +76,8 @@ public class AllocationsController : Controller
     var headers = new[]
     {
       "פרויקט", "תוכנית", "מחוז", "מגזר", "ת.ז", "קוד עובד", "שם פרטי", "שם משפחה",
-      "היקף פעילות חודשי", "היקף פעילות שנתי", "משך תפוקה", "הערות", "אפשר העלאת קובץ דיווח"
+      "היקף פעילות חודשי", "היקף פעילות יומי", "היקף פעילות שנתי", "הקצאת שורות חודשית",
+      "הקצאת שורות שנתית", "משך תפוקה", "הערות", "אפשר העלאת קובץ דיווח"
     };
     for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
 
@@ -92,10 +93,13 @@ public class AllocationsController : Controller
       ws.Cell(row, 7).Value = allocation.User?.FirstName;
       ws.Cell(row, 8).Value = allocation.User?.LastName;
       if (allocation.MonthlyEmploymentScope.HasValue) ws.Cell(row, 9).Value = (double)allocation.MonthlyEmploymentScope.Value;
-      if (allocation.AnnualEmploymentScope.HasValue) ws.Cell(row, 10).Value = (double)allocation.AnnualEmploymentScope.Value;
-      ws.Cell(row, 11).Value = allocation.OutputDuration;
-      ws.Cell(row, 12).Value = allocation.Notes;
-      ws.Cell(row, 13).Value = allocation.AllowExcelUpload ? "כן" : "לא";
+      ws.Cell(row, 10).Value = allocation.DailyEmploymentScope?.ToString("0.##") ?? "ללא הגבלה";
+      if (allocation.AnnualEmploymentScope.HasValue) ws.Cell(row, 11).Value = (double)allocation.AnnualEmploymentScope.Value;
+      if (allocation.MonthlyRowAllocation.HasValue) ws.Cell(row, 12).Value = allocation.MonthlyRowAllocation.Value;
+      if (allocation.AnnualRowAllocation.HasValue) ws.Cell(row, 13).Value = allocation.AnnualRowAllocation.Value;
+      ws.Cell(row, 14).Value = allocation.OutputDuration;
+      ws.Cell(row, 15).Value = allocation.Notes;
+      ws.Cell(row, 16).Value = allocation.AllowExcelUpload ? "כן" : "לא";
       row++;
     }
 
@@ -173,6 +177,9 @@ public class AllocationsController : Controller
     if (filter.ProjectId.HasValue)
       query = query.Where(a => a.ProjectId == filter.ProjectId.Value);
 
+    if (filter.EmployeeId.HasValue)
+      query = query.Where(a => a.UserId == filter.EmployeeId.Value);
+
     if (!string.IsNullOrWhiteSpace(filter.Search))
     {
       var search = filter.Search;
@@ -249,6 +256,9 @@ public class AllocationsController : Controller
     ViewBag.Page = page;
     ViewBag.PageSize = pageSize;
     ViewBag.TotalPages = (int)Math.Ceiling((double)total / pageSize);
+    ViewBag.EmployeeContext = filter.EmployeeId.HasValue
+      ? await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == filter.EmployeeId.Value)
+      : null;
     ViewBag.Projects = await _db.Projects.Where(p => p.IsActive && projectIds.Contains(p.Id)).OrderBy(p => p.Description).ToListAsync();
     ViewBag.AllPrograms = await _db.Programs.Where(p => p.IsActive && programIds.Contains(p.Id)).OrderBy(p => p.Description).ToListAsync();
     ViewBag.AllDistricts = await _db.Districts.Where(d => d.IsActive && districtIds.Contains(d.Id)).OrderBy(d => d.Description).ToListAsync();
@@ -292,8 +302,12 @@ public class AllocationsController : Controller
       "firstname" => sortDesc ? query.OrderByDescending(a => a.User!.FirstName) : query.OrderBy(a => a.User!.FirstName),
       "lastname" => sortDesc ? query.OrderByDescending(a => a.User!.LastName) : query.OrderBy(a => a.User!.LastName),
       "monthlyscope" => sortDesc ? query.OrderByDescending(a => a.MonthlyEmploymentScope) : query.OrderBy(a => a.MonthlyEmploymentScope),
+      "dailyscope" => sortDesc ? query.OrderByDescending(a => a.DailyEmploymentScope) : query.OrderBy(a => a.DailyEmploymentScope),
       "annualscope" => sortDesc ? query.OrderByDescending(a => a.AnnualEmploymentScope) : query.OrderBy(a => a.AnnualEmploymentScope),
+      "monthlyrows" => sortDesc ? query.OrderByDescending(a => a.MonthlyRowAllocation) : query.OrderBy(a => a.MonthlyRowAllocation),
+      "annualrows" => sortDesc ? query.OrderByDescending(a => a.AnnualRowAllocation) : query.OrderBy(a => a.AnnualRowAllocation),
       "outputduration" => sortDesc ? query.OrderByDescending(a => a.OutputDuration) : query.OrderBy(a => a.OutputDuration),
+      "allowexcelupload" => sortDesc ? query.OrderByDescending(a => a.AllowExcelUpload) : query.OrderBy(a => a.AllowExcelUpload),
       "notes" => sortDesc ? query.OrderByDescending(a => a.Notes) : query.OrderBy(a => a.Notes),
       _ => query.OrderBy(a => a.User!.LastName).ThenBy(a => a.User!.FirstName).ThenBy(a => a.Project!.Description)
     };

@@ -13,15 +13,17 @@
   var durationOptions = (decimal[])ViewBag.OutputDurationOptions;
   string? sortBy = ViewBag.SortBy as string;
   bool sortDesc = ViewBag.SortDesc ?? false;
-  var listController = ViewBag.AllocationListController as string ?? "Employee";
-  var listAction = ViewBag.AllocationListAction as string ?? "AllocationList";
-  var exportAction = ViewBag.AllocationExportAction as string ?? "ExportAllocationsExcel";
-  var detailController = ViewBag.AllocationDetailController as string ?? "Employee";
-  var detailAction = ViewBag.AllocationDetailAction as string ?? "AllocationDetails";
+  var listController = ViewBag.AllocationListController as string ?? "Allocations";
+  var listAction = ViewBag.AllocationListAction as string ?? "Index";
+  var exportAction = ViewBag.AllocationExportAction as string ?? "ExportExcel";
+  var detailController = ViewBag.AllocationDetailController as string ?? "Allocations";
+  var detailAction = ViewBag.AllocationDetailAction as string ?? "Details";
+  var employeeContext = ViewBag.EmployeeContext as AxiomaReporting.Core.Entities.User;
 
   var baseRouteValues = new Dictionary<string, object?>
   {
     ["search"] = filter.Search,
+    ["employeeId"] = filter.EmployeeId,
     ["projectId"] = filter.ProjectId,
     ["idNumber"] = filter.IdNumber,
     ["employeeCode"] = filter.EmployeeCode,
@@ -97,16 +99,37 @@
     var tokens = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     if (!filter.ShowAll && filter.OutputDurations is { Count: > 0 })
       tokens = tokens.Where(t => filter.OutputDurations.Contains(t)).ToList();
+    tokens = tokens.Select(t => t.Equals("Unlimited", StringComparison.OrdinalIgnoreCase) ? "ללא הגבלה" : t).ToList();
     return tokens.Count == 0 ? "" : string.Join(", ", tokens);
   }
 
+  string DisplayIdNumber(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+      ? ""
+      : (System.Text.RegularExpressions.Regex.IsMatch(value, "[A-Za-z]") ? "מנהל מערכת" : value);
   string Whole(decimal? value) => value.HasValue ? decimal.Truncate(value.Value).ToString("0") : "";
+  string Daily(decimal? value) => value.HasValue ? value.Value.ToString("0.##") : "ללא הגבלה";
+  string Int(int? value) => value.HasValue ? value.Value.ToString() : "";
+  string YesNo(bool value) => value ? "כן" : "לא";
 }
 
 <div class="container-fluid employee-allocations-list py-3" dir="rtl">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h2 class="mb-0">הקצאות עובדים</h2>
-    <a href="@ExportLink()" class="btn btn-success">יצא לאקסל</a>
+    <div>
+      <h2 class="mb-0">הקצאות עובדים</h2>
+      @if (employeeContext != null)
+      {
+        <div class="text-muted fw-bold">@employeeContext.FirstName @employeeContext.LastName קוד עובד @employeeContext.EmployeeCode ת.ז @DisplayIdNumber(employeeContext.IdNumber)</div>
+      }
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      @if (employeeContext != null)
+      {
+        <a asp-controller="Employee" asp-action="CreateAllocation" asp-route-id="@employeeContext.Id" class="btn btn-primary">הוסף הקצאה</a>
+        <a asp-controller="Employee" asp-action="Edit" asp-route-id="@employeeContext.Id" class="btn btn-outline-secondary">חזרה לכרטיס עובד</a>
+      }
+      <a href="@ExportLink()" class="btn btn-success">יצא לאקסל</a>
+    </div>
   </div>
 
   <form method="get" class="card card-body mb-3 allocation-filter">
@@ -231,8 +254,12 @@
           <th><a href="@SortLink("firstname")">שם פרטי</a></th>
           <th><a href="@SortLink("lastname")">שם משפחה</a></th>
           <th><a href="@SortLink("monthlyscope")">היקף פעילות חודשי</a></th>
+          <th><a href="@SortLink("dailyscope")">היקף פעילות יומי</a></th>
           <th><a href="@SortLink("annualscope")">היקף פעילות שנתי</a></th>
+          <th><a href="@SortLink("monthlyrows")">הקצאת שורות חודשית</a></th>
+          <th><a href="@SortLink("annualrows")">הקצאת שורות שנתית</a></th>
           <th><a href="@SortLink("outputduration")">משך תפוקה</a></th>
+          <th><a href="@SortLink("allowexcelupload")">העלאת אקסל</a></th>
           <th><a href="@SortLink("notes")">הערות</a></th>
         </tr>
       </thead>
@@ -251,20 +278,24 @@
             <td><span>@FilteredJoin(a.AllocationPrograms, x => x.ProgramId, x => x.Program?.Description, filter.ProgramIds)</span></td>
             <td><span>@FilteredJoin(a.AllocationDistricts, x => x.DistrictId, x => x.District?.Description, filter.DistrictIds)</span></td>
             <td><span>@FilteredJoin(a.AllocationSectors, x => x.SectorId, x => x.Sector?.Description, filter.SectorIds)</span></td>
-            <td><span>@a.User?.IdNumber</span></td>
+            <td><span>@DisplayIdNumber(a.User?.IdNumber)</span></td>
             <td><span>@a.User?.EmployeeCode</span></td>
             <td><span>@a.User?.FirstName</span></td>
             <td><span>@a.User?.LastName</span></td>
             <td><span>@Whole(a.MonthlyEmploymentScope)</span></td>
+            <td><span>@Daily(a.DailyEmploymentScope)</span></td>
             <td><span>@Whole(a.AnnualEmploymentScope)</span></td>
+            <td><span>@Int(a.MonthlyRowAllocation)</span></td>
+            <td><span>@Int(a.AnnualRowAllocation)</span></td>
             <td><span>@FilteredDuration(a.OutputDuration)</span></td>
+            <td><span>@YesNo(a.AllowExcelUpload)</span></td>
             <td><span>@(string.IsNullOrWhiteSpace(a.Notes) ? "" : a.Notes)</span></td>
           </tr>
         }
         @if (!Model.Any())
         {
           <tr>
-            <td colspan="13" class="empty-row text-center text-muted py-4">לא נמצאו הקצאות עובדים</td>
+            <td colspan="17" class="empty-row text-center text-muted py-4">לא נמצאו הקצאות עובדים</td>
           </tr>
         }
       </tbody>
@@ -347,7 +378,7 @@
   }
 
   .alloc-grid {
-    min-width: 1180px;
+    min-width: 1560px;
   }
 
   .alloc-grid th a,

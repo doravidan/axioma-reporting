@@ -52,14 +52,16 @@
 
           <div class="col-md-3">
             <label asp-for="AnnualEmploymentScope" class="form-label">היקף פעילות שנתי</label>
-            <input asp-for="AnnualEmploymentScope" type="number" step="1" min="0" class="form-control"
+            <input asp-for="AnnualEmploymentScope" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
+                   class="form-control whole-number-field"
                    data-val-wholenumber="יש להזין מספר שלם" />
             <span asp-validation-for="AnnualEmploymentScope" class="text-danger small"></span>
           </div>
 
           <div class="col-md-3">
             <label asp-for="MonthlyEmploymentScope" class="form-label">היקף פעילות חודשי</label>
-            <input asp-for="MonthlyEmploymentScope" type="number" step="1" min="0" class="form-control"
+            <input asp-for="MonthlyEmploymentScope" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
+                   class="form-control whole-number-field"
                    data-val-wholenumber="יש להזין מספר שלם" />
             <span asp-validation-for="MonthlyEmploymentScope" class="text-danger small"></span>
           </div>
@@ -67,25 +69,29 @@
           <div class="col-md-4">
             <label class="form-label">היקף פעילות יומי</label>
             <div class="input-group">
-              <input asp-for="DailyEmploymentScope" type="number" step="0.01" min="0"
-                     class="form-control" id="dailyScope" />
+              <input asp-for="DailyEmploymentScope" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
+                     class="form-control whole-number-field" id="dailyScope"
+                     data-val-wholenumber="יש להזין מספר שלם" />
               <div class="input-group-text">
                 <input type="checkbox" id="unlimitedDaily" class="form-check-input mt-0"
                        @(Model.DailyEmploymentScope == null ? "checked" : "") />
                 <label for="unlimitedDaily" class="form-check-label ms-1">ללא הגבלה</label>
               </div>
             </div>
+            <span asp-validation-for="DailyEmploymentScope" class="text-danger small"></span>
           </div>
 
           <div class="col-md-4">
             <label asp-for="MonthlyRowAllocation" class="form-label">הקצאת שורות חודשית</label>
-            <input asp-for="MonthlyRowAllocation" type="number" min="0" class="form-control" />
+            <input asp-for="MonthlyRowAllocation" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
+                   class="form-control whole-number-field" />
             <span asp-validation-for="MonthlyRowAllocation" class="text-danger small"></span>
           </div>
 
           <div class="col-md-4">
             <label asp-for="AnnualRowAllocation" class="form-label">הקצאת שורות שנתית</label>
-            <input asp-for="AnnualRowAllocation" type="number" min="0" class="form-control" />
+            <input asp-for="AnnualRowAllocation" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
+                   class="form-control whole-number-field" />
             <span asp-validation-for="AnnualRowAllocation" class="text-danger small"></span>
           </div>
 
@@ -266,12 +272,16 @@
           </div>
 
         </div>
-        <p class="text-muted small mt-2">לבחירה מרובה — החזק Ctrl (Windows) או ⌘ (Mac) ולחץ על הפריטים.</p>
+        <p class="text-muted small mt-2">לבחירה מרובה יש להחזיק את מקש הבחירה המרובה במקלדת וללחוץ על הפריטים.</p>
       </div>
     </div>
 
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-primary">שמור הקצאה</button>
+      @if (!isEdit)
+      {
+        <button type="submit" name="continueAdding" value="true" class="btn btn-success">שמור והוסף עוד</button>
+      }
       <a asp-action="Allocations" asp-route-id="@employee.Id"
          class="btn btn-outline-secondary">ביטול</a>
     </div>
@@ -296,6 +306,13 @@
 
     unlimitedDaily.addEventListener('change', toggleDailyScope);
     toggleDailyScope(); // initialize on page load
+
+    document.querySelectorAll('.whole-number-field').forEach((input) => {
+      input.addEventListener('input', () => {
+        input.value = input.value.replace(/[^\d]/g, '');
+      });
+      input.addEventListener('wheel', () => input.blur());
+    });
 
     // --- Cascading Project -> Programs ---
     const projectSelect = document.getElementById('projectIdSelect');

@@ -101,6 +101,49 @@ public class DashboardFilterServiceTests : IDisposable
   }
 
   [Fact]
+  public async Task GetReportsAsync_SplitsOneEmployeeReportByAllocation()
+  {
+    _db.Allocations.Add(new Allocation
+    {
+      Id = 3,
+      UserId = 1,
+      ProjectId = 2,
+      IsActive = true,
+      MonthlyRowAllocation = 12,
+      CreatedAt = DateTime.UtcNow
+    });
+    _db.Set<AllocationDistrict>().Add(new AllocationDistrict { AllocationId = 3, DistrictId = 1 });
+    _db.ReportRows.Add(new ReportRow
+    {
+      Id = 3,
+      ReportId = 1,
+      AllocationId = 3,
+      SequenceNumber = 2,
+      MeetingDate = DateTime.Today,
+      MeetingDuration = 3,
+      DistrictId = 1,
+      LocalityId = 1,
+      FrameworkId = 1,
+      EducationalProgramId = 1,
+      DomainId = 1,
+      Subject1Id = 1,
+      CreatedAt = DateTime.UtcNow
+    });
+    await _db.SaveChangesAsync();
+
+    var result = await _sut.GetReportsAsync(
+      new DashboardFilter { DistrictId = 1, PageSize = 25 },
+      currentUserId: 99,
+      currentUserRole: UserRoleEnum.SystemAdmin);
+
+    result.TotalCount.Should().Be(2);
+    result.Rows.Should().HaveCount(2);
+    result.Rows.Should().OnlyContain(r => r.UserId == 1 && r.ReportId == 1);
+    result.Rows.Select(r => r.AllocationId).Should().BeEquivalentTo(new[] { 1, 3 });
+    result.Rows.Sum(r => r.RowCount).Should().Be(2);
+  }
+
+  [Fact]
   public async Task CanAccessReportAsync_UsesRoleAndInspectorScope()
   {
     (await _sut.CanAccessReportAsync(1, 1, UserRoleEnum.Employee)).Should().BeTrue();
@@ -147,6 +190,9 @@ public class DashboardFilterServiceTests : IDisposable
     _db.Districts.Add(new District { Id = 1, Description = "District 1", IsActive = true });
     _db.Sectors.Add(new Sector { Id = 1, Description = "Sector 1", IsActive = true });
     _db.Programs.Add(new ProgramEntity { Id = 1, Description = "Program 1", IsActive = true });
+    _db.Projects.AddRange(
+      new Project { Id = 1, Description = "Project 1", IsActive = true },
+      new Project { Id = 2, Description = "Project 2", IsActive = true });
 
     _db.Allocations.AddRange(
       new Allocation { Id = 1, UserId = 1, ProjectId = 1, IsActive = true, MonthlyRowAllocation = 10, CreatedAt = DateTime.UtcNow },

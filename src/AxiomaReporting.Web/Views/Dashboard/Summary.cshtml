@@ -9,6 +9,7 @@
     bool canApprove = ViewBag.CanApprove ?? false;
     int total = ViewBag.TotalCount ?? 0;
     var pendingCount = rows.Count(r => r.StatusId == 3);
+    var currentUrl = Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString;
 
     string SortLink(string key) => Url.Action("Summary", new
     {
@@ -166,6 +167,7 @@
                             </th>
                             <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
                             <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                            <th><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
                             <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
                             <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
                             <th>שורות</th>
@@ -179,7 +181,7 @@
                         @if (!rows.Any())
                         {
                             <tr>
-                                <td colspan="10" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                                <td colspan="11" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                             </tr>
                         }
                         @foreach (var r in rows)
@@ -194,6 +196,7 @@
                                 </td>
                                 <td>@r.FullName</td>
                                 <td>@r.EmployeeCode</td>
+                                <td>@(string.IsNullOrWhiteSpace(r.ProjectName) ? "—" : r.ProjectName)</td>
                                 <td>@r.MonthDescription</td>
                                 <td>
                                     <span class="badge @(r.StatusId == 4 ? "bg-success" : r.StatusId == 5 ? "bg-danger" : r.StatusId == 3 ? "bg-warning text-dark" : "bg-secondary")">
@@ -219,6 +222,7 @@
                                         <form asp-controller="Report" asp-action="Approve"
                                               asp-route-reportId="@r.ReportId" method="post" style="display:inline">
                                             @Html.AntiForgeryToken()
+                                            <input type="hidden" name="returnUrl" value="@currentUrl" />
                                             <button type="submit" class="btn btn-sm btn-success">אשר</button>
                                         </form>
                                         <button class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
@@ -244,6 +248,7 @@
                     <tr>
                         <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
                         <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                        <th><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
                         <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
                         <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
                         <th>שורות</th>
@@ -256,7 +261,7 @@
                     @if (!rows.Any())
                     {
                         <tr>
-                            <td colspan="8" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                            <td colspan="9" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                         </tr>
                     }
                     @foreach (var r in rows)
@@ -264,6 +269,7 @@
                         <tr>
                             <td>@r.FullName</td>
                             <td>@r.EmployeeCode</td>
+                            <td>@(string.IsNullOrWhiteSpace(r.ProjectName) ? "—" : r.ProjectName)</td>
                             <td>@r.MonthDescription</td>
                             <td>
                                 <span class="badge @(r.StatusId == 4 ? "bg-success" : r.StatusId == 5 ? "bg-danger" : r.StatusId == 3 ? "bg-warning text-dark" : "bg-secondary")">
@@ -302,6 +308,7 @@
             <form asp-controller="Report" asp-action="Reject" method="post">
                 @Html.AntiForgeryToken()
                 <input type="hidden" id="rejectReportId" name="reportId" />
+                <input type="hidden" name="returnUrl" value="@currentUrl" />
                 <div class="modal-body">
                     <label class="form-label">סיבת הדחייה (חובה)</label>
                     <textarea name="rejectionReason" class="form-control" rows="4"

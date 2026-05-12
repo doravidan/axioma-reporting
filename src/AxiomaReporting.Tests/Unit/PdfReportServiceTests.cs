@@ -1,6 +1,7 @@
 using AxiomaReporting.Infrastructure.Services;
 using FluentAssertions;
 using QuestPDF.Infrastructure;
+using System.Text;
 
 namespace AxiomaReporting.Tests.Unit;
 
@@ -20,7 +21,7 @@ public class PdfReportServiceTests
     var bytes = sut.CreateErrorReport(new[] { "Row 2: missing district", "Row 3: bad duration" });
 
     bytes.Should().NotBeEmpty();
-    bytes.Take(5).Should().Equal("%PDF-"u8.ToArray());
+    bytes.Take(5).Should().Equal(Encoding.UTF8.GetBytes("%PDF-"));
   }
 
   [Fact]
@@ -38,7 +39,7 @@ public class PdfReportServiceTests
     var bytes = sut.CreateErrorReport(errors);
 
     bytes.Should().NotBeEmpty();
-    bytes.Take(5).Should().Equal("%PDF-"u8.ToArray());
+    bytes.Take(5).Should().Equal(Encoding.UTF8.GetBytes("%PDF-"));
     bytes.Length.Should().BeGreaterThan(500, "a real PDF with header/table/footer is more than a stub");
   }
 
@@ -50,6 +51,6 @@ public class PdfReportServiceTests
     var bytes = sut.CreateErrorReport(Array.Empty<string>());
 
     bytes.Should().NotBeEmpty();
-    bytes.Take(5).Should().Equal("%PDF-"u8.ToArray());
+    bytes.Take(5).Should().Equal(Encoding.UTF8.GetBytes("%PDF-"));
   }
 }

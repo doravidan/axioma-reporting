@@ -1,0 +1,7 @@
+{
+  "sdk": {
+    "version": "6.0.200-preview.22055.15",
+    "allowPrerelease": true,
+    "rollForward": "latestMajor"
+  }
+}

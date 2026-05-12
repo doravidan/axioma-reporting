@@ -7,7 +7,10 @@ public class DocumentAttachment
   public User? User { get; set; }
   public int? ReportRowId { get; set; }
   public ReportRow? ReportRow { get; set; }
+  public int? ReportId { get; set; }
+  public Report? Report { get; set; }
   public string FileName { get; set; } = string.Empty;
+  public string? Description { get; set; }
   public string FilePath { get; set; } = string.Empty;
   public long FileSize { get; set; }
   public string MimeType { get; set; } = string.Empty;

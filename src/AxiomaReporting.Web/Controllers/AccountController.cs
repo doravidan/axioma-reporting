@@ -21,6 +21,9 @@ public class AccountController : Controller
   private const string StrongPasswordMessage =
     "הסיסמה חייבת להכיל לפחות 8 תווים, אות גדולה, אות קטנה, ספרה וסימן, ללא אותו תו פעמיים ברצף";
 
+  private const string StrongPasswordMessageHebrew =
+    "הסיסמה חייבת להכיל לפחות 8 תווים, אות גדולה, אות קטנה, ספרה וסימן, ללא אותו תו פעמיים ברצף";
+
   private readonly IAuthService _authService;
   private readonly IPasswordService _passwordService;
   private readonly IEmailService _emailService;
@@ -215,7 +218,7 @@ public class AccountController : Controller
 
     if (!_passwordService.IsPasswordStrong(model.NewPassword))
     {
-      ModelState.AddModelError(nameof(model.NewPassword), StrongPasswordMessage);
+      ModelState.AddModelError(nameof(model.NewPassword), StrongPasswordMessageHebrew);
       ViewBag.Forced = forced;
       return View(model);
     }
@@ -223,7 +226,7 @@ public class AccountController : Controller
     var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     if (await _authService.IsPasswordInHistoryAsync(userId, model.NewPassword))
     {
-      ModelState.AddModelError(nameof(model.NewPassword), "לא ניתן לחזור על אחת מ-5 הסיסמאות האחרונות");
+      ModelState.AddModelError(nameof(model.NewPassword), "לא ניתן להשתמש בסיסמה זהה או דומה מדי לאחת מ-5 הסיסמאות האחרונות");
       ViewBag.Forced = forced;
       return View(model);
     }
@@ -255,7 +258,7 @@ public class AccountController : Controller
   [ValidateAntiForgeryToken]
   public async Task<IActionResult> ForgotPassword(string idNumber)
   {
-    // Identical user-facing message regardless of whether the user exists —
+    // Identical user-facing message regardless of whether the user exists -
     // do not leak account-enumeration through ForgotPassword timing or response.
     const string GenericConfirmation =
       "אם נמצאה כתובת מייל למשתמש, נשלח קישור לאיפוס סיסמה";
@@ -292,7 +295,7 @@ public class AccountController : Controller
     }
     else
     {
-      // Unknown user OR user with no email — record a Skipped audit row but never send mail.
+      // Unknown user OR user with no email - record a Skipped audit row but never send mail.
       // Status='Skipped' is recognized by the retry service as a terminal state.
       _db.NotificationLogs.Add(new NotificationLog
       {
@@ -301,7 +304,7 @@ public class AccountController : Controller
         RecipientUserId = user?.Id,
         RecipientEmail = user?.Email ?? string.Empty,
         Subject = "(Skipped) ForgotPassword",
-        Body = $"ForgotPassword requested for IdNumber='{idNumber}' — {(user == null ? "no such user" : "user has no email on file")}",
+        Body = $"ForgotPassword requested for IdNumber='{idNumber}' - {(user == null ? "no such user" : "user has no email on file")}",
         Status = "Skipped",
         AttemptCount = 0,
         CreatedAt = DateTime.UtcNow
@@ -336,7 +339,7 @@ public class AccountController : Controller
     if (newPassword != confirmPassword)
       ModelState.AddModelError(nameof(confirmPassword), "הסיסמאות אינן תואמות");
     if (!_passwordService.IsPasswordStrong(newPassword))
-      ModelState.AddModelError(nameof(newPassword), StrongPasswordMessage);
+      ModelState.AddModelError(nameof(newPassword), StrongPasswordMessageHebrew);
 
     var tokenHash = HashValue(token ?? string.Empty);
     var reset = await _db.PasswordResetTokens
@@ -356,7 +359,7 @@ public class AccountController : Controller
     if (_passwordService.VerifyPassword(newPassword, user.PasswordHash) ||
         await _authService.IsPasswordInHistoryAsync(user.Id, newPassword))
     {
-      ModelState.AddModelError(nameof(newPassword), "לא ניתן לחזור על אחת מ-5 הסיסמאות האחרונות");
+      ModelState.AddModelError(nameof(newPassword), "לא ניתן להשתמש בסיסמה זהה או דומה מדי לאחת מ-5 הסיסמאות האחרונות");
       ViewBag.Token = token;
       return View();
     }

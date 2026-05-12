@@ -33,13 +33,13 @@ public class DashboardController : Controller
     filter ??= new DashboardFilter();
     await PopulateFilterDataAsync(filter);
 
-    var showData = Request.Query.ContainsKey("show");
+    var showData = true;
     ViewBag.ShowData = showData;
 
-    var rows = new List<DashboardReportRow>();
+    var rows = new List<DashboardReportDetailRow>();
     var total = 0;
     if (showData)
-      (rows, total) = await _filterService.GetReportsAsync(filter, _currentUser.UserId, _currentUser.UserRole);
+      (rows, total) = await _filterService.GetReportRowsAsync(filter, _currentUser.UserId, _currentUser.UserRole);
 
     ViewBag.Rows = rows;
     ViewBag.TotalCount = total;
@@ -79,28 +79,50 @@ public class DashboardController : Controller
     filter.Page = 1;
     filter.PageSize = 10000;
 
-    var (rows, _) = await _filterService.GetReportsAsync(
+    var (rows, _) = await _filterService.GetReportRowsAsync(
       filter, _currentUser.UserId, _currentUser.UserRole);
 
     using var wb = new XLWorkbook();
     var ws = wb.Worksheets.Add("דיווחים");
     ws.RightToLeft = true;
 
-    var headers = new[] { "קוד עובד", "ת.ז", "שם עובד", "חודש", "סטטוס", "מס' שורות", "סך משך תפוקה", "תאריך הגשה" };
+    var headers = new[]
+    {
+      "מס\"ד", "ת.ז", "קוד עובד", "שם מדווח", "חודש דיווח", "פרויקט", "מחוז", "ישוב",
+      "מסגרת חינוכית", "תאריך מפגש", "משך מפגש", "תוכנית חינוכית", "תחום", "נושא 1", "נושא 2",
+      "קיום דיון", "כיתה", "שכבה", "סוג דיווח", "מסקנות כיתה", "מסקנות מסגרת", "מסקנות ישוב/מחוז/ארצי",
+      "מסמכים", "הערות"
+    };
     for (var i = 0; i < headers.Length; i++)
       ws.Cell(1, i + 1).Value = headers[i];
 
     var row = 2;
     foreach (var r in rows)
     {
-      ws.Cell(row, 1).Value = r.EmployeeCode;
+      ws.Cell(row, 1).Value = r.SequenceNumber;
       ws.Cell(row, 2).Value = r.IdNumber;
-      ws.Cell(row, 3).Value = r.FullName;
-      ws.Cell(row, 4).Value = r.MonthDescription;
-      ws.Cell(row, 5).Value = r.StatusName;
-      ws.Cell(row, 6).Value = r.RowCount;
-      ws.Cell(row, 7).Value = (double)r.TotalDuration;
-      ws.Cell(row, 8).Value = r.SubmittedAt?.ToString("dd/MM/yyyy") ?? string.Empty;
+      ws.Cell(row, 3).Value = r.EmployeeCode;
+      ws.Cell(row, 4).Value = r.FullName;
+      ws.Cell(row, 5).Value = r.MonthDescription;
+      ws.Cell(row, 6).Value = r.ProjectName;
+      ws.Cell(row, 7).Value = r.DistrictName;
+      ws.Cell(row, 8).Value = r.LocalityName;
+      ws.Cell(row, 9).Value = r.FrameworkName;
+      ws.Cell(row, 10).Value = r.MeetingDate.ToString("dd/MM/yyyy");
+      ws.Cell(row, 11).Value = (double)r.MeetingDuration;
+      ws.Cell(row, 12).Value = r.EducationalProgramName;
+      ws.Cell(row, 13).Value = r.DomainName;
+      ws.Cell(row, 14).Value = r.Subject1Name;
+      ws.Cell(row, 15).Value = r.Subject2Name;
+      ws.Cell(row, 16).Value = r.DiscussionCodeName;
+      ws.Cell(row, 17).Value = r.ClassName;
+      ws.Cell(row, 18).Value = r.GradeLevelName;
+      ws.Cell(row, 19).Value = r.ReportTypeName;
+      ws.Cell(row, 20).Value = r.ConclusionClassName;
+      ws.Cell(row, 21).Value = r.ConclusionFrameworkName;
+      ws.Cell(row, 22).Value = r.ConclusionLocationName;
+      ws.Cell(row, 23).Value = r.HasAttachments ? "כן" : "לא";
+      ws.Cell(row, 24).Value = r.Notes;
       row++;
     }
 
@@ -117,7 +139,6 @@ public class DashboardController : Controller
   [HttpGet]
   public async Task<IActionResult> SummaryExportExcel(DashboardFilter filter)
   {
-    filter.StatusId ??= 3;
     filter.Page = 1;
     filter.PageSize = 10000;
 
@@ -130,7 +151,7 @@ public class DashboardController : Controller
 
     var headers = new[]
     {
-      "קוד עובד", "ת.ז", "שם עובד", "חודש", "סטטוס", "מס' שורות", "סך משך תפוקה",
+      "קוד עובד", "ת.ז", "שם עובד", "פרויקט", "חודש", "סטטוס", "מס' שורות", "סך משך תפוקה",
       "יתרת שורות", "מסמכים", "תאריך הגשה"
     };
     for (var i = 0; i < headers.Length; i++)
@@ -142,13 +163,14 @@ public class DashboardController : Controller
       ws.Cell(row, 1).Value = r.EmployeeCode;
       ws.Cell(row, 2).Value = r.IdNumber;
       ws.Cell(row, 3).Value = r.FullName;
-      ws.Cell(row, 4).Value = r.MonthDescription;
-      ws.Cell(row, 5).Value = r.StatusName;
-      ws.Cell(row, 6).Value = r.RowCount;
-      ws.Cell(row, 7).Value = (double)r.TotalDuration;
-      ws.Cell(row, 8).Value = r.MonthlyRowAllocation.HasValue ? r.RemainingRows : string.Empty;
-      ws.Cell(row, 9).Value = r.HasAttachments ? "כן" : "לא";
-      ws.Cell(row, 10).Value = r.SubmittedAt?.ToString("dd/MM/yyyy") ?? string.Empty;
+      ws.Cell(row, 4).Value = r.ProjectName;
+      ws.Cell(row, 5).Value = r.MonthDescription;
+      ws.Cell(row, 6).Value = r.StatusName;
+      ws.Cell(row, 7).Value = r.RowCount;
+      ws.Cell(row, 8).Value = (double)r.TotalDuration;
+      ws.Cell(row, 9).Value = r.MonthlyRowAllocation.HasValue ? r.RemainingRows : string.Empty;
+      ws.Cell(row, 10).Value = r.HasAttachments ? "כן" : "לא";
+      ws.Cell(row, 11).Value = r.SubmittedAt?.ToString("dd/MM/yyyy") ?? string.Empty;
       row++;
     }
 
@@ -166,8 +188,6 @@ public class DashboardController : Controller
   public async Task<IActionResult> Summary(DashboardFilter? filter = null)
   {
     filter ??= new DashboardFilter();
-    // Default to pending approval so summary shows actionable items
-    filter.StatusId ??= 3;
     await PopulateFilterDataAsync(filter);
 
     var (rows, total) = await _filterService.GetReportsAsync(
@@ -207,6 +227,7 @@ public class DashboardController : Controller
     ViewBag.Programs = await _filterService.GetFilteredProgramsAsync(
       _currentUser.UserId, _currentUser.UserRole, filter.DistrictId);
     ViewBag.IsInspector = _currentUser.UserRole is UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval;
+    ViewBag.CanEditDashboardRows = _currentUser.UserRole == UserRoleEnum.SystemAdmin;
     ViewBag.CanApprove = _currentUser.UserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager
       or UserRoleEnum.ProjectCoordinator or UserRoleEnum.InspectorApproval;
 
@@ -215,5 +236,15 @@ public class DashboardController : Controller
     ViewBag.ReportingMonths = await db.ReportingMonths
       .OrderByDescending(m => m.Year).ThenByDescending(m => m.Month)
       .ToListAsync();
+    ViewBag.Localities = await db.Localities.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.Frameworks = await db.Frameworks.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.EducationalPrograms = await db.EducationalPrograms.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.Domains = await db.Domains.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.Subjects = await db.Subjects.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.DiscussionCodes = await db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.Classes = await db.Classes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.GradeLevels = await db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ConclusionLocations = await db.LocalityDistrictNationals.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ReportTypes = await db.ReportTypes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
   }
 }

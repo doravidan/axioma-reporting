@@ -9,12 +9,14 @@
   int allocationId = ViewBag.AllocationId ?? 0;
   bool deadlinePassed = ViewBag.DeadlinePassed ?? false;
   bool deadlineOverrideActive = ViewBag.DeadlineOverrideActive ?? false;
+  int? editRowId = ViewBag.EditRowId as int?;
+  string? returnUrl = ViewBag.ReturnUrl as string;
   string? deadlineBlockMessage = ViewBag.DeadlineBlockMessage as string;
   string reportRowVersion = report?.RowVersion != null
     ? Convert.ToBase64String(report.RowVersion)
     : string.Empty;
-  var attachmentsByRow = ViewBag.Attachments as Dictionary<int, List<AxiomaReporting.Core.Entities.DocumentAttachment>>
-    ?? new Dictionary<int, List<AxiomaReporting.Core.Entities.DocumentAttachment>>();
+  var reportAttachments = ViewBag.ReportAttachments as List<AxiomaReporting.Core.Entities.DocumentAttachment>
+    ?? new List<AxiomaReporting.Core.Entities.DocumentAttachment>();
 
   var districts = allocation?.AllocationDistricts.Select(x => x.District).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.District>();
@@ -66,9 +68,63 @@
     ["GradeLevelId"] = gradeLevels.Select(x => new { id = x.Id, text = x.Description }),
     ["ClassId"] = classes.Select(x => new { id = x.Id, text = x.Description })
   };
+
+  string FieldAttrs(string field, string type = "select", bool optional = false) =>
+    canEdit ? $" class=\"editable-cell\" data-edit-field=\"{field}\" data-edit-type=\"{type}\" data-edit-optional=\"{optional.ToString().ToLowerInvariant()}\" title=\"לחץ לעריכת התא\"" : string.Empty;
+  string StatusText(int? statusId, string? name) => statusId switch
+  {
+    1 => "טיוטה",
+    2 => "בהזנה",
+    3 => "ממתין לאישור",
+    4 => "מאושר",
+    5 => "הוחזר לתיקון",
+    _ => name ?? ""
+  };
+}
+
+@if (canEdit)
+{
+  <style>
+    #reportTable td.editable-cell {
+      cursor: pointer;
+      position: relative;
+    }
+
+    #reportTable td.editable-cell:hover {
+      background: #fff7ed;
+      box-shadow: inset 0 0 0 1px #e06a2f;
+    }
+
+    #reportTable td.cell-editing {
+      min-width: 180px;
+      background: #fff7ed;
+    }
+
+    #reportTable .cell-edit-actions {
+      display: flex;
+      gap: .25rem;
+      margin-top: .25rem;
+      justify-content: flex-start;
+    }
+
+    #reportTable .cell-edit-error {
+      color: #b42318;
+      font-weight: 700;
+      font-size: .8rem;
+      margin-top: .25rem;
+      white-space: normal;
+    }
+  </style>
 }
 
 <div class="container-fluid mt-3">
+  @if (!string.IsNullOrWhiteSpace(returnUrl))
+  {
+    <div class="mb-3">
+      <a class="btn btn-outline-secondary btn-sm" href="@returnUrl">חזרה לדשבורד דיווחים</a>
+    </div>
+  }
+
   @if (TempData["Success"] != null)
   {
     <div class="alert alert-success alert-dismissible fade show" role="alert" aria-live="polite" aria-atomic="true">
@@ -109,7 +165,7 @@
         <div class="col-md-3"><strong>ת.ז:</strong> @employee?.IdNumber</div>
         <div class="col-md-3"><strong>קוד עובד:</strong> @employee?.EmployeeCode</div>
         <div class="col-md-3"><strong>חודש:</strong> @month?.Description</div>
-        <div class="col-md-3"><strong>סטטוס:</strong> @report?.Status?.Name</div>
+        <div class="col-md-3"><strong>סטטוס:</strong> @StatusText(report?.StatusId, report?.Status?.Name)</div>
         <div class="col-md-3"><strong>שורות בהקצאה:</strong> @Model.Count / @allocation?.MonthlyRowAllocation</div>
         <div class="col-md-6 text-start">
           @{
@@ -121,6 +177,69 @@
           }
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">
+      <h5 class="mb-0">מסמכי הדיווח</h5>
+    </div>
+    <div class="card-body">
+      @if (canEdit)
+      {
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-md-5">
+            <label class="form-label" for="report-file-description">תיאור מסמך</label>
+            <input type="text" id="report-file-description" class="form-control"
+                   maxlength="1000" placeholder="תיאור המסמך" />
+          </div>
+          <div class="col-md-5">
+            <label class="form-label" for="report-file-upload">בחר מסמך</label>
+            <input type="file" id="report-file-upload" class="form-control"
+                   accept=".pdf,.doc,.docx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          </div>
+          <div class="col-md-2">
+            <button type="button" class="btn btn-primary w-100" onclick="uploadAttachment()">העלה מסמך</button>
+          </div>
+        </div>
+      }
+
+      @if (reportAttachments.Any())
+      {
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>שם קובץ</th>
+                <th>תיאור</th>
+                <th>תאריך העלאה</th>
+                @if (canEdit) { <th>פעולות</th> }
+              </tr>
+            </thead>
+            <tbody>
+              @foreach (var file in reportAttachments)
+              {
+                <tr>
+                  <td><a href="@file.FilePath" target="_blank">@file.FileName</a></td>
+                  <td>@file.Description</td>
+                  <td>@file.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                  @if (canEdit)
+                  {
+                    <td>
+                      <button type="button" class="btn btn-sm btn-outline-danger"
+                              onclick="deleteAttachment(@file.Id)">מחק</button>
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      else
+      {
+        <div class="text-muted">אין מסמכים מצורפים לדיווח</div>
+      }
     </div>
   </div>
 
@@ -153,7 +272,6 @@
               <th scope="col" class="sortable" aria-sort="none">מסקנה-מיקום</th>
               <th scope="col" class="sortable" aria-sort="none">שכבה</th>
               <th scope="col" class="sortable" aria-sort="none">כיתה</th>
-              <th scope="col">מסמכים</th>
               <th scope="col">הערות</th>
               @if (canEdit) { <th scope="col">פעולות</th> }
             </tr>
@@ -161,56 +279,25 @@
           <tbody>
             @foreach (var row in Model)
             {
-              var rowFiles = attachmentsByRow.TryGetValue(row.Id, out var files)
-                ? files
-                : new List<AxiomaReporting.Core.Entities.DocumentAttachment>();
               var rowVersionB64 = row.RowVersion != null ? Convert.ToBase64String(row.RowVersion) : "";
               <tr data-row-id="@row.Id" data-row-version="@rowVersionB64">
                 <td>@row.SequenceNumber</td>
-                <td>@row.MeetingDate.ToString("dd/MM/yyyy")</td>
-                <td>@row.MeetingDuration</td>
-                <td>@row.District?.Description</td>
-                <td>@row.Locality?.Description</td>
-                <td>@row.Framework?.Description</td>
-                <td>@row.EducationalProgram?.Description</td>
-                <td>@row.Domain?.Description</td>
-                <td>@row.Subject1?.Description</td>
-                <td>@row.Subject2?.Description</td>
-                <td>@row.DiscussionCode?.Description</td>
-                <td>@row.ConclusionClass?.Description</td>
-                <td>@row.ConclusionFramework?.Description</td>
-                <td>@row.ConclusionLocation?.Description</td>
-                <td>@row.GradeLevel?.Description</td>
-                <td>@row.Class?.Description</td>
-                <td>
-                  @if (rowFiles.Any())
-                  {
-                    foreach (var file in rowFiles)
-                    {
-                      <div class="small">
-                        <a href="@file.FilePath" target="_blank" aria-label="פתח קובץ @file.FileName בלשונית חדשה">@file.FileName</a>
-                        @if (canEdit)
-                        {
-                          <button type="button" class="btn btn-link btn-sm p-0 text-danger"
-                                  onclick="deleteAttachment(@file.Id)"
-                                  aria-label="מחק קובץ @file.FileName">מחק</button>
-                        }
-                      </div>
-                    }
-                  }
-                  else
-                  {
-                    <span class="text-muted" aria-label="אין מסמכים מצורפים">---</span>
-                  }
-                  @if (canEdit)
-                  {
-                    <label class="visually-hidden" for="file-upload-@row.Id">הוסף מסמך לשורה @row.SequenceNumber</label>
-                    <input type="file" id="file-upload-@row.Id" class="form-control form-control-sm mt-1"
-                           onchange="uploadAttachment(@row.Id, this)"
-                           aria-label="הוסף מסמך לשורה @row.SequenceNumber" />
-                  }
-                </td>
-                <td>@row.Notes</td>
+                <td @Html.Raw(FieldAttrs("MeetingDate", "date"))>@row.MeetingDate.ToString("dd/MM/yyyy")</td>
+                <td @Html.Raw(FieldAttrs("MeetingDuration", "duration"))>@row.MeetingDuration</td>
+                <td @Html.Raw(FieldAttrs("DistrictId"))>@row.District?.Description</td>
+                <td @Html.Raw(FieldAttrs("LocalityId"))>@row.Locality?.Description</td>
+                <td @Html.Raw(FieldAttrs("FrameworkId"))>@row.Framework?.Description</td>
+                <td @Html.Raw(FieldAttrs("EducationalProgramId"))>@row.EducationalProgram?.Description</td>
+                <td @Html.Raw(FieldAttrs("DomainId"))>@row.Domain?.Description</td>
+                <td @Html.Raw(FieldAttrs("Subject1Id"))>@row.Subject1?.Description</td>
+                <td @Html.Raw(FieldAttrs("Subject2Id", optional: true))>@row.Subject2?.Description</td>
+                <td @Html.Raw(FieldAttrs("DiscussionCodeId", optional: true))>@row.DiscussionCode?.Description</td>
+                <td @Html.Raw(FieldAttrs("ConclusionClassId", optional: true))>@row.ConclusionClass?.Description</td>
+                <td @Html.Raw(FieldAttrs("ConclusionFrameworkId", optional: true))>@row.ConclusionFramework?.Description</td>
+                <td @Html.Raw(FieldAttrs("ConclusionLocationId", optional: true))>@row.ConclusionLocation?.Description</td>
+                <td @Html.Raw(FieldAttrs("GradeLevelId", optional: true))>@row.GradeLevel?.Description</td>
+                <td @Html.Raw(FieldAttrs("ClassId", optional: true))>@row.Class?.Description</td>
+                <td @Html.Raw(FieldAttrs("Notes", "textarea", true))>@row.Notes</td>
                 @if (canEdit)
                 {
                   <td>
@@ -239,6 +326,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="allocationId" value="@allocationId" />
         <input type="hidden" name="rowVersion" value="@reportRowVersion" />
+        <input type="hidden" name="returnUrl" value="@returnUrl" />
         <button type="submit" class="btn btn-success"
                 onclick="return confirm('האם להגיש את הדיווח?')">הגשת דיווח</button>
       </form>
@@ -249,6 +337,7 @@
           @Html.AntiForgeryToken()
           <input type="hidden" name="reportId" value="@report?.Id" />
           <input type="hidden" name="allocationId" value="@allocationId" />
+          <input type="hidden" name="returnUrl" value="@returnUrl" />
           <input type="file" name="file" accept=".xlsx" class="form-control form-control-sm" required />
           <button type="submit" class="btn btn-outline-primary btn-sm"
                   onclick="return confirm('העלאת אקסל תחליף את שורות ההקצאה הנוכחיות. להמשיך?')">ייבוא אקסל</button>
@@ -433,6 +522,18 @@
     const inlineDurationUnlimited = @Json.Serialize(durationUnlimited);
     const inlineReportId = @report?.Id;
     const inlineAllocationId = @allocationId;
+    const reportUrls = {
+      getRow: '@Url.Action("GetRow", "Report")',
+      saveRow: '@Url.Action("SaveRow", "Report")',
+      deleteRow: '@Url.Action("DeleteRow", "Report")',
+      uploadAttachment: '@Url.Action("UploadAttachment", "Report")',
+      deleteAttachment: '@Url.Action("DeleteAttachment", "Report")'
+    };
+
+    function withQuery(url, key, value) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+    }
 
     function htmlEscape(value) {
       return String(value ?? '')
@@ -465,11 +566,204 @@
       return `<input type="number" step="0.5" min="0.5" class="form-control form-control-sm inline-field" data-name="row.MeetingDuration" value="${htmlEscape(value ?? '')}" />`;
     }
 
+    function getLookupText(field, value) {
+      if (!value) return '';
+      const item = (inlineLookupData[field] || []).find(x => String(x.id) === String(value));
+      return item ? item.text : '';
+    }
+
+    function formatCellValue(field, value) {
+      if (field === 'MeetingDate') {
+        if (!value) return '';
+        const parts = String(value).split('-');
+        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : value;
+      }
+
+      if (field === 'MeetingDuration' || field === 'Notes') {
+        return value || '';
+      }
+
+      return getLookupText(field, value);
+    }
+
+    function cellEditorHtml(field, type, optional, value) {
+      if (type === 'date') {
+        return `<input type="date" class="form-control form-control-sm cell-field" value="${htmlEscape(value || '')}" />`;
+      }
+
+      if (type === 'duration') {
+        if (inlineDurationOptions.length && !inlineDurationUnlimited) {
+          const options = ['<option value="">בחר...</option>'].concat(inlineDurationOptions.map(item => {
+            const selected = String(item) === String(value ?? '') ? ' selected' : '';
+            return `<option value="${htmlEscape(item)}"${selected}>${htmlEscape(item)}</option>`;
+          }));
+          return `<select class="form-select form-select-sm cell-field">${options.join('')}</select>`;
+        }
+
+        return `<input type="number" step="0.5" min="0.5" class="form-control form-control-sm cell-field" value="${htmlEscape(value ?? '')}" />`;
+      }
+
+      if (type === 'textarea') {
+        return `<textarea class="form-control form-control-sm cell-field" rows="2">${htmlEscape(value || '')}</textarea>`;
+      }
+
+      const items = inlineLookupData[field] || [];
+      const emptyText = optional ? '---' : 'בחר...';
+      const options = [`<option value="">${emptyText}</option>`].concat(items.map(item => {
+        const selected = String(item.id) === String(value ?? '') ? ' selected' : '';
+        return `<option value="${htmlEscape(item.id)}"${selected}>${htmlEscape(item.text)}</option>`;
+      }));
+      return `<select class="form-select form-select-sm cell-field">${options.join('')}</select>`;
+    }
+
+    function appendRowFormData(data, row) {
+      data.append('row.Id', row.id);
+      data.append('row.MeetingDate', row.meetingDate || '');
+      data.append('row.MeetingDuration', row.meetingDuration || '');
+      data.append('row.DistrictId', row.districtId || '');
+      data.append('row.LocalityId', row.localityId || '');
+      data.append('row.FrameworkId', row.frameworkId || '');
+      data.append('row.EducationalProgramId', row.educationalProgramId || '');
+      data.append('row.DomainId', row.domainId || '');
+      data.append('row.Subject1Id', row.subject1Id || '');
+      data.append('row.Subject2Id', row.subject2Id || '');
+      data.append('row.DiscussionCodeId', row.discussionCodeId || '');
+      data.append('row.ConclusionClassId', row.conclusionClassId || '');
+      data.append('row.ConclusionFrameworkId', row.conclusionFrameworkId || '');
+      data.append('row.ConclusionLocationId', row.conclusionLocationId || '');
+      data.append('row.GradeLevelId', row.gradeLevelId || '');
+      data.append('row.ClassId', row.classId || '');
+      data.append('row.Notes', row.notes || '');
+    }
+
+    function setRowField(row, field, value) {
+      const map = {
+        MeetingDate: 'meetingDate',
+        MeetingDuration: 'meetingDuration',
+        DistrictId: 'districtId',
+        LocalityId: 'localityId',
+        FrameworkId: 'frameworkId',
+        EducationalProgramId: 'educationalProgramId',
+        DomainId: 'domainId',
+        Subject1Id: 'subject1Id',
+        Subject2Id: 'subject2Id',
+        DiscussionCodeId: 'discussionCodeId',
+        ConclusionClassId: 'conclusionClassId',
+        ConclusionFrameworkId: 'conclusionFrameworkId',
+        ConclusionLocationId: 'conclusionLocationId',
+        GradeLevelId: 'gradeLevelId',
+        ClassId: 'classId',
+        Notes: 'notes'
+      };
+      row[map[field]] = value;
+    }
+
+    async function editCell(cell) {
+      if (!cell?.classList.contains('editable-cell') || cell.classList.contains('cell-editing')) return;
+      const tr = cell.closest('tr[data-row-id]');
+      if (!tr || tr.dataset.inlineEditing === 'true') return;
+
+      document.querySelectorAll('#reportTable td.cell-editing').forEach(cancelCellEdit);
+      const field = cell.dataset.editField;
+      const type = cell.dataset.editType || 'select';
+      const optional = cell.dataset.editOptional === 'true';
+      const rowId = tr.dataset.rowId;
+      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', rowId));
+      if (!resp.ok) {
+        alert('לא ניתן לטעון את התא לעריכה');
+        return;
+      }
+
+      const row = await resp.json();
+      const key = {
+        MeetingDate: 'meetingDate',
+        MeetingDuration: 'meetingDuration',
+        DistrictId: 'districtId',
+        LocalityId: 'localityId',
+        FrameworkId: 'frameworkId',
+        EducationalProgramId: 'educationalProgramId',
+        DomainId: 'domainId',
+        Subject1Id: 'subject1Id',
+        Subject2Id: 'subject2Id',
+        DiscussionCodeId: 'discussionCodeId',
+        ConclusionClassId: 'conclusionClassId',
+        ConclusionFrameworkId: 'conclusionFrameworkId',
+        ConclusionLocationId: 'conclusionLocationId',
+        GradeLevelId: 'gradeLevelId',
+        ClassId: 'classId',
+        Notes: 'notes'
+      }[field];
+
+      cell.dataset.originalHtml = cell.innerHTML;
+      cell.classList.add('cell-editing');
+      cell.innerHTML = `
+        ${cellEditorHtml(field, type, optional, row[key])}
+        <div class="cell-edit-actions">
+          <button type="button" class="btn btn-sm btn-primary" onclick="saveCellEdit(this)">שמור</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelCellEdit(this.closest('td'))">ביטול</button>
+        </div>
+        <div class="cell-edit-error" role="alert"></div>`;
+      cell.querySelector('.cell-field')?.focus();
+    }
+
+    function cancelCellEdit(cell) {
+      if (!cell?.dataset.originalHtml) return;
+      cell.innerHTML = cell.dataset.originalHtml;
+      cell.classList.remove('cell-editing');
+      delete cell.dataset.originalHtml;
+    }
+
+    async function saveCellEdit(button) {
+      const cell = button.closest('td');
+      const tr = cell.closest('tr[data-row-id]');
+      const field = cell.dataset.editField;
+      const input = cell.querySelector('.cell-field');
+      const rowId = tr.dataset.rowId;
+      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', rowId));
+      if (!resp.ok) {
+        cell.querySelector('.cell-edit-error').textContent = 'לא ניתן לטעון את השורה לשמירה';
+        return;
+      }
+
+      const row = await resp.json();
+      const value = input.value || '';
+      setRowField(row, field, value);
+
+      const token = document.querySelector('[name=__RequestVerificationToken]').value;
+      const data = new FormData();
+      data.append('__RequestVerificationToken', token);
+      data.append('reportId', inlineReportId);
+      data.append('allocationId', inlineAllocationId);
+      data.append('rowVersion', tr.getAttribute('data-row-version') || row.rowVersion || '');
+      appendRowFormData(data, row);
+
+      button.disabled = true;
+      const saveResp = await fetch(reportUrls.saveRow, { method: 'POST', body: data });
+      const result = await saveResp.json().catch(() => ({ success: false, error: 'שגיאה בשמירת התא' }));
+      if (!result.success) {
+        button.disabled = false;
+        cell.querySelector('.cell-edit-error').innerHTML = (result.errors || [result.error || 'שגיאה בשמירת התא']).join('<br/>');
+        return;
+      }
+
+      if (result.rowVersion) {
+        tr.setAttribute('data-row-version', result.rowVersion);
+      }
+      cell.classList.remove('cell-editing');
+      delete cell.dataset.originalHtml;
+      cell.textContent = formatCellValue(field, value) || '---';
+    }
+
+    document.querySelectorAll('#reportTable td.editable-cell').forEach(cell => {
+      cell.addEventListener('dblclick', () => editCell(cell));
+      cell.addEventListener('click', () => editCell(cell));
+    });
+
     async function inlineEditRow(id) {
       const tr = document.querySelector(`tr[data-row-id="${id}"]`);
       if (!tr || tr.dataset.inlineEditing === 'true') return;
 
-      const resp = await fetch('/Report/GetRow?rowId=' + id);
+      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', id));
       if (!resp.ok) {
         alert('לא ניתן לטעון את השורה לעריכה');
         return;
@@ -477,42 +771,50 @@
 
       const row = await resp.json();
       tr.dataset.inlineEditing = 'true';
-      tr.dataset.originalHtml = tr.innerHTML;
-      const cells = tr.children;
+      document.querySelector(`tr[data-detail-for="${id}"]`)?.remove();
 
-      cells[1].innerHTML = `<input type="date" class="form-control form-control-sm inline-field" data-name="row.MeetingDate" value="${htmlEscape(row.meetingDate)}" />`;
-      cells[2].innerHTML = durationHtml(row.meetingDuration);
-      cells[3].innerHTML = selectHtml('DistrictId', row.districtId, false);
-      cells[4].innerHTML = selectHtml('LocalityId', row.localityId, false);
-      cells[5].innerHTML = selectHtml('FrameworkId', row.frameworkId, false);
-      cells[6].innerHTML = selectHtml('EducationalProgramId', row.educationalProgramId, false);
-      cells[7].innerHTML = selectHtml('DomainId', row.domainId, false);
-      cells[8].innerHTML = selectHtml('Subject1Id', row.subject1Id, false);
-      cells[9].innerHTML = selectHtml('Subject2Id', row.subject2Id, true);
-      cells[10].innerHTML = selectHtml('DiscussionCodeId', row.discussionCodeId, true);
-      cells[11].innerHTML = selectHtml('ConclusionClassId', row.conclusionClassId, true);
-      cells[12].innerHTML = selectHtml('ConclusionFrameworkId', row.conclusionFrameworkId, true);
-      cells[13].innerHTML = selectHtml('ConclusionLocationId', row.conclusionLocationId, true);
-      cells[14].innerHTML = selectHtml('GradeLevelId', row.gradeLevelId, true);
-      cells[15].innerHTML = selectHtml('ClassId', row.classId, true);
-      cells[17].innerHTML = `<textarea class="form-control form-control-sm inline-field" data-name="row.Notes" rows="2">${htmlEscape(row.notes || '')}</textarea>
-        <div class="inline-row-errors text-danger small fw-bold mt-1" role="alert"></div>`;
-      cells[18].innerHTML = `
-        <button type="button" class="btn btn-sm btn-primary" onclick="saveInlineRow(${id})">שמור</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelInlineRow(${id})">ביטול</button>`;
+      const detail = document.createElement('tr');
+      detail.className = 'table-warning-subtle';
+      detail.dataset.detailFor = id;
+      detail.innerHTML = `
+        <td colspan="${tr.children.length}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-2"><label class="form-label">תאריך</label><input type="date" class="form-control form-control-sm inline-field" data-name="row.MeetingDate" value="${htmlEscape(row.meetingDate)}" /></div>
+            <div class="col-md-2"><label class="form-label">משך</label>${durationHtml(row.meetingDuration)}</div>
+            <div class="col-md-2"><label class="form-label">מחוז</label>${selectHtml('DistrictId', row.districtId, false)}</div>
+            <div class="col-md-2"><label class="form-label">ישוב</label>${selectHtml('LocalityId', row.localityId, false)}</div>
+            <div class="col-md-2"><label class="form-label">מסגרת</label>${selectHtml('FrameworkId', row.frameworkId, false)}</div>
+            <div class="col-md-2"><label class="form-label">תוכנית</label>${selectHtml('EducationalProgramId', row.educationalProgramId, false)}</div>
+            <div class="col-md-2"><label class="form-label">תחום</label>${selectHtml('DomainId', row.domainId, false)}</div>
+            <div class="col-md-2"><label class="form-label">נושא 1</label>${selectHtml('Subject1Id', row.subject1Id, false)}</div>
+            <div class="col-md-2"><label class="form-label">נושא 2</label>${selectHtml('Subject2Id', row.subject2Id, true)}</div>
+            <div class="col-md-2"><label class="form-label">קוד דיון</label>${selectHtml('DiscussionCodeId', row.discussionCodeId, true)}</div>
+            <div class="col-md-2"><label class="form-label">מסקנה - כיתה</label>${selectHtml('ConclusionClassId', row.conclusionClassId, true)}</div>
+            <div class="col-md-2"><label class="form-label">מסקנה - מסגרת</label>${selectHtml('ConclusionFrameworkId', row.conclusionFrameworkId, true)}</div>
+            <div class="col-md-2"><label class="form-label">מסקנה - מיקום</label>${selectHtml('ConclusionLocationId', row.conclusionLocationId, true)}</div>
+            <div class="col-md-2"><label class="form-label">שכבה</label>${selectHtml('GradeLevelId', row.gradeLevelId, true)}</div>
+            <div class="col-md-2"><label class="form-label">כיתה</label>${selectHtml('ClassId', row.classId, true)}</div>
+            <div class="col-md-6"><label class="form-label">הערות</label><textarea class="form-control form-control-sm inline-field" data-name="row.Notes" rows="2">${htmlEscape(row.notes || '')}</textarea></div>
+            <div class="col-md-4 d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-primary" onclick="saveInlineRow(${id})">שמור</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelInlineRow(${id})">ביטול</button>
+            </div>
+            <div class="col-12 inline-row-errors text-danger small fw-bold" role="alert"></div>
+          </div>
+        </td>`;
+      tr.after(detail);
     }
 
     function cancelInlineRow(id) {
       const tr = document.querySelector(`tr[data-row-id="${id}"]`);
-      if (!tr?.dataset.originalHtml) return;
-      tr.innerHTML = tr.dataset.originalHtml;
-      tr.dataset.inlineEditing = 'false';
-      delete tr.dataset.originalHtml;
+      document.querySelector(`tr[data-detail-for="${id}"]`)?.remove();
+      if (tr) tr.dataset.inlineEditing = 'false';
     }
 
     async function saveInlineRow(id) {
       const tr = document.querySelector(`tr[data-row-id="${id}"]`);
-      if (!tr) return;
+      const detail = document.querySelector(`tr[data-detail-for="${id}"]`);
+      if (!tr || !detail) return;
 
       const token = document.querySelector('[name=__RequestVerificationToken]').value;
       const data = new FormData();
@@ -521,18 +823,18 @@
       data.append('allocationId', inlineAllocationId);
       data.append('row.Id', id);
       data.append('rowVersion', tr.getAttribute('data-row-version') || '');
-      tr.querySelectorAll('.inline-field').forEach(field => {
+      detail.querySelectorAll('.inline-field').forEach(field => {
         data.append(field.dataset.name, field.value || '');
       });
 
-      const resp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
+      const resp = await fetch(reportUrls.saveRow, { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) {
         location.reload();
         return;
       }
 
-      const errorBox = tr.querySelector('.inline-row-errors');
+      const errorBox = detail.querySelector('.inline-row-errors');
       if (errorBox) {
         errorBox.innerHTML = (result.errors || [result.error || 'שגיאה בשמירת השורה']).join('<br/>');
       } else {
@@ -555,7 +857,9 @@
 
     function sortReportTable(index, header) {
       const tbody = document.querySelector('#reportTable tbody');
-      const rows = Array.from(tbody.querySelectorAll('tr'));
+      document.querySelectorAll('tr[data-detail-for]').forEach(row => row.remove());
+      document.querySelectorAll('tr[data-row-id]').forEach(row => row.dataset.inlineEditing = 'false');
+      const rows = Array.from(tbody.querySelectorAll('tr[data-row-id]'));
       const descending = header.dataset.sortDir !== 'desc';
       document.querySelectorAll('#reportTable th.sortable').forEach(th => {
         th.dataset.sortDir = '';
@@ -592,7 +896,7 @@
 
     async function editRow(id) {
       document.getElementById('rowErrors').style.display = 'none';
-      const resp = await fetch('/Report/GetRow?rowId=' + id);
+      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', id));
       if (!resp.ok) {
         alert('לא ניתן לטעון את השורה לעריכה');
         return;
@@ -623,7 +927,7 @@
 
     async function duplicateRow(id) {
       document.getElementById('rowErrors').style.display = 'none';
-      const resp = await fetch('/Report/GetRow?rowId=' + id);
+      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', id));
       if (!resp.ok) {
         alert('לא ניתן לטעון את השורה לשכפול');
         return;
@@ -658,7 +962,7 @@
       const errDiv = document.getElementById('rowErrors');
       errDiv.style.display = 'none';
 
-      const resp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
+      const resp = await fetch(reportUrls.saveRow, { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) {
         location.reload();
@@ -677,7 +981,7 @@
       data.append('rowId', rowId);
       data.append('rowVersion', rv);
       data.append('__RequestVerificationToken', token);
-      const resp = await fetch('/Report/DeleteRow', { method: 'POST', body: data });
+      const resp = await fetch(reportUrls.deleteRow, { method: 'POST', body: data });
       const result = await resp.json().catch(() => ({ success: false }));
       if (result.success) {
         location.reload();
@@ -686,14 +990,17 @@
       }
     }
 
-    async function uploadAttachment(rowId, input) {
+    async function uploadAttachment() {
+      const input = document.getElementById('report-file-upload');
       if (!input.files.length) return;
       const token = document.querySelector('[name=__RequestVerificationToken]').value;
       const data = new FormData();
-      data.append('reportRowId', rowId);
+      data.append('reportId', inlineReportId);
       data.append('file', input.files[0]);
+      const descriptionInput = document.getElementById('report-file-description');
+      data.append('description', descriptionInput ? descriptionInput.value : '');
       data.append('__RequestVerificationToken', token);
-      const resp = await fetch('/Report/UploadAttachment', { method: 'POST', body: data });
+      const resp = await fetch(reportUrls.uploadAttachment, { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) location.reload();
       else alert(result.error || 'שגיאה בהעלאת מסמך');
@@ -705,10 +1012,20 @@
       const data = new FormData();
       data.append('attachmentId', attachmentId);
       data.append('__RequestVerificationToken', token);
-      const resp = await fetch('/Report/DeleteAttachment', { method: 'POST', body: data });
+      const resp = await fetch(reportUrls.deleteAttachment, { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) location.reload();
       else alert(result.error || 'שגיאה במחיקת מסמך');
     }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const editRowId = @(editRowId.HasValue ? editRowId.Value.ToString() : "0");
+      if (editRowId > 0) {
+        editRow(editRowId);
+        const url = new URL(window.location.href);
+        url.searchParams.delete('editRowId');
+        window.history.replaceState({}, '', url);
+      }
+    });
   </script>
 }

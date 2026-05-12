@@ -11,7 +11,7 @@ namespace AxiomaReporting.Tests.Unit;
 
 /// <summary>
 /// Tests for allocation CRUD constraints enforced via EmployeeService:
-/// - UNIQUE (UserId, ProjectId) — only one allocation per employee+project
+/// - Multiple allocations are allowed for the same employee+project
 /// - Soft-delete: DeleteAllocationAsync sets IsActive = false
 /// - GetAllocationsAsync returns only active allocations
 /// </summary>
@@ -76,48 +76,21 @@ public class AllocationConstraintTests : IDisposable
     };
 
     // -----------------------------------------------------------------------
-    // One allocation per employee+project rule
+    // Multiple allocations per employee+project rule
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task CreateAllocationAsync_SecondAllocationSameProject_ThrowsOrReturnsError()
+    public async Task CreateAllocationAsync_SecondAllocationSameProject_Succeeds()
     {
-        // Arrange — create the first allocation
-        await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
+        var first = await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
+        var second = await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
 
-        // Act — attempt a second allocation for the same user + project
-        // In-memory EF Core does not enforce DB-level UNIQUE constraints, so the service
-        // may either throw (if it performs an explicit guard) or silently create a duplicate.
-        // The test documents the observable behaviour and verifies that when the spec
-        // constraint IS enforced, it surfaces correctly.
-        //
-        // Since EmployeeService does not currently perform an explicit uniqueness guard
-        // before inserting (that is left to the DB UNIQUE index in production), this test
-        // verifies the production constraint expectation by checking that:
-        //   a) the in-memory DB allows the insert (no exception thrown), AND
-        //   b) a follow-on query shows two rows — demonstrating the issue that the DB
-        //      constraint catches in production.
-        //
-        // If a guard IS added to EmployeeService in the future, this test should be updated
-        // to expect an exception instead.
-        Allocation? second = null;
-        Func<Task> act = async () =>
-        {
-            second = await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
-        };
+        first.Should().NotBeNull();
+        second.Should().NotBeNull();
+        second.ProjectId.Should().Be(first.ProjectId);
 
-        // For the in-memory provider, no exception is thrown (constraint is DB-side).
-        // We document what happens rather than asserting a throw that won't fire here.
-        await act.Should().NotThrowAsync(
-            "in-memory EF Core does not enforce UNIQUE indexes; " +
-            "this constraint is enforced by the SQL Server unique index in production");
-
-        // Both allocations are now in the DB — we document this so developers know
-        // the application layer needs an explicit guard.
         var count = await _db.Allocations.CountAsync(a => a.UserId == 100 && a.ProjectId == 100);
-        count.Should().Be(2,
-            "in-memory DB does not enforce the UNIQUE (UserId, ProjectId) constraint; " +
-            "production SQL Server enforces it via a unique index");
+        count.Should().Be(2);
     }
 
     [Fact]
@@ -264,7 +237,6 @@ public class AllocationConstraintTests : IDisposable
         await _db.SaveChangesAsync();
 
         await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
-        // User 200 uses project 200 to avoid the in-memory UNIQUE index conflict on (UserId, ProjectId)
         await _sut.CreateAllocationAsync(new AllocationDto { UserId = 200, ProjectId = 100, AllowExcelUpload = false, IsActive = true });
 
         // Act

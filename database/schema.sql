@@ -819,6 +819,7 @@ BEGIN
         [UserId] int NULL,
         [ReportRowId] int NULL,
         [FileName] nvarchar(500) NOT NULL,
+        [Description] nvarchar(1000) NULL,
         [FilePath] nvarchar(1000) NOT NULL,
         [FileSize] bigint NOT NULL,
         [MimeType] nvarchar(200) NOT NULL,
@@ -1057,7 +1058,7 @@ IF NOT EXISTS (
     WHERE [MigrationId] = N'20260412124943_InitialCreate'
 )
 BEGIN
-    CREATE UNIQUE INDEX [IX_Allocations_UserId_ProjectId] ON [Allocations] ([UserId], [ProjectId]);
+    CREATE INDEX [IX_Allocations_UserId_ProjectId] ON [Allocations] ([UserId], [ProjectId]);
 END;
 GO
 
@@ -2381,6 +2382,26 @@ IF NOT EXISTS (
 BEGIN
     INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20260430110451_AddHebrewDescriptionsToRolesAndStatuses', N'8.0.26');
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260510120000_AddDescriptionToDocumentAttachments'
+)
+BEGIN
+    IF COL_LENGTH('DocumentAttachments', 'Description') IS NULL
+        ALTER TABLE [DocumentAttachments] ADD [Description] nvarchar(1000) NULL;
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260510120000_AddDescriptionToDocumentAttachments'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260510120000_AddDescriptionToDocumentAttachments', N'8.0.26');
 END;
 GO
 

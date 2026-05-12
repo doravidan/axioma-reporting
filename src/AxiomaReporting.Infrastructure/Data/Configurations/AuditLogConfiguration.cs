@@ -20,18 +20,15 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
     builder.Property(e => e.Notes).HasMaxLength(1000);
 
     builder.HasIndex(e => e.Timestamp)
-      .IsDescending()
       .HasDatabaseName("IX_AuditLogs_Timestamp");
 
     builder.HasIndex(e => new { e.EntityType, e.EntityId })
       .HasDatabaseName("IX_AuditLogs_EntityType_EntityId");
 
     builder.HasIndex(e => new { e.ActorUserId, e.Timestamp })
-      .IsDescending(false, true)
       .HasDatabaseName("IX_AuditLogs_ActorUserId_Timestamp");
 
     builder.HasIndex(e => new { e.Action, e.Timestamp })
-      .IsDescending(false, true)
       .HasDatabaseName("IX_AuditLogs_Action_Timestamp");
 
     builder.HasOne(e => e.ActorUser)

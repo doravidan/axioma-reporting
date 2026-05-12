@@ -115,7 +115,7 @@
   {
     var durationUnlimited = DurationUnlimited(alloc);
     <section id="allocation-@alloc.Id"
-             class="allocation-card card mb-3 @(selectedAllocationId == alloc.Id ? "allocation-card-selected" : "")"
+             class="allocation-card card border-success mb-3 @(selectedAllocationId == alloc.Id ? "allocation-card-selected" : "")"
              data-allocation-id="@alloc.Id">
       <form method="post"
             asp-action="EditAllocation"
@@ -129,7 +129,10 @@
         <div class="d-flex justify-content-between align-items-start gap-3">
           <h5 class="fw-bold mb-2">פרטי הקצאה</h5>
           <div class="d-flex flex-column gap-2 allocation-actions">
-            <button type="button" class="btn btn-sm btn-primary allocation-edit">ערוך</button>
+            <a class="btn btn-sm btn-primary"
+               asp-action="EditAllocation"
+               asp-route-id="@employee.Id"
+               asp-route-allocationId="@alloc.Id">ערוך</a>
             <button type="submit" class="btn btn-sm btn-primary">שמור</button>
             <a class="btn btn-sm btn-primary"
                asp-action="ExportAllocationsExcel"
@@ -327,18 +330,15 @@
 
 <style>
   .allocations-page .allocation-card > form {
-    padding: 1rem;
+    padding: 0;
   }
 
   .allocations-page .allocation-card > form + form {
-    padding-top: 0;
     margin-top: 0 !important;
   }
 
   .allocations-page .allocation-card-selected {
-    background: #f8fbff;
-    border-color: #0d6efd;
-    box-shadow: 0 0 0 .15rem rgba(13, 110, 253, .12);
+    box-shadow: 0 0 0 .18rem rgba(25, 135, 84, .16);
   }
 
   .allocations-page .allocation-shortcuts {
@@ -353,22 +353,72 @@
   }
 
   .allocations-page .allocation-actions {
-    min-width: 86px;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .allocations-page .allocation-card > form > .d-flex:first-of-type {
+    align-items: center !important;
+    background: #198754;
+    color: #fff;
+    padding: .75rem 1rem;
+    border-radius: calc(.375rem - 1px) calc(.375rem - 1px) 0 0;
+    margin: 0;
+  }
+
+  .allocations-page .allocation-card > form > .d-flex:first-of-type h5 {
+    margin: 0 !important;
+    color: #fff;
+  }
+
+  .allocations-page .allocation-card > form > .d-flex:first-of-type .btn-primary {
+    --bs-btn-color: #198754;
+    --bs-btn-bg: #fff;
+    --bs-btn-border-color: #fff;
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: transparent;
+    --bs-btn-hover-border-color: #fff;
+  }
+
+  .allocations-page .allocation-fields {
+    padding: 1rem;
+    margin: 0;
+  }
+
+  .allocations-page .allocation-fields > [class*="col-"] {
+    margin-top: 1rem;
+  }
+
+  .allocations-page .allocation-fields .form-control-sm,
+  .allocations-page .allocation-fields .form-select-sm {
+    min-height: calc(2.5rem + 2px);
+    padding: .375rem .75rem;
+    font-size: 1rem;
+    border-radius: .375rem;
   }
 
   .allocations-page .duration-box {
     border: 1px solid #ced4da;
     border-radius: .375rem;
-    padding: .4rem .7rem;
-    min-height: 142px;
+    padding: .65rem .8rem;
+    min-height: 122px;
     background: #fff;
   }
 
   .allocations-page .allocation-picker {
     border: 1px solid #ced4da;
     border-radius: .375rem;
-    background: #f8f9fa;
+    background: #fff;
     padding: 1rem;
+  }
+
+  .allocations-page .allocation-picker::before {
+    content: "שיוכים";
+    display: block;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
   }
 
   .allocations-page .allocation-selected-list {
@@ -400,12 +450,44 @@
   .allocations-page [disabled] {
     cursor: not-allowed;
   }
+
+  .allocations-page .allocation-card > form:not(:first-child),
+  .allocations-page .allocation-card > form + form {
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    padding: 1rem;
+  }
+
+  @@media (min-width: 768px) {
+    .allocations-page .allocation-fields > .col-md-2 {
+      flex: 0 0 auto;
+      width: 33.333333%;
+    }
+
+    .allocations-page .allocation-fields > .col-md-2:nth-child(1),
+    .allocations-page .allocation-fields > .col-md-2:nth-child(2) {
+      width: 50%;
+    }
+
+    .allocations-page .allocation-fields > .col-md-8,
+    .allocations-page .allocation-fields > .col-md-10 {
+      flex: 0 0 auto;
+      width: 100%;
+    }
+  }
 </style>
 
 @section Scripts {
   <script>
     const allocationLookupData = @Html.Raw(JsonSerializer.Serialize(lookupData));
     const allocationCategoryLabels = @Html.Raw(JsonSerializer.Serialize(categoryLabels));
+
+    document.querySelectorAll('.whole-number-field').forEach((input) => {
+      input.addEventListener('input', () => {
+        input.value = input.value.replace(/[^\d]/g, '');
+      });
+      input.addEventListener('wheel', () => input.blur());
+    });
 
     document.querySelectorAll('.allocation-card').forEach(card => {
       const form = card.querySelector('form');

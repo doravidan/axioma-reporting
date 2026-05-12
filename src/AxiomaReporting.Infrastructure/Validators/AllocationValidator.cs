@@ -31,6 +31,10 @@ public class AllocationValidator : AbstractValidator<AllocationDto>
       .Must(BeIntegerOrNull)
       .WithMessage("יש להזין מספר שלם");
 
+    RuleFor(a => a.DailyEmploymentScope)
+      .Must(BeIntegerOrNull)
+      .WithMessage("יש להזין מספר שלם");
+
     RuleFor(a => a.MonthlyEmploymentScope)
       .GreaterThanOrEqualTo(0).When(a => a.MonthlyEmploymentScope.HasValue)
       .WithMessage("היקף פעילות חייב להיות גדול או שווה לאפס");

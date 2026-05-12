@@ -15,6 +15,10 @@
   var allSectors = ViewBag.AllSectors as List<AxiomaReporting.Core.Entities.Sector> ?? new();
   string? sortBy = ViewBag.SortBy as string;
   bool sortDesc = ViewBag.SortDesc ?? false;
+  string DisplayIdNumber(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+      ? ""
+      : (System.Text.RegularExpressions.Regex.IsMatch(value, "[A-Za-z]") ? "מנהל מערכת" : value);
 
   // Build the route values that preserve the active filter across navigation/pagination/sort.
   var baseRouteValues = new Dictionary<string, object?>
@@ -90,7 +94,7 @@
     <h2>ניהול עובדים</h2>
     <div class="d-flex gap-2 flex-wrap">
       <a asp-action="Create" class="btn btn-primary">+ הוסף עובד</a>
-      <a asp-action="AllocationList" class="btn btn-outline-primary">רשימת הקצאות</a>
+      <a asp-controller="Allocations" asp-action="Index" class="btn btn-outline-primary">רשימת הקצאות</a>
       <a href="@ExportLink()" class="btn btn-success">ייצוא אקסל</a>
     </div>
   </div>
@@ -259,7 +263,7 @@
 
       <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-secondary w-100">חפש</button>
-        <a href="@Url.Action("Index", "Employee")" class="btn btn-outline-secondary w-100">איפוס</a>
+        <a href="@Url.Action("Index", "Employee")" class="btn btn-outline-secondary w-100">נקה</a>
       </div>
     </div>
   </form>
@@ -427,7 +431,7 @@
               </td>
               <td><input type="checkbox" name="selectedIds" value="@emp.Id" class="row-check" aria-label="בחר עובד" /></td>
               <td>@emp.EmployeeCode</td>
-              <td>@emp.IdNumber</td>
+              <td>@DisplayIdNumber(emp.IdNumber)</td>
               <td>@emp.FirstName</td>
               <td>@emp.LastName</td>
               <td>@(emp.Role?.Description ?? "-")</td>

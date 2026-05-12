@@ -25,11 +25,9 @@ public class NotificationLogConfiguration : IEntityTypeConfiguration<Notificatio
       .HasDatabaseName("IX_NotificationLogs_Status_NextRetryAt");
 
     builder.HasIndex(e => new { e.RecipientUserId, e.CreatedAt })
-      .IsDescending(false, true)
       .HasDatabaseName("IX_NotificationLogs_RecipientUserId_CreatedAt");
 
     builder.HasIndex(e => new { e.TemplateType, e.CreatedAt })
-      .IsDescending(false, true)
       .HasDatabaseName("IX_NotificationLogs_TemplateType_CreatedAt");
 
     builder.HasOne(e => e.RecipientUser)

@@ -75,6 +75,7 @@ public class ReportValidationService : IReportValidationService
     if (employee.RestDay.HasValue && (int)meetingDate.DayOfWeek == employee.RestDay.Value)
       result.AddError("לא ניתן לדווח ביום המנוחה של העובד");
 
+    await ValidateAllocationScopeAsync(result, row);
     await ValidateDailyLimitAsync(result, row, meetingDate, allRowsInReport);
     await ValidateOutputDurationAsync(result, row);
     await ValidateMonthlyDurationLimitAsync(result, row, allRowsInReport);
@@ -139,6 +140,57 @@ public class ReportValidationService : IReportValidationService
     result.AddWarning($"סה\"כ משך תפוקה בדיווח: {totalDuration}");
 
     return result;
+  }
+
+  private async Task ValidateAllocationScopeAsync(ValidationResult result, ReportRow row)
+  {
+    if (!row.AllocationId.HasValue) return;
+
+    var allocation = await _db.Allocations
+      .Include(a => a.AllocationDistricts)
+      .Include(a => a.AllocationLocalities)
+      .Include(a => a.AllocationFrameworks)
+      .Include(a => a.AllocationEducationalPrograms)
+      .Include(a => a.AllocationDomains)
+      .Include(a => a.AllocationSubjects)
+      .Include(a => a.AllocationDiscussionCodes)
+      .Include(a => a.AllocationClasses)
+      .Include(a => a.AllocationGradeLevels)
+      .Include(a => a.AllocationLocalityDistrictNationals)
+      .FirstOrDefaultAsync(a => a.Id == row.AllocationId.Value);
+
+    if (allocation == null)
+    {
+      result.AddError("ההקצאה שנבחרה לא קיימת");
+      return;
+    }
+
+    if (allocation.AllocationDistricts.Any() && !allocation.AllocationDistricts.Any(x => x.DistrictId == row.DistrictId))
+      result.AddError("המחוז אינו תואם להקצאת העובד");
+    if (allocation.AllocationLocalities.Any() && !allocation.AllocationLocalities.Any(x => x.LocalityId == row.LocalityId))
+      result.AddError("היישוב אינו תואם להקצאת העובד");
+    if (allocation.AllocationFrameworks.Any() && !allocation.AllocationFrameworks.Any(x => x.FrameworkId == row.FrameworkId))
+      result.AddError("המסגרת אינה תואמת להקצאת העובד");
+    if (allocation.AllocationEducationalPrograms.Any() && !allocation.AllocationEducationalPrograms.Any(x => x.EducationalProgramId == row.EducationalProgramId))
+      result.AddError("התוכנית החינוכית אינה תואמת להקצאת העובד");
+    if (allocation.AllocationDomains.Any() && !allocation.AllocationDomains.Any(x => x.DomainId == row.DomainId))
+      result.AddError("התחום אינו תואם להקצאת העובד");
+    if (allocation.AllocationSubjects.Any() && !allocation.AllocationSubjects.Any(x => x.SubjectId == row.Subject1Id))
+      result.AddError("נושא 1 אינו תואם להקצאת העובד");
+    if (row.Subject2Id.HasValue && allocation.AllocationSubjects.Any() && !allocation.AllocationSubjects.Any(x => x.SubjectId == row.Subject2Id.Value))
+      result.AddError("נושא 2 אינו תואם להקצאת העובד");
+    if (row.DiscussionCodeId.HasValue && allocation.AllocationDiscussionCodes.Any() && !allocation.AllocationDiscussionCodes.Any(x => x.DiscussionCodeId == row.DiscussionCodeId.Value))
+      result.AddError("קוד הדיון אינו תואם להקצאת העובד");
+    if (row.ClassId.HasValue && allocation.AllocationClasses.Any() && !allocation.AllocationClasses.Any(x => x.ClassId == row.ClassId.Value))
+      result.AddError("הכיתה אינה תואמת להקצאת העובד");
+    if (row.GradeLevelId.HasValue && allocation.AllocationGradeLevels.Any() && !allocation.AllocationGradeLevels.Any(x => x.GradeLevelId == row.GradeLevelId.Value))
+      result.AddError("השכבה אינה תואמת להקצאת העובד");
+    if (row.ConclusionClassId.HasValue && allocation.AllocationClasses.Any() && !allocation.AllocationClasses.Any(x => x.ClassId == row.ConclusionClassId.Value))
+      result.AddError("מסקנה - כיתה אינה תואמת להקצאת העובד");
+    if (row.ConclusionFrameworkId.HasValue && allocation.AllocationFrameworks.Any() && !allocation.AllocationFrameworks.Any(x => x.FrameworkId == row.ConclusionFrameworkId.Value))
+      result.AddError("מסקנה - מסגרת אינה תואמת להקצאת העובד");
+    if (row.ConclusionLocationId.HasValue && allocation.AllocationLocalityDistrictNationals.Any() && !allocation.AllocationLocalityDistrictNationals.Any(x => x.LocalityDistrictNationalId == row.ConclusionLocationId.Value))
+      result.AddError("מסקנה - מיקום אינה תואמת להקצאת העובד");
   }
 
   private async Task ValidateDailyLimitAsync(

@@ -34,7 +34,7 @@ public class ReportingMonthServiceTests : IDisposable
   /// <summary>Replicates AdminController.ActivateReportingMonth(id).</summary>
   private async Task ActivateMonthAsync(int id)
   {
-    // Set ALL months inactive (mirrors ExecuteUpdateAsync in production code;
+    // Set ALL months inactive (mirrors production code;
     // in-memory provider processes this as a tracked-entity loop).
     var all = await _db.ReportingMonths.ToListAsync();
     foreach (var m in all) m.IsActive = false;

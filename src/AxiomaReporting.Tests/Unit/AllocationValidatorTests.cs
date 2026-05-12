@@ -56,6 +56,19 @@ public class AllocationValidatorTests
     new AllocationValidator().Validate(dto).IsValid.Should().BeTrue();
   }
 
+  [Theory]
+  [InlineData(1.5)]
+  [InlineData(2.25)]
+  public void RejectsNonIntegerDailyScope(double scope)
+  {
+    var dto = Base();
+    dto.DailyEmploymentScope = (decimal)scope;
+
+    var result = new AllocationValidator().Validate(dto);
+    result.IsValid.Should().BeFalse();
+    result.Errors.Should().Contain(e => e.PropertyName == nameof(AllocationDto.DailyEmploymentScope));
+  }
+
   [Fact]
   public void NullScopesAreAllowed()
   {
