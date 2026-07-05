@@ -85,6 +85,14 @@ public class LookupResolver : ILookupResolver
       return byId;
     if (_frameworks.TryGetValue(trimmed.ToLowerInvariant(), out var id))
       return id;
+
+    // Fall back to an institution symbol (3+ digit run) embedded in free text
+    var embeddedSymbol = string.Join(" ", trimmed.Select(c => char.IsDigit(c) ? c : ' '))
+      .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+      .FirstOrDefault(token => token.Length >= 3);
+    if (!string.IsNullOrWhiteSpace(embeddedSymbol) && _frameworkSymbols.TryGetValue(embeddedSymbol, out var bySymbol))
+      return bySymbol;
+
     return null;
   }
 

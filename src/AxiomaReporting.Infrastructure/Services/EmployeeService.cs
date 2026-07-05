@@ -43,6 +43,7 @@ public class EmployeeService : IEmployeeService
       .Include(u => u.Allocations.Where(a => a.IsActive)).ThenInclude(a => a.AllocationDistricts).ThenInclude(ad => ad.District)
       .Include(u => u.Allocations.Where(a => a.IsActive)).ThenInclude(a => a.AllocationPrograms).ThenInclude(ap => ap.Program)
       .Include(u => u.Allocations.Where(a => a.IsActive)).ThenInclude(a => a.AllocationSectors).ThenInclude(s => s.Sector)
+      .AsSplitQuery()
       .AsQueryable();
 
     if (!string.IsNullOrWhiteSpace(search))
@@ -198,6 +199,7 @@ public class EmployeeService : IEmployeeService
       .Include(a => a.AllocationGradeLevels).ThenInclude(x => x.GradeLevel)
       .Include(a => a.AllocationDiscussionCodes).ThenInclude(x => x.DiscussionCode)
       .Include(a => a.AllocationLocalityDistrictNationals).ThenInclude(x => x.LocalityDistrictNational)
+      .AsSplitQuery()
       .Where(a => a.UserId == userId && a.IsActive)
       .ToListAsync();
 
@@ -216,6 +218,7 @@ public class EmployeeService : IEmployeeService
       .Include(a => a.AllocationGradeLevels).ThenInclude(x => x.GradeLevel)
       .Include(a => a.AllocationDiscussionCodes).ThenInclude(x => x.DiscussionCode)
       .Include(a => a.AllocationLocalityDistrictNationals).ThenInclude(x => x.LocalityDistrictNational)
+      .AsSplitQuery()
       .FirstOrDefaultAsync(a => a.Id == allocationId);
 
   public async Task<Allocation> CreateAllocationAsync(AllocationDto dto)
@@ -224,6 +227,7 @@ public class EmployeeService : IEmployeeService
     {
       UserId = dto.UserId,
       ProjectId = dto.ProjectId,
+      ReportTypeId = dto.ReportTypeId,
       AnnualEmploymentScope = dto.AnnualEmploymentScope,
       MonthlyEmploymentScope = dto.MonthlyEmploymentScope,
       DailyEmploymentScope = dto.DailyEmploymentScope,
@@ -245,7 +249,7 @@ public class EmployeeService : IEmployeeService
     if (_auditLog != null)
       await _auditLog.LogAsync("Allocation.Create", nameof(Allocation), allocation.Id.ToString(),
         before: null,
-        after: new { allocation.Id, allocation.UserId, allocation.ProjectId,
+        after: new { allocation.Id, allocation.UserId, allocation.ProjectId, allocation.ReportTypeId,
           allocation.AnnualEmploymentScope, allocation.MonthlyEmploymentScope,
           allocation.DailyEmploymentScope, allocation.MonthlyRowAllocation,
           allocation.AnnualRowAllocation, allocation.OutputDuration, allocation.AllowExcelUpload });
@@ -258,12 +262,13 @@ public class EmployeeService : IEmployeeService
     var allocation = await _db.Allocations.FindAsync(allocationId);
     if (allocation == null) return false;
 
-    var before = new { allocation.Id, allocation.UserId, allocation.ProjectId,
+    var before = new { allocation.Id, allocation.UserId, allocation.ProjectId, allocation.ReportTypeId,
       allocation.AnnualEmploymentScope, allocation.MonthlyEmploymentScope,
       allocation.DailyEmploymentScope, allocation.MonthlyRowAllocation,
       allocation.AnnualRowAllocation, allocation.OutputDuration, allocation.AllowExcelUpload };
 
     allocation.ProjectId = dto.ProjectId;
+    allocation.ReportTypeId = dto.ReportTypeId;
     allocation.AnnualEmploymentScope = dto.AnnualEmploymentScope;
     allocation.MonthlyEmploymentScope = dto.MonthlyEmploymentScope;
     allocation.DailyEmploymentScope = dto.DailyEmploymentScope;
@@ -282,7 +287,7 @@ public class EmployeeService : IEmployeeService
     if (_auditLog != null)
       await _auditLog.LogAsync("Allocation.Update", nameof(Allocation), allocation.Id.ToString(),
         before: before,
-        after: new { allocation.Id, allocation.UserId, allocation.ProjectId,
+        after: new { allocation.Id, allocation.UserId, allocation.ProjectId, allocation.ReportTypeId,
           allocation.AnnualEmploymentScope, allocation.MonthlyEmploymentScope,
           allocation.DailyEmploymentScope, allocation.MonthlyRowAllocation,
           allocation.AnnualRowAllocation, allocation.OutputDuration, allocation.AllowExcelUpload });
