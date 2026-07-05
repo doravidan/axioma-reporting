@@ -35,6 +35,7 @@
         asp-route-allocationId="@Model.Id">
     @Html.AntiForgeryToken()
     <input type="hidden" asp-for="UserId" />
+    <input type="hidden" id="allocationReportTypeId" name="ReportTypeId" value="@Model.ReportTypeId" />
 
     <!-- Basic allocation info -->
     <div class="card mb-3 border-success">
@@ -157,7 +158,7 @@
               }
             </select>
             <small id="programsHelp" class="form-text text-muted">
-              התוכניות יסוננו לפי הפרויקט הנבחר. אם לא הוגדרה מפה, יוצגו כל התוכניות.
+              התוכניות יסוננו לפי הפרויקט הנבחר. אם לא הוגדרו תוכניות לפרויקט, הרשימה תישאר ריקה.
             </small>
           </div>
 
@@ -250,7 +251,7 @@
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">קודי דיון</label>
+            <label class="form-label">קיום דיון</label>
             <select name="DiscussionCodeIds" multiple class="form-select" size="5">
               @foreach (var item in discussionCodes)
               {
@@ -291,6 +292,26 @@
 @section Scripts {
   @await Html.PartialAsync("_ValidationScriptsPartial")
   <script>
+    (function () {
+      if (typeof window.Choices === 'undefined') return;
+      const frameworkSelect = document.querySelector('select[name="FrameworkIds"]');
+      if (!frameworkSelect || frameworkSelect.dataset.choicesInit) return;
+      try {
+        const frameworkChoices = new window.Choices(frameworkSelect, {
+          removeItemButton: true,
+          searchPlaceholderValue: 'חפש לפי יישוב, סמל מוסד או שם מסגרת',
+          noResultsText: 'לא נמצאו תוצאות',
+          shouldSort: false,
+          itemSelectText: ''
+        });
+        frameworkSelect.choicesInstance = frameworkChoices;
+        const frameworkInput = frameworkChoices.input && frameworkChoices.input.element;
+        if (frameworkInput) frameworkInput.setAttribute('placeholder', 'חפש לפי יישוב, סמל מוסד או שם מסגרת');
+        frameworkSelect.dataset.choicesInit = '1';
+      } catch (e) { }
+    })();
+  </script>
+  <script>
     // Toggle daily scope input when "unlimited" checkbox is clicked
     const unlimitedDaily = document.getElementById('unlimitedDaily');
     const dailyScope = document.getElementById('dailyScope');
@@ -324,7 +345,8 @@
       const previouslySelected = new Set(Array.from(programsSelect.selectedOptions).map(o => o.value));
 
       if (!projectId) {
-        // no project: keep current options — server already rendered the default set
+        programsSelect.innerHTML = '';
+        programsSelect.dispatchEvent(new Event('change', { bubbles: true }));
         return;
       }
 
@@ -340,17 +362,167 @@
           const opt = document.createElement('option');
           opt.value = item.id;
           opt.textContent = item.description;
-          if (previouslySelected.has(String(item.id))) opt.selected = true;
+          opt.selected = previouslySelected.has(String(item.id));
           programsSelect.appendChild(opt);
         }
+        programsSelect.dispatchEvent(new Event('change', { bubbles: true }));
       } catch (err) {
         // Graceful failure: leave current options in place so the user isn't stuck.
         console.warn('ProgramsForProject fetch failed:', err);
       }
     }
 
-    if (projectSelect) {
-      projectSelect.addEventListener('change', (e) => reloadPrograms(e.target.value));
+    const scopedLookupsUrl = '/allocations/ScopedLookups';
+    const scopedSelectNames = ['SubjectIds','DomainIds','FrameworkIds','EducationalProgramIds','DiscussionCodeIds','GradeLevelIds','ClassIds'];
+    const scopedKeys = { SubjectIds: 'subjects', DomainIds: 'domains', FrameworkIds: 'frameworks', EducationalProgramIds: 'educationalPrograms', DiscussionCodeIds: 'discussionCodes', GradeLevelIds: 'gradeLevels', ClassIds: 'classes' };
+
+    function rebuildScopedSelect(select, items, selectAll) {
+      select.innerHTML = '';
+      for (const item of items || []) {
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = item.description || item.text || '';
+        opt.selected = !!selectAll;
+        select.appendChild(opt);
+      }
+      const choicesInstance = select.choicesInstance;
+      if (choicesInstance && typeof choicesInstance.clearStore === 'function' && typeof choicesInstance.setChoices === 'function') {
+        const choices = Array.from(select.options).map(opt => ({ value: opt.value, label: opt.textContent || '', selected: opt.selected, disabled: opt.disabled }));
+        choicesInstance.clearStore();
+        choicesInstance.setChoices(choices, 'value', 'label', true);
+        if (selectAll && typeof choicesInstance.setChoiceByValue === 'function') {
+          choicesInstance.setChoiceByValue(choices.map(choice => choice.value));
+        }
+      }
     }
+
+    async function reloadScopedLookups() {
+      const selects = scopedSelectNames.map(name => document.querySelector('select[name="' + name + '"]')).filter(Boolean);
+      const programIds = Array.from(programsSelect?.selectedOptions || []).map(o => o.value).join(',');
+      if (!projectSelect || !projectSelect.value || !programIds) {
+        selects.forEach(s => {
+          s.innerHTML = '';
+          const choicesInstance = s.choicesInstance;
+          if (choicesInstance && typeof choicesInstance.clearStore === 'function') choicesInstance.clearStore();
+        });
+        return;
+      }
+      try {
+        selects.forEach(s => s.disabled = true);
+        const url = scopedLookupsUrl + '?projectId=' + encodeURIComponent(projectSelect.value) + '&programIds=' + encodeURIComponent(programIds);
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('network');
+        const data = await resp.json();
+        for (const name of scopedSelectNames) {
+          const select = document.querySelector('select[name="' + name + '"]');
+          if (select) rebuildScopedSelect(select, data[scopedKeys[name]], true);
+        }
+      } catch (err) {
+        console.warn('ScopedLookups fetch failed:', err);
+      } finally {
+        selects.forEach(s => s.disabled = false);
+      }
+    }
+
+    if (projectSelect) {
+      projectSelect.addEventListener('change', async (e) => {
+        await reloadPrograms(e.target.value);
+      });
+    }
+    if (programsSelect) {
+      programsSelect.addEventListener('change', reloadScopedLookups);
+    }
+    if (!projectSelect?.value && programsSelect) programsSelect.innerHTML = '';
+  </script>
+
+  <script>
+    (function () {
+      const autoSelectAllocationDefaults = @("false");
+      const projectSelect = document.getElementById('projectIdSelect');
+      const programsSelect = document.getElementById('programIdsSelect');
+      const programsUrl = '@Url.Action("ProgramsForProject", "Employee")';
+      const scopedLookupsUrl = '/allocations/ScopedLookups';
+      const scopedSelectNames = ['SubjectIds','DomainIds','FrameworkIds','EducationalProgramIds','DiscussionCodeIds','GradeLevelIds','ClassIds'];
+      const scopedKeys = { SubjectIds: 'subjects', DomainIds: 'domains', FrameworkIds: 'frameworks', EducationalProgramIds: 'educationalPrograms', DiscussionCodeIds: 'discussionCodes', GradeLevelIds: 'gradeLevels', ClassIds: 'classes' };
+
+      if (!autoSelectAllocationDefaults || !projectSelect || !programsSelect) return;
+
+      if (window.Choices && !window.Choices.__allocationStoreWrapped) {
+        const OriginalChoices = window.Choices;
+        const WrappedChoices = function () {
+          const instance = Reflect.construct(OriginalChoices, arguments);
+          if (arguments[0]) arguments[0].choicesInstance = instance;
+          return instance;
+        };
+        WrappedChoices.prototype = OriginalChoices.prototype;
+        Object.keys(OriginalChoices).forEach(k => { WrappedChoices[k] = OriginalChoices[k]; });
+        WrappedChoices.__allocationStoreWrapped = true;
+        window.Choices = WrappedChoices;
+      }
+
+      function toChoice(item) {
+        return { value: String(item.id), label: item.description || item.text || '', selected: true, disabled: false };
+      }
+
+      function setMultipleOptions(select, items) {
+        const choices = Array.from(items || []).map(toChoice);
+        select.innerHTML = '';
+        for (const choice of choices) {
+          const opt = document.createElement('option');
+          opt.value = choice.value;
+          opt.textContent = choice.label;
+          opt.selected = true;
+          select.appendChild(opt);
+        }
+
+        const choicesInstance = select.choicesInstance;
+        if (choicesInstance && typeof choicesInstance.clearStore === 'function' && typeof choicesInstance.setChoices === 'function') {
+          choicesInstance.clearStore();
+          choicesInstance.setChoices(choices, 'value', 'label', true);
+          if (typeof choicesInstance.setChoiceByValue === 'function') {
+            choicesInstance.setChoiceByValue(choices.map(choice => choice.value));
+          }
+        }
+
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      async function fetchJson(url) {
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('network');
+        return resp.json();
+      }
+
+      async function selectAllScopedLookups() {
+        if (!projectSelect.value) return;
+        const programIds = Array.from(programsSelect.selectedOptions || []).map(o => o.value).join(',');
+        const url = scopedLookupsUrl + '?projectId=' + encodeURIComponent(projectSelect.value) + '&programIds=' + encodeURIComponent(programIds);
+        const data = await fetchJson(url);
+        for (const name of scopedSelectNames) {
+          const select = document.querySelector('select[name="' + name + '"]');
+          if (select) setMultipleOptions(select, data[scopedKeys[name]] || []);
+        }
+      }
+
+      projectSelect.addEventListener('change', async function () {
+        if (!projectSelect.value) return;
+        try {
+          const programs = await fetchJson(programsUrl + '?projectId=' + encodeURIComponent(projectSelect.value));
+          setMultipleOptions(programsSelect, programs);
+          await selectAllScopedLookups();
+        } catch (err) {
+          console.warn('Allocation defaults fetch failed:', err);
+        }
+      });
+
+      programsSelect.addEventListener('change', async function () {
+        if (!projectSelect.value) return;
+        try {
+          await selectAllScopedLookups();
+        } catch (err) {
+          console.warn('Allocation scoped defaults fetch failed:', err);
+        }
+      });
+    })();
   </script>
 }

@@ -5,6 +5,9 @@
 }
 <div class="container mt-4">
   <h3>בחירת פרויקט לדיווח - @employee?.FirstName @employee?.LastName</h3>
+  <div class="d-flex justify-content-end mt-3">
+    <a class="btn btn-primary btn-sm" href="/Report/Manual">הוספת דיווח ידני</a>
+  </div>
   <div class="list-group mt-3">
     @foreach (var alloc in allocations ?? new List<AxiomaReporting.Core.Entities.Allocation>())
     {

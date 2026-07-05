@@ -103,6 +103,46 @@ body {
 
 .app-user-nav {
   gap: 0.5rem;
+  margin-inline-start: auto;
+}
+
+.app-main-nav {
+  margin-inline-end: 1rem;
+}
+
+.password-toggle-wrap {
+  position: relative;
+}
+
+.password-toggle-wrap .form-control {
+  padding-inline-end: 3rem;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 0.35rem;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #495057;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.password-toggle-btn svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+  margin: auto;
+}
+
+.password-toggle-btn:hover,
+.password-toggle-btn:focus {
+  background: #eef2f7;
+  color: #111827;
 }
 
 .app-logout-btn {

@@ -25,7 +25,7 @@
           <option value="">בחר...</option>
           @foreach (var inspector in inspectors)
           {
-            <option value="@inspector.Id">@inspector.FirstName @inspector.LastName (@inspector.EmployeeCode)</option>
+            <option value="@inspector.Id">@inspector.FirstName @inspector.LastName (@inspector.EmployeeCode, @inspector.IdNumber)</option>
           }
         </select>
       </div>

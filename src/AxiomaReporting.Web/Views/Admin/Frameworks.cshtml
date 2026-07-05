@@ -2,6 +2,7 @@
 @{
   ViewData["Title"] = "ניהול מסגרות";
   var educationalStages = ViewBag.EducationalStages as List<AxiomaReporting.Core.Entities.EducationalStage> ?? new();
+  var frameworkLocalities = ViewBag.FrameworkLocalities as Dictionary<int, string> ?? new Dictionary<int, string>();
 }
 <div class="container-fluid mt-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
@@ -32,6 +33,7 @@
       <table class="table table-hover table-bordered mb-0">
         <thead class="table-light">
           <tr>
+            <th>יישוב</th>
             <th>תיאור</th>
             <th>סמל מוסד</th>
             <th>שלב חינוך</th>
@@ -42,11 +44,12 @@
         <tbody>
           @if (!Model.Any())
           {
-            <tr><td colspan="5" class="text-center text-muted py-4">אין מסגרות</td></tr>
+            <tr><td colspan="6" class="text-center text-muted py-4">אין מסגרות</td></tr>
           }
           @foreach (var f in Model)
           {
             <tr>
+              <td>@(frameworkLocalities.TryGetValue(f.Id, out var locality) ? locality : string.Empty)</td>
               <td>@f.Description</td>
               <td>@f.InstitutionSymbol</td>
               <td>@(f.EducationalStage?.Description ?? "—")</td>
