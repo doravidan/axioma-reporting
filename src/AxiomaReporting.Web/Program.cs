@@ -5,6 +5,7 @@ using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Authorization;
+using AxiomaReporting.Web.Middleware;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Drawing;
@@ -49,6 +50,7 @@ builder.Services.AddControllersWithViews(options =>
 }).AddSessionStateTempDataProvider();
 
 builder.Services.AddDistributedMemoryCache();
+builder.Services.AddMemoryCache();
 builder.Services.AddSession(options =>
 {
   options.IdleTimeout = TimeSpan.FromMinutes(30);
@@ -97,6 +99,10 @@ builder.Services.AddScoped<IDashboardFilterService, DashboardFilterService>();
 
 // Branding (AX-023 / Gap 8 — site logo from SystemConstants)
 builder.Services.AddScoped<IBrandingService, BrandingService>();
+
+// Sanitizes admin-authored rich-text HTML (privacy policy / terms of use / email
+// templates) before it is persisted, so @Html.Raw of stored content is safe.
+builder.Services.AddSingleton<IHtmlSanitizerService, HtmlSanitizerService>();
 
 // Cookie authentication
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -148,37 +154,65 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Authentication runs before static files so the /uploads gate below can see
+// context.User. This does not affect [Authorize]-attribute enforcement, which
+// happens in UseAuthorization after UseRouting has resolved the endpoint.
+app.UseAuthentication();
+
+// Uploaded HR documents, report attachments, and Excel error reports live under
+// wwwroot/uploads and would otherwise be served to anyone with the URL by the
+// static-file middleware with no authentication check at all. Require a signed-in
+// session for anything under /uploads; per-record authorization (e.g. an
+// inspector's district scope) is still enforced by the controller actions that
+// generate these links (DashboardController.DocumentAttachment, ReportController
+// attachment endpoints, etc.) — this gate only closes the fully-anonymous hole.
+app.Use(async (context, next) =>
+{
+  if (context.Request.Path.StartsWithSegments("/uploads", StringComparison.OrdinalIgnoreCase)
+      && context.User.Identity?.IsAuthenticated != true)
+  {
+    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+    return;
+  }
+  await next();
+});
+
 app.UseStaticFiles();
 app.UseRouting();
 
-// Buffer text/html responses and repair Hebrew mojibake (UTF-8 bytes previously
-// mis-decoded through Windows-1255) before the page reaches the browser.
+// Repair Hebrew mojibake (UTF-8 bytes previously mis-decoded through Windows-1255)
+// in text/html responses before the page reaches the browser. Non-HTML responses
+// (file downloads, Excel/PDF exports, JSON) stream straight through unbuffered —
+// see ConditionalHtmlBufferStream.
 app.Use(async (context, next) =>
 {
   var originalBody = context.Response.Body;
-  await using var bufferedBody = new MemoryStream();
-  context.Response.Body = bufferedBody;
-  await next();
-  context.Response.Body = originalBody;
-
-  if (IsHtmlResponse(context.Response.ContentType))
+  var conditionalBody = new ConditionalHtmlBufferStream(context, originalBody);
+  context.Response.Body = conditionalBody;
+  try
   {
-    bufferedBody.Position = 0;
-    using var reader = new StreamReader(bufferedBody, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, -1, leaveOpen: true);
+    await next();
+  }
+  finally
+  {
+    context.Response.Body = originalBody;
+  }
+
+  var htmlBuffer = conditionalBody.HtmlBuffer;
+  if (htmlBuffer != null)
+  {
+    htmlBuffer.Position = 0;
+    using var reader = new StreamReader(htmlBuffer, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, -1, leaveOpen: true);
     var repaired = RepairHebrewMojibake(await reader.ReadToEndAsync());
     var bytes = Encoding.UTF8.GetBytes(repaired);
-    context.Response.Headers.ContentLength = bytes.Length;
+    if (!context.Response.HasStarted)
+      context.Response.Headers.ContentLength = bytes.Length;
     await originalBody.WriteAsync(bytes, 0, bytes.Length);
-  }
-  else
-  {
-    bufferedBody.Position = 0;
-    await bufferedBody.CopyToAsync(originalBody);
   }
 });
 
 app.UseSession();
-app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllerRoute(
@@ -186,12 +220,6 @@ app.MapControllerRoute(
   pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();
-
-static bool IsHtmlResponse(string? contentType)
-{
-  return !string.IsNullOrWhiteSpace(contentType)
-    && contentType.IndexOf("text/html", StringComparison.OrdinalIgnoreCase) >= 0;
-}
 
 // A span is repaired only when a run of suspicious characters contains at least one
 // marker typical of UTF-8 Hebrew mis-decoded as Windows-1255 (e.g. '×' pairs).
