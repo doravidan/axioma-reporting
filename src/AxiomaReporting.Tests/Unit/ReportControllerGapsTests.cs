@@ -219,7 +219,8 @@ public class ReportControllerGapsTests : IDisposable
     pdf.Setup(p => p.CreateErrorReport(It.IsAny<IEnumerable<string>>())).Returns(new byte[] { 1, 2, 3 });
 
     var ctrl = new ReportController(
-      _db, validator, status, import, pdf.Object, currentUser.Object, _email, NullLogger<ReportController>.Instance);
+      _db, validator, status, import, pdf.Object, currentUser.Object, _email,
+      new TestSupport.FakeAuditLogService(), NullLogger<ReportController>.Instance);
 
     ctrl.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
     ctrl.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(

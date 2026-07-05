@@ -239,7 +239,7 @@ public class EmployeeFlowTests : IDisposable
   }
 
   [Fact]
-  public async Task ProgramsForProject_WhenNoMapping_ReturnsAllActivePrograms()
+  public async Task ProgramsForProject_WhenNoMapping_ReturnsEmptyList()
   {
     int projectId;
     using (var setup = _factory.Services.CreateScope())
@@ -265,11 +265,10 @@ public class EmployeeFlowTests : IDisposable
     var programs = JsonSerializer.Deserialize<List<JsonElement>>(body,
       new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 
-    programs.Count.Should().BeGreaterThan(0,
-      because: "when no mapping exists the fallback returns all active programs");
-    var descriptions = programs.Select(p => p.GetProperty("description").GetString()).ToList();
-    descriptions.Should().Contain("Fallback Prog X");
-    descriptions.Should().Contain("Fallback Prog Y");
+    // Since v1.2.11 there is no all-programs fallback: an unmapped project yields
+    // an empty program list (programs must be linked via Admin/ProjectPrograms).
+    programs.Count.Should().Be(0,
+      because: "since v1.2.11 an unmapped project returns no programs");
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────

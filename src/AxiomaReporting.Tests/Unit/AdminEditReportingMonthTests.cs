@@ -53,7 +53,8 @@ public class AdminEditReportingMonthTests : IDisposable
       emailService: null!,
       brandingService: null!,
       auditLog: new FakeAuditLogService(),
-      hostEnvironment: null!)
+      hostEnvironment: null!,
+      antiforgery: new StubAntiforgery())
     {
       TempData = new TempDataDictionary(new DefaultHttpContext(), new NoOpTempDataProviderAdminEditTests())
     };

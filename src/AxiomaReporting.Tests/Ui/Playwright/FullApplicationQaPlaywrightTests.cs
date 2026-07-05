@@ -204,7 +204,9 @@ public class FullApplicationQaPlaywrightTests : PlaywrightTestBase
         await AssertCurrentPageHealthyAsync();
 
         await Page.GotoAsync("/MyAllocations");
-        var reportLink = Page.Locator("a[href*='/Report']").First;
+        // Exclude the report-history nav link added in v1.2.11 — the test needs the
+        // report-entry tile itself.
+        var reportLink = Page.Locator("a[href*='/Report']:not([href*='History'])").First;
         (await reportLink.CountAsync()).Should().BeGreaterThan(0);
         await reportLink.ClickAsync();
         await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);

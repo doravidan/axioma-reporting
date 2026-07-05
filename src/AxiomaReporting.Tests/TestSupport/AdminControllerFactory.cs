@@ -2,6 +2,7 @@ using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Controllers;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -22,12 +23,23 @@ internal static class AdminControllerFactory
     var fakeBatch = new StubBatchReportImportService();
 
     var audit = new FakeAuditLogService();
-    var controller = new AdminController(db, passwordService, fakeBatch, pdfService, fakeEmail, branding, audit, hostEnv)
+    var controller = new AdminController(db, passwordService, fakeBatch, pdfService, fakeEmail, branding, audit, hostEnv, new StubAntiforgery())
     {
       TempData = new TempDataDictionary(new DefaultHttpContext(), new StubTempDataProvider())
     };
     return controller;
   }
+}
+
+internal sealed class StubAntiforgery : IAntiforgery
+{
+  public AntiforgeryTokenSet GetAndStoreTokens(HttpContext httpContext) =>
+    new("stub-request-token", "stub-cookie-token", "__RequestVerificationToken", null);
+  public AntiforgeryTokenSet GetTokens(HttpContext httpContext) =>
+    new("stub-request-token", "stub-cookie-token", "__RequestVerificationToken", null);
+  public Task<bool> IsRequestValidAsync(HttpContext httpContext) => Task.FromResult(true);
+  public Task ValidateRequestAsync(HttpContext httpContext) => Task.CompletedTask;
+  public void SetCookieTokenAndHeader(HttpContext httpContext) { }
 }
 
 internal sealed class StubBrandingService : IBrandingService
@@ -56,7 +68,7 @@ internal sealed class FakeAuditLogService : IAuditLogService
 
 internal sealed class StubBatchReportImportService : IBatchReportImportService
 {
-  public Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default) =>
+  public Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default, string? progressId = null) =>
     Task.FromResult(new BatchImportResult());
 }
 

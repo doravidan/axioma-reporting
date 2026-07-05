@@ -202,7 +202,7 @@ public class ReportValidationServiceTests : IDisposable
   }
 
   [Fact]
-  public async Task ValidateRowAsync_SimilarNotesAboveThreshold_ReturnsError()
+  public async Task ValidateRowAsync_SimilarNotes_NoLongerBlocked()
   {
     // Arrange — add threshold constant to DB
     _db.SystemConstants.Add(new SystemConstant
@@ -234,9 +234,10 @@ public class ReportValidationServiceTests : IDisposable
     // Act
     var result = await _sut.ValidateRowAsync(row, employee, month, allRows);
 
-    // Assert
-    result.IsValid.Should().BeFalse();
-    result.Errors.Should().Contain(e => e.Contains("דמיון"));
+    // Assert — the notes-similarity check was disabled in v1.2.11 (client request),
+    // so similar notes no longer block the row.
+    result.IsValid.Should().BeTrue();
+    result.Errors.Should().NotContain(e => e.Contains("דמיון"));
   }
 
   [Fact]

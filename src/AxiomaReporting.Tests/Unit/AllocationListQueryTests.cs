@@ -152,16 +152,17 @@ public class AllocationListQueryTests : IDisposable
   }
 
   [Fact]
-  public async Task GetProgramsForProjectAsync_ReturnsAllActive_WhenNoMapping()
+  public async Task GetProgramsForProjectAsync_ReturnsEmpty_WhenNoMapping()
   {
+    // Since v1.2.11 the all-active-programs fallback was removed: an unmapped
+    // project yields an empty list.
     var result = await EmployeeController.GetProgramsForProjectAsync(_db, projectId: 1);
 
-    // all three active programs come back (the seeded inactive one is excluded)
-    result.Select(x => x.Id).Should().BeEquivalentTo(new[] { 10, 11, 12 });
+    result.Should().BeEmpty();
   }
 
   [Fact]
-  public async Task GetProgramsForProjectAsync_SkipsInactivePrograms_InFallback()
+  public async Task GetProgramsForProjectAsync_NeverReturnsInactivePrograms()
   {
     var result = await EmployeeController.GetProgramsForProjectAsync(_db, projectId: 1);
 
