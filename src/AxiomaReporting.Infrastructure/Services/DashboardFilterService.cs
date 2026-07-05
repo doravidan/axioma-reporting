@@ -126,6 +126,7 @@ public interface IDashboardFilterService
   Task<List<Sector>> GetFilteredSectorsAsync(int currentUserId, UserRoleEnum role, int? districtId = null);
   Task<List<Program>> GetFilteredProgramsAsync(int currentUserId, UserRoleEnum role, int? districtId = null);
   Task<bool> CanAccessReportAsync(int reportId, int currentUserId, UserRoleEnum currentUserRole);
+  Task<bool> CanAccessEmployeeAsync(int employeeUserId, int currentUserId, UserRoleEnum currentUserRole);
   Task<FilterOptionsDto> GetCompatibleOptionsAsync(
     DashboardFilter currentSelection, int currentUserId, UserRoleEnum currentUserRole);
 }
@@ -182,13 +183,30 @@ public class DashboardFilterService : IDashboardFilterService
         rr.AllocationId.HasValue && allocationIds.Contains(rr.AllocationId.Value)));
 
     var reportList = await reports
+      .AsNoTracking()
       .Include(r => r.ReportRows)
         .ThenInclude(rr => rr.Allocation)
         .ThenInclude(a => a!.Project)
       .ToListAsync();
 
+    // Batch-resolve MonthlyRowAllocation for every allocation referenced by these reports
+    // (row-level allocations plus the fallback filter allocations) in a single query,
+    // instead of issuing one query per report/allocation-group inside the projection below.
+    var neededAllocationIds = reportList
+      .SelectMany(r => r.ReportRows.Select(rr => rr.AllocationId))
+      .Where(id => id.HasValue)
+      .Select(id => id!.Value)
+      .Union(allocationIds)
+      .Distinct()
+      .ToList();
+    var allocationLimits = await _db.Allocations
+      .AsNoTracking()
+      .Where(a => neededAllocationIds.Contains(a.Id) && a.MonthlyRowAllocation.HasValue)
+      .Select(a => new { a.Id, a.MonthlyRowAllocation })
+      .ToDictionaryAsync(a => a.Id, a => a.MonthlyRowAllocation);
+
     var rows = reportList
-      .SelectMany(report => ToDashboardRows(report, filter, allocationIds))
+      .SelectMany(report => ToDashboardRows(report, filter, allocationIds, allocationLimits))
       .ToList();
 
     var total = rows.Count;
@@ -216,6 +234,22 @@ public class DashboardFilterService : IDashboardFilterService
 
     var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
     return scopedUserIds.Contains(report.UserId);
+  }
+
+  /// <summary>
+  /// Scoping check for employee-level records (e.g. a document attachment with no
+  /// owning report/report-row) — mirrors the same role/assignment scoping used by
+  /// <see cref="CanAccessReportAsync"/>, applied directly to the employee's UserId.
+  /// </summary>
+  public async Task<bool> CanAccessEmployeeAsync(int employeeUserId, int currentUserId, UserRoleEnum currentUserRole)
+  {
+    if (currentUserRole == UserRoleEnum.Employee)
+      return employeeUserId == currentUserId;
+    if (currentUserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
+      return true;
+
+    var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
+    return scopedUserIds.Contains(employeeUserId);
   }
 
   public async Task<(List<DashboardReportDetailRow> Rows, int TotalCount)> GetReportRowsAsync(
@@ -255,6 +289,7 @@ public class DashboardFilterService : IDashboardFilterService
     var matchingReportIds = await reports.Select(r => r.Id).ToListAsync();
 
     var rows = _db.ReportRows
+      .AsNoTracking()
       .Include(rr => rr.Report).ThenInclude(r => r!.User)
       .Include(rr => rr.Report).ThenInclude(r => r!.Status)
       .Include(rr => rr.Report).ThenInclude(r => r!.ReportingMonth)
@@ -336,6 +371,7 @@ public class DashboardFilterService : IDashboardFilterService
     var pageReportIds = pageRows.Select(rr => rr.ReportId).Distinct().ToList();
     var pageRowIds = pageRows.Select(rr => rr.Id).Distinct().ToList();
     var attachmentRows = await _db.DocumentAttachments
+      .AsNoTracking()
       .Where(da => (da.ReportId.HasValue && pageReportIds.Contains(da.ReportId.Value)) ||
                    (da.ReportRowId.HasValue && pageRowIds.Contains(da.ReportRowId.Value)))
       .ToListAsync();
@@ -400,6 +436,7 @@ public class DashboardFilterService : IDashboardFilterService
       .ToListAsync();
 
     var query = _db.Allocations
+      .AsNoTracking()
       .Include(a => a.User)
       .Include(a => a.Project)
       .Where(a => a.IsActive &&
@@ -761,16 +798,17 @@ public class DashboardFilterService : IDashboardFilterService
   private static string NormalizeDigits(string value) =>
     new string(value.Where(char.IsDigit).ToArray());
 
-  private int? GetMonthlyRowAllocation(IEnumerable<int?> rowAllocationIds, List<int> fallbackAllocationIds)
+  private static int? GetMonthlyRowAllocation(
+    IEnumerable<int?> rowAllocationIds, List<int> fallbackAllocationIds, Dictionary<int, int?> allocationLimits)
   {
     var ids = rowAllocationIds.Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
     if (!ids.Any()) ids = fallbackAllocationIds;
     if (!ids.Any()) return null;
-    return _db.Allocations
-      .Where(a => ids.Contains(a.Id) && a.MonthlyRowAllocation.HasValue)
-      .Select(a => a.MonthlyRowAllocation)
-      .AsEnumerable()
-      .Min();
+    var limits = ids
+      .Where(id => allocationLimits.TryGetValue(id, out var limit) && limit.HasValue)
+      .Select(id => allocationLimits[id]!.Value)
+      .ToList();
+    return limits.Any() ? limits.Min() : null;
   }
 
   private async Task PopulateAttachmentFlagsAsync(List<DashboardReportRow> rows)
@@ -809,7 +847,7 @@ public class DashboardFilterService : IDashboardFilterService
   }
 
   private IEnumerable<DashboardReportRow> ToDashboardRows(
-    Report report, DashboardFilter filter, List<int> allocationIds)
+    Report report, DashboardFilter filter, List<int> allocationIds, Dictionary<int, int?> allocationLimits)
   {
     var reportRows = report.ReportRows.AsEnumerable();
     if (HasAllocationDimensionFilter(filter))
@@ -824,19 +862,20 @@ public class DashboardFilterService : IDashboardFilterService
     {
       return new[]
       {
-        ToDashboardRow(report, Enumerable.Empty<ReportRow>(), null, allocationIds)
+        ToDashboardRow(report, Enumerable.Empty<ReportRow>(), null, allocationIds, allocationLimits)
       };
     }
 
     return groups.Select(group =>
     {
       var allocation = group.FirstOrDefault(rr => rr.Allocation != null)?.Allocation;
-      return ToDashboardRow(report, group, allocation, allocationIds);
+      return ToDashboardRow(report, group, allocation, allocationIds, allocationLimits);
     });
   }
 
-  private DashboardReportRow ToDashboardRow(
-    Report report, IEnumerable<ReportRow> reportRows, Allocation? allocation, List<int> fallbackAllocationIds)
+  private static DashboardReportRow ToDashboardRow(
+    Report report, IEnumerable<ReportRow> reportRows, Allocation? allocation,
+    List<int> fallbackAllocationIds, Dictionary<int, int?> allocationLimits)
   {
     var rows = reportRows.ToList();
     return new DashboardReportRow
@@ -855,7 +894,7 @@ public class DashboardFilterService : IDashboardFilterService
       StatusId = report.StatusId,
       RowCount = rows.Count,
       TotalDuration = rows.Sum(row => row.MeetingDuration),
-      MonthlyRowAllocation = GetMonthlyRowAllocation(rows.Select(rr => rr.AllocationId), fallbackAllocationIds),
+      MonthlyRowAllocation = GetMonthlyRowAllocation(rows.Select(rr => rr.AllocationId), fallbackAllocationIds, allocationLimits),
       SubmittedAt = report.SubmittedAt,
       HasAttachments = false
     };

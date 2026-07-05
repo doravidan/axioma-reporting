@@ -55,6 +55,7 @@
     };
 
     string SortLink(string key) => Url.Action("Index", RouteValues(1, key)) ?? "#";
+    string AriaSort(string key) => filter.SortBy == key ? (filter.SortDesc ? "descending" : "ascending") : "none";
     string TextOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
     string DateOrDash(DashboardReportDetailRow row) => row.StatusId == 0 || row.MeetingDate == DateTime.MinValue
         ? "—"
@@ -200,32 +201,32 @@
                 <tr>
                     @if (showEditColumn)
                     {
-                        <th>פעולות</th>
+                        <th scope="col">פעולות</th>
                     }
-                    <th><a class="link-dark" href="@SortLink("sequence")">מס"ד</a></th>
-                    <th><a class="link-dark" href="@SortLink("idnumber")">ת.ז</a></th>
-                    <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
-                    <th><a class="link-dark" href="@SortLink("name")">שם מדווח</a></th>
-                    <th><a class="link-dark" href="@SortLink("month")">חודש דיווח</a></th>
-                    <th>פרויקט</th>
-                    <th><a class="link-dark" href="@SortLink("district")">מחוז</a></th>
-                    <th><a class="link-dark" href="@SortLink("locality")">יישוב</a></th>
-                    <th><a class="link-dark" href="@SortLink("framework")">מסגרת חינוכית</a></th>
-                    <th><a class="link-dark" href="@SortLink("meetingdate")">תאריך מפגש</a></th>
-                    <th><a class="link-dark" href="@SortLink("duration")">משך מפגש</a></th>
-                    <th><a class="link-dark" href="@SortLink("program")">תוכנית חינוכית</a></th>
-                    <th>תחום</th>
-                    <th>נושא 1</th>
-                    <th>נושא 2</th>
-                    <th>קיום דיון</th>
-                    <th>כיתה</th>
-                    <th>שכבה</th>
-                    <th>סוג דיווח</th>
-                    <th>מסקנה - כיתה</th>
-                    <th>מסקנה - מסגרת</th>
-                    <th>מסקנה - יישוב/מחוז/ארצי</th>
-                    <th>מסמכים</th>
-                    <th>הערות</th>
+                    <th scope="col" aria-sort="@AriaSort("sequence")"><a class="link-dark" href="@SortLink("sequence")">מס"ד</a></th>
+                    <th scope="col" aria-sort="@AriaSort("idnumber")"><a class="link-dark" href="@SortLink("idnumber")">ת.ז</a></th>
+                    <th scope="col" aria-sort="@AriaSort("code")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                    <th scope="col" aria-sort="@AriaSort("name")"><a class="link-dark" href="@SortLink("name")">שם מדווח</a></th>
+                    <th scope="col" aria-sort="@AriaSort("month")"><a class="link-dark" href="@SortLink("month")">חודש דיווח</a></th>
+                    <th scope="col">פרויקט</th>
+                    <th scope="col" aria-sort="@AriaSort("district")"><a class="link-dark" href="@SortLink("district")">מחוז</a></th>
+                    <th scope="col" aria-sort="@AriaSort("locality")"><a class="link-dark" href="@SortLink("locality")">יישוב</a></th>
+                    <th scope="col" aria-sort="@AriaSort("framework")"><a class="link-dark" href="@SortLink("framework")">מסגרת חינוכית</a></th>
+                    <th scope="col" aria-sort="@AriaSort("meetingdate")"><a class="link-dark" href="@SortLink("meetingdate")">תאריך מפגש</a></th>
+                    <th scope="col" aria-sort="@AriaSort("duration")"><a class="link-dark" href="@SortLink("duration")">משך מפגש</a></th>
+                    <th scope="col" aria-sort="@AriaSort("program")"><a class="link-dark" href="@SortLink("program")">תוכנית חינוכית</a></th>
+                    <th scope="col">תחום</th>
+                    <th scope="col">נושא 1</th>
+                    <th scope="col">נושא 2</th>
+                    <th scope="col">קיום דיון</th>
+                    <th scope="col">כיתה</th>
+                    <th scope="col">שכבה</th>
+                    <th scope="col">סוג דיווח</th>
+                    <th scope="col">מסקנה - כיתה</th>
+                    <th scope="col">מסקנה - מסגרת</th>
+                    <th scope="col">מסקנה - יישוב/מחוז/ארצי</th>
+                    <th scope="col">מסמכים</th>
+                    <th scope="col">הערות</th>
                 </tr>
             </thead>
             <tbody>

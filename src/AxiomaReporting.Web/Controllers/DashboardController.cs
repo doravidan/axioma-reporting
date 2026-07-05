@@ -8,6 +8,7 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Text.Json;
 
 namespace AxiomaReporting.Web.Controllers;
@@ -19,17 +20,25 @@ public class DashboardController : Controller
   private readonly ICurrentUserService _currentUser;
   private readonly IReportStatusService _reportStatusService;
   private readonly AppDbContext _db;
+  private readonly IMemoryCache? _cache;
 
+  // NOTE: `cache` is intentionally optional (nullable with a default value). Program.cs does not
+  // currently call `builder.Services.AddMemoryCache()`, so IMemoryCache is not registered in DI.
+  // Keeping this parameter optional means the controller still activates correctly (falling back
+  // to uncached lookups) if that registration is missing, and starts caching automatically the
+  // moment it's added — see PopulateFilterDataAsync / GetCachedLookupAsync below.
   public DashboardController(
     IDashboardFilterService filterService,
     ICurrentUserService currentUser,
     IReportStatusService reportStatusService,
-    AppDbContext db)
+    AppDbContext db,
+    IMemoryCache? cache = null)
   {
     _filterService = filterService;
     _currentUser = currentUser;
     _reportStatusService = reportStatusService;
     _db = db;
+    _cache = cache;
   }
 
   [HttpGet]
@@ -83,11 +92,16 @@ public class DashboardController : Controller
   [HttpGet]
   public async Task<IActionResult> ReportDocuments(int reportId, int allocationId)
   {
+    if (!await _filterService.CanAccessReportAsync(reportId, _currentUser.UserId, _currentUser.UserRole))
+      return NotFound();
+
     var report = await _db.Reports
+      .AsNoTracking()
       .Include(r => r.User)
       .Include(r => r.ReportingMonth)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     var allocation = await _db.Allocations
+      .AsNoTracking()
       .Include(a => a.Project)
       .FirstOrDefaultAsync(a => a.Id == allocationId);
 
@@ -95,11 +109,13 @@ public class DashboardController : Controller
       return NotFound();
 
     var reportRowIds = await _db.ReportRows
+      .AsNoTracking()
       .Where(rr => rr.ReportId == reportId && rr.AllocationId == allocationId)
       .Select(rr => rr.Id)
       .ToListAsync();
 
     var attachments = await _db.DocumentAttachments
+      .AsNoTracking()
       .Where(a => a.ReportId == reportId
         || (a.ReportRowId.HasValue && reportRowIds.Contains(a.ReportRowId.Value))
         || (a.UserId == report.UserId && a.ReportId == null && a.ReportRowId == null))
@@ -129,8 +145,15 @@ public class DashboardController : Controller
   [HttpGet]
   public async Task<IActionResult> DocumentAttachment(int attachmentId, bool download = false)
   {
-    var attachment = await _db.DocumentAttachments.FirstOrDefaultAsync(a => a.Id == attachmentId);
+    var attachment = await _db.DocumentAttachments.AsNoTracking().FirstOrDefaultAsync(a => a.Id == attachmentId);
     if (attachment == null) return NotFound();
+
+    // Per-record authorization (IDOR guard): scope the attachment to the report/employee
+    // it belongs to and reuse the same scoping rules other dashboard actions use, rather
+    // than relying solely on the controller-level [Authorize(CanViewDashboard)] which is
+    // shared by ALL inspector/PM/coordinator roles regardless of their assignment scope.
+    if (!await CanAccessAttachmentAsync(attachment))
+      return NotFound();
 
     // Path-traversal guard: the resolved file must stay under wwwroot.
     var webRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"));
@@ -146,6 +169,33 @@ public class DashboardController : Controller
     return PhysicalFile(fullPath, contentType, download ? attachment.FileName : null);
   }
 
+  /// <summary>
+  /// Resolves which Report (directly, or via its ReportRow) or employee a
+  /// <see cref="DocumentAttachment"/> belongs to, then defers to the shared
+  /// <see cref="IDashboardFilterService"/> scoping checks used elsewhere in this controller.
+  /// </summary>
+  private async Task<bool> CanAccessAttachmentAsync(DocumentAttachment attachment)
+  {
+    var reportId = attachment.ReportId;
+    if (!reportId.HasValue && attachment.ReportRowId.HasValue)
+    {
+      reportId = await _db.ReportRows
+        .AsNoTracking()
+        .Where(rr => rr.Id == attachment.ReportRowId.Value)
+        .Select(rr => (int?)rr.ReportId)
+        .FirstOrDefaultAsync();
+    }
+
+    if (reportId.HasValue)
+      return await _filterService.CanAccessReportAsync(reportId.Value, _currentUser.UserId, _currentUser.UserRole);
+
+    if (attachment.UserId.HasValue)
+      return await _filterService.CanAccessEmployeeAsync(attachment.UserId.Value, _currentUser.UserId, _currentUser.UserRole);
+
+    // No owning report or employee to scope against — deny by default.
+    return false;
+  }
+
   private static string FormatFileSize(long bytes)
   {
     if (bytes >= 1048576) return ((decimal)bytes / 1048576m).ToString("0.#") + " MB";
@@ -153,11 +203,26 @@ public class DashboardController : Controller
     return bytes + " B";
   }
 
-  [HttpGet]
-  public async Task<IActionResult> ExportExcel(DashboardFilter filter)
+  /// <summary>
+  /// Business rule: "Inspector-View can ONLY export approved reports" (also applies to
+  /// Inspector-Approval for exports). Clamping StatusId to 4 (Approved) here — and calling
+  /// this from every EXPORT entry point (ExportExcel, SummaryExportExcel) — prevents them
+  /// from drifting out of sync and re-introducing an unapproved-export bypass for inspector
+  /// roles. Deliberately NOT applied to the interactive Summary action: InspectorApproval
+  /// (see PolicyNames.CanApproveReports / ViewBag.CanApprove below) must still see and act
+  /// on PendingApproval (StatusId 3) reports there in order to approve/reject them — clamping
+  /// that screen to approved-only would silently break their entire approval workflow.
+  /// </summary>
+  private void ApplyInspectorApprovedOnlyClamp(DashboardFilter filter)
   {
     if (_currentUser.UserRole is UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval)
       filter.StatusId = 4;
+  }
+
+  [HttpGet]
+  public async Task<IActionResult> ExportExcel(DashboardFilter filter)
+  {
+    ApplyInspectorApprovedOnlyClamp(filter);
 
     filter.Page = 1;
     filter.PageSize = 10000;
@@ -222,6 +287,8 @@ public class DashboardController : Controller
   [HttpGet]
   public async Task<IActionResult> SummaryExportExcel(DashboardFilter filter)
   {
+    ApplyInspectorApprovedOnlyClamp(filter);
+
     filter.Page = 1;
     filter.PageSize = 10000;
 
@@ -317,17 +384,62 @@ public class DashboardController : Controller
     using var scope = HttpContext.RequestServices.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AxiomaReporting.Infrastructure.Data.AppDbContext>();
     ViewBag.ReportingMonths = await db.ReportingMonths
+      .AsNoTracking()
       .OrderByDescending(m => m.Year).ThenByDescending(m => m.Month)
       .ToListAsync();
-    ViewBag.Localities = await db.Localities.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Frameworks = await db.Frameworks.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.EducationalPrograms = await db.EducationalPrograms.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Domains = await db.Domains.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Subjects = await db.Subjects.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.DiscussionCodes = await db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Classes = await db.Classes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.GradeLevels = await db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.ConclusionLocations = await db.LocalityDistrictNationals.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.ReportTypes = await db.ReportTypes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+
+    // These lookup tables (~1,340 localities, ~1,300 frameworks, etc.) change rarely but were
+    // previously reloaded in full on every single dashboard/summary render. Cache them with a
+    // short TTL — see LookupCacheDuration / GetCachedLookupAsync.
+    ViewBag.Localities = await GetCachedLookupAsync(LocalitiesCacheKey,
+      () => db.Localities.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Frameworks = await GetCachedLookupAsync(FrameworksCacheKey,
+      () => db.Frameworks.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.EducationalPrograms = await GetCachedLookupAsync(EducationalProgramsCacheKey,
+      () => db.EducationalPrograms.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Domains = await GetCachedLookupAsync(DomainsCacheKey,
+      () => db.Domains.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Subjects = await GetCachedLookupAsync(SubjectsCacheKey,
+      () => db.Subjects.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.DiscussionCodes = await GetCachedLookupAsync(DiscussionCodesCacheKey,
+      () => db.DiscussionCodes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Classes = await GetCachedLookupAsync(ClassesCacheKey,
+      () => db.Classes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.GradeLevels = await GetCachedLookupAsync(GradeLevelsCacheKey,
+      () => db.GradeLevels.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.ConclusionLocations = await GetCachedLookupAsync(ConclusionLocationsCacheKey,
+      () => db.LocalityDistrictNationals.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.ReportTypes = await GetCachedLookupAsync(ReportTypesCacheKey,
+      () => db.ReportTypes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+  }
+
+  private static readonly TimeSpan LookupCacheDuration = TimeSpan.FromMinutes(15);
+  private const string LocalitiesCacheKey = "dash:localities";
+  private const string FrameworksCacheKey = "dash:frameworks";
+  private const string EducationalProgramsCacheKey = "dash:educationalPrograms";
+  private const string DomainsCacheKey = "dash:domains";
+  private const string SubjectsCacheKey = "dash:subjects";
+  private const string DiscussionCodesCacheKey = "dash:discussionCodes";
+  private const string ClassesCacheKey = "dash:classes";
+  private const string GradeLevelsCacheKey = "dash:gradeLevels";
+  private const string ConclusionLocationsCacheKey = "dash:conclusionLocations";
+  private const string ReportTypesCacheKey = "dash:reportTypes";
+
+  /// <summary>
+  /// TTL-only cache (no CRUD invalidation — acceptable for rarely-changing lookup tables).
+  /// Falls back to querying directly, uncached, when IMemoryCache is not registered in DI
+  /// (see the constructor note on <see cref="_cache"/>).
+  /// </summary>
+  private async Task<List<T>> GetCachedLookupAsync<T>(string cacheKey, Func<Task<List<T>>> loadAsync)
+  {
+    if (_cache == null)
+      return await loadAsync();
+
+    if (_cache.TryGetValue(cacheKey, out List<T>? cached) && cached != null)
+      return cached;
+
+    var value = await loadAsync();
+    _cache.Set(cacheKey, value, LookupCacheDuration);
+    return value;
   }
 }

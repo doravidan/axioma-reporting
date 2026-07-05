@@ -23,6 +23,8 @@
         SortBy = key,
         SortDesc = filter.SortBy == key ? !filter.SortDesc : false
     }) ?? "#";
+
+    string AriaSort(string key) => filter.SortBy == key ? (filter.SortDesc ? "descending" : "ascending") : "none";
 }
 
 <div class="container-fluid mt-3">
@@ -162,20 +164,20 @@
                 <table class="table table-hover table-bordered table-sm align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th style="width:40px">
+                            <th scope="col" style="width:40px">
                                 <input type="checkbox" id="selectAllCb" title="בחר הכל" />
                             </th>
-                            <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
-                            <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
-                            <th><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
-                            <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
-                            <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
-                            <th>שורות</th>
-                            <th>משך תפוקה</th>
-                            <th>יתרת שורות</th>
-                            <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
-                            <th>מסמכים</th>
-                            <th>פעולות</th>
+                            <th scope="col" aria-sort="@AriaSort("name")"><a class="link-dark" href="@SortLink("name")">עובד</a></th>
+                            <th scope="col" aria-sort="@AriaSort("code")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                            <th scope="col" aria-sort="@AriaSort("project")"><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
+                            <th scope="col" aria-sort="@AriaSort("month")"><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                            <th scope="col" aria-sort="@AriaSort("status")"><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                            <th scope="col">שורות</th>
+                            <th scope="col">משך תפוקה</th>
+                            <th scope="col">יתרת שורות</th>
+                            <th scope="col" aria-sort="@AriaSort("submitted")"><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                            <th scope="col">מסמכים</th>
+                            <th scope="col">פעולות</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -251,16 +253,16 @@
             <table class="table table-hover table-bordered table-sm align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
-                        <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
-                        <th><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
-                        <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
-                        <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
-                        <th>שורות</th>
-                        <th>משך תפוקה</th>
-                        <th>יתרת שורות</th>
-                        <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
-                        <th>מסמכים</th>
+                        <th scope="col" aria-sort="@AriaSort("name")"><a class="link-dark" href="@SortLink("name")">עובד</a></th>
+                        <th scope="col" aria-sort="@AriaSort("code")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                        <th scope="col" aria-sort="@AriaSort("project")"><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
+                        <th scope="col" aria-sort="@AriaSort("month")"><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                        <th scope="col" aria-sort="@AriaSort("status")"><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                        <th scope="col">שורות</th>
+                        <th scope="col">משך תפוקה</th>
+                        <th scope="col">יתרת שורות</th>
+                        <th scope="col" aria-sort="@AriaSort("submitted")"><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                        <th scope="col">מסמכים</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -347,11 +349,11 @@
                     <table class="table table-sm table-bordered align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>שם קובץ</th>
-                                <th>תיאור</th>
-                                <th>תאריך העלאה</th>
-                                <th>גודל</th>
-                                <th>פעולות</th>
+                                <th scope="col">שם קובץ</th>
+                                <th scope="col">תיאור</th>
+                                <th scope="col">תאריך העלאה</th>
+                                <th scope="col">גודל</th>
+                                <th scope="col">פעולות</th>
                             </tr>
                         </thead>
                         <tbody id="dashboardDocumentsRows"></tbody>
