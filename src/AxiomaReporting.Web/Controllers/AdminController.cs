@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Data;
 using System.Data.Common;
 using System.Globalization;
@@ -47,7 +48,15 @@ public class AdminController : Controller
   private readonly IAuditLogService _auditLog;
   private readonly IWebHostEnvironment _hostEnvironment;
   private readonly IAntiforgery _antiforgery;
+  private readonly IHtmlSanitizerService _htmlSanitizer;
+  private readonly IMemoryCache? _cache;
 
+  // NOTE: `cache` is intentionally optional (nullable with a default value), matching the
+  // same pattern used in DashboardController: Program.cs does not currently call
+  // `builder.Services.AddMemoryCache()`, so IMemoryCache is not registered in DI. Keeping
+  // this parameter optional means the controller still activates correctly (falling back
+  // to uncached lookups) if that registration is missing, and starts caching automatically
+  // the moment it's added — see GetCachedLookupListAsync below.
   public AdminController(
     AppDbContext db,
     IPasswordService passwordService,
@@ -57,7 +66,9 @@ public class AdminController : Controller
     IBrandingService brandingService,
     IAuditLogService auditLog,
     IWebHostEnvironment hostEnvironment,
-    IAntiforgery antiforgery)
+    IAntiforgery antiforgery,
+    IHtmlSanitizerService htmlSanitizer,
+    IMemoryCache? cache = null)
   {
     _db = db;
     _passwordService = passwordService;
@@ -68,6 +79,8 @@ public class AdminController : Controller
     _auditLog = auditLog;
     _hostEnvironment = hostEnvironment;
     _antiforgery = antiforgery;
+    _htmlSanitizer = htmlSanitizer;
+    _cache = cache;
   }
 
   // --- Reporting Months ---
@@ -104,7 +117,34 @@ public class AdminController : Controller
   [HttpPost, ValidateAntiForgeryToken]
   public async Task<IActionResult> ActivateReportingMonth(int id)
   {
-    // Only one reporting month can be active at a time (business rule #4)
+    // Only one reporting month can be active at a time (business rule #4).
+    // NOTE: a unique filtered index on ReportingMonths (WHERE IsActive = 1) would be
+    // a stronger defense-in-depth for this invariant — left for a future migration.
+    if (_db.Database.IsRelational())
+    {
+      // Wrap the deactivate-all + activate-one steps in a single transaction, using a
+      // bulk UPDATE (rather than loading every row into the change tracker) so two
+      // concurrent activations can't both commit and leave two active months.
+      await using var tx = await _db.Database.BeginTransactionAsync();
+
+      await _db.Database.ExecuteSqlInterpolatedAsync(
+        $"UPDATE ReportingMonths SET IsActive = 0 WHERE IsActive = 1");
+
+      var relationalMonth = await _db.ReportingMonths.FindAsync(id);
+      if (relationalMonth != null)
+      {
+        relationalMonth.IsActive = true;
+        relationalMonth.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+      }
+
+      await tx.CommitAsync();
+      TempData["Success"] = "חודש הדיווח הופעל";
+      return RedirectToAction(nameof(ReportingMonths));
+    }
+
+    // Non-relational provider fallback (e.g. EF Core InMemory used by tests), which
+    // supports neither raw SQL nor transactions.
     var reportingMonths = await _db.ReportingMonths.ToListAsync();
     foreach (var reportingMonth in reportingMonths)
     {
@@ -116,8 +156,8 @@ public class AdminController : Controller
     {
       month.IsActive = true;
       month.UpdatedAt = DateTime.UtcNow;
-      await _db.SaveChangesAsync();
     }
+    await _db.SaveChangesAsync();
     TempData["Success"] = "חודש הדיווח הופעל";
     return RedirectToAction(nameof(ReportingMonths));
   }
@@ -428,6 +468,7 @@ public class AdminController : Controller
   public async Task<IActionResult> Institutions()
   {
     var items = await _db.Institutions
+      .AsNoTracking()
       .Include(i => i.Locality)
       .Include(i => i.District)
       .Include(i => i.Sector)
@@ -637,7 +678,7 @@ public class AdminController : Controller
     {
       var before = new { template.Subject, template.Body };
       template.Subject = subject;
-      template.Body = body;
+      template.Body = _htmlSanitizer.Sanitize(body);
       template.UpdatedAt = DateTime.UtcNow;
       await _db.SaveChangesAsync();
       await _auditLog.LogAsync("EmailTemplate.Update", nameof(EmailTemplate), id.ToString(),
@@ -765,15 +806,14 @@ public class AdminController : Controller
   [Route("Admin/ProjectPrograms")]
   public async Task<IActionResult> ProjectPrograms()
   {
-    var projects = await _db.Projects
-      .Where(p => p.IsActive)
-      .OrderBy(p => p.Description)
-      .ToListAsync();
+    // Projects/Programs are cached because they're used here purely as dropdown
+    // sources; the live project<->program mapping and scope selections below are
+    // always read fresh so saves are reflected immediately.
+    var projects = await GetCachedLookupListAsync("Admin:Dropdown:Projects",
+      () => _db.Projects.AsNoTracking().Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync());
 
-    var programs = await _db.Programs
-      .Where(p => p.IsActive)
-      .OrderBy(p => p.Description)
-      .ToListAsync();
+    var programs = await GetCachedLookupListAsync("Admin:Dropdown:Programs",
+      () => _db.Programs.AsNoTracking().Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync());
 
     var projectPrograms = await _db.ProjectPrograms
       .AsNoTracking()
@@ -786,13 +826,20 @@ public class AdminController : Controller
     ViewBag.Projects = projects;
     ViewBag.Programs = programs;
     ViewBag.Mapping = mapping;
-    ViewBag.Subjects = await _db.Subjects.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Domains = await _db.Domains.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Frameworks = await _db.Frameworks.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.EducationalPrograms = await _db.EducationalPrograms.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.DiscussionCodes = await _db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.GradeLevels = await _db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.Classes = await _db.Classes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.Subjects = await GetCachedLookupListAsync("Admin:Dropdown:Subjects",
+      () => _db.Subjects.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Domains = await GetCachedLookupListAsync("Admin:Dropdown:Domains",
+      () => _db.Domains.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Frameworks = await GetCachedLookupListAsync("Admin:Dropdown:Frameworks",
+      () => _db.Frameworks.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.EducationalPrograms = await GetCachedLookupListAsync("Admin:Dropdown:EducationalPrograms",
+      () => _db.EducationalPrograms.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.DiscussionCodes = await GetCachedLookupListAsync("Admin:Dropdown:DiscussionCodes",
+      () => _db.DiscussionCodes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.GradeLevels = await GetCachedLookupListAsync("Admin:Dropdown:GradeLevels",
+      () => _db.GradeLevels.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Classes = await GetCachedLookupListAsync("Admin:Dropdown:Classes",
+      () => _db.Classes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
     ViewBag.ScopeMapping = await LoadProjectProgramScopeMappingAsync();
     return View();
   }
@@ -1186,6 +1233,10 @@ public class AdminController : Controller
     int added = 0, skipped = 0;
     var errors = new List<string>();
 
+    // Pre-load existing employee identifiers once instead of an AnyAsync query per row.
+    var existingIdNumbers = (await _db.Users.Select(u => u.IdNumber).ToListAsync())
+      .ToHashSet(StringComparer.Ordinal);
+
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
     var ws = wb.Worksheet(1);
@@ -1195,50 +1246,59 @@ public class AdminController : Controller
     // E=Email, F=Phone, G=RoleName, H=Notes
     for (var row = 2; row <= lastRow; row++)
     {
-      var employeeCode = ws.Cell(row, 1).GetString().Trim();
-      var idNumber = ws.Cell(row, 2).GetString().Trim();
-      var firstName = ws.Cell(row, 3).GetString().Trim();
-      var lastName = ws.Cell(row, 4).GetString().Trim();
-      var email = ws.Cell(row, 5).GetString().Trim();
-      var phone = ws.Cell(row, 6).GetString().Trim();
-      var roleName = ws.Cell(row, 7).GetString().Trim();
-      var notes = ws.Cell(row, 8).GetString().Trim();
-
-      if (string.IsNullOrEmpty(idNumber) || string.IsNullOrEmpty(firstName))
+      try
       {
-        errors.Add($"שורה {row}: חסר ת.ז או שם פרטי — דולגת");
-        continue;
+        var employeeCode = ws.Cell(row, 1).GetString().Trim();
+        var idNumber = ws.Cell(row, 2).GetString().Trim();
+        var firstName = ws.Cell(row, 3).GetString().Trim();
+        var lastName = ws.Cell(row, 4).GetString().Trim();
+        var email = ws.Cell(row, 5).GetString().Trim();
+        var phone = ws.Cell(row, 6).GetString().Trim();
+        var roleName = ws.Cell(row, 7).GetString().Trim();
+        var notes = ws.Cell(row, 8).GetString().Trim();
+
+        if (string.IsNullOrEmpty(idNumber) || string.IsNullOrEmpty(firstName))
+        {
+          errors.Add($"שורה {row}: חסר ת.ז או שם פרטי — דולגת");
+          continue;
+        }
+
+        // Check duplicates against the in-memory set FIRST, so BCrypt hashing
+        // (expensive, ~100-250ms per call) only runs for rows that are actually inserted.
+        if (!existingIdNumbers.Add(idNumber))
+        {
+          skipped++;
+          continue;
+        }
+
+        var role = roles.FirstOrDefault(r =>
+          r.Description.Contains(roleName, StringComparison.OrdinalIgnoreCase));
+
+        var passwordHash = _passwordService.HashPassword(idNumber);
+
+        _db.Users.Add(new User
+        {
+          EmployeeCode = string.IsNullOrEmpty(employeeCode) ? idNumber : employeeCode,
+          IdNumber = idNumber,
+          FirstName = firstName,
+          LastName = lastName,
+          Email = string.IsNullOrEmpty(email) ? null : email,
+          Phone = string.IsNullOrEmpty(phone) ? null : phone,
+          Notes = string.IsNullOrEmpty(notes) ? null : notes,
+          RoleId = role?.Id ?? 1,
+          UserRoleId = 6, // Employee
+          StatusId = 1,   // Active
+          IsReportingEmployee = true,
+          MustChangePassword = true,
+          PasswordHash = passwordHash,
+          CreatedAt = now
+        });
+        added++;
       }
-
-      if (await _db.Users.AnyAsync(u => u.IdNumber == idNumber))
+      catch (Exception ex)
       {
-        skipped++;
-        continue;
+        errors.Add($"שורה {row}: שגיאה בעיבוד השורה — {ex.Message}");
       }
-
-      var role = roles.FirstOrDefault(r =>
-        r.Description.Contains(roleName, StringComparison.OrdinalIgnoreCase));
-
-      var passwordHash = _passwordService.HashPassword(idNumber);
-
-      _db.Users.Add(new User
-      {
-        EmployeeCode = string.IsNullOrEmpty(employeeCode) ? idNumber : employeeCode,
-        IdNumber = idNumber,
-        FirstName = firstName,
-        LastName = lastName,
-        Email = string.IsNullOrEmpty(email) ? null : email,
-        Phone = string.IsNullOrEmpty(phone) ? null : phone,
-        Notes = string.IsNullOrEmpty(notes) ? null : notes,
-        RoleId = role?.Id ?? 1,
-        UserRoleId = 6, // Employee
-        StatusId = 1,   // Active
-        IsReportingEmployee = true,
-        MustChangePassword = true,
-        PasswordHash = passwordHash,
-        CreatedAt = now
-      });
-      added++;
     }
 
     await _db.SaveChangesAsync();
@@ -1263,6 +1323,20 @@ public class AdminController : Controller
     int added = 0, skipped = 0;
     var errors = new List<string>();
 
+    // Pre-load lookup indexes and existing institution keys once instead of issuing
+    // 5+ lookup queries and a duplicate-check query per row (was O(n) round-trips for ~1,300 rows).
+    var localityIndex = await LookupIndex.LoadAsync(_db.Localities);
+    var districtIndex = await LookupIndex.LoadAsync(_db.Districts);
+    var sectorIndex = await LookupIndex.LoadAsync(_db.Sectors);
+    var educationTypeIndex = await LookupIndex.LoadAsync(_db.EducationTypes);
+    var educationalStageIndex = await LookupIndex.LoadAsync(_db.EducationalStages);
+
+    var existingKeys = (await _db.Institutions
+        .Select(i => new { i.InstitutionSymbol, i.EducationalStageId })
+        .ToListAsync())
+      .Select(i => (i.InstitutionSymbol, i.EducationalStageId))
+      .ToHashSet();
+
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
     var ws = wb.Worksheet(1);
@@ -1270,44 +1344,51 @@ public class AdminController : Controller
 
     for (var row = 2; row <= lastRow; row++)
     {
-      if (!ws.Cell(row, 1).TryGetValue<int>(out var symbol))
+      try
       {
-        errors.Add($"שורה {row}: סמל מוסד חסר או לא תקין");
-        continue;
+        if (!ws.Cell(row, 1).TryGetValue<int>(out var symbol))
+        {
+          errors.Add($"שורה {row}: סמל מוסד חסר או לא תקין");
+          continue;
+        }
+
+        var name = ws.Cell(row, 2).GetString().Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+          errors.Add($"שורה {row}: שם מוסד חסר");
+          continue;
+        }
+
+        var localityId = localityIndex.Resolve(ws.Cell(row, 3).GetString());
+        var districtId = districtIndex.Resolve(ws.Cell(row, 4).GetString());
+        var sectorId = sectorIndex.Resolve(ws.Cell(row, 5).GetString());
+        var typeId = educationTypeIndex.Resolve(ws.Cell(row, 6).GetString());
+        var stageId = educationalStageIndex.Resolve(ws.Cell(row, 7).GetString());
+
+        if (!existingKeys.Add((symbol, stageId)))
+        {
+          skipped++;
+          continue;
+        }
+
+        _db.Institutions.Add(new Institution
+        {
+          InstitutionSymbol = symbol,
+          Name = name,
+          LocalityId = localityId,
+          DistrictId = districtId,
+          SectorId = sectorId,
+          TypeId = typeId,
+          EducationalStageId = stageId,
+          IsActive = true,
+          CreatedAt = now
+        });
+        added++;
       }
-
-      var name = ws.Cell(row, 2).GetString().Trim();
-      if (string.IsNullOrWhiteSpace(name))
+      catch (Exception ex)
       {
-        errors.Add($"שורה {row}: שם מוסד חסר");
-        continue;
+        errors.Add($"שורה {row}: שגיאה בעיבוד השורה — {ex.Message}");
       }
-
-      var localityId = await FindLocalityIdAsync(ws.Cell(row, 3).GetString());
-      var districtId = await FindDistrictIdAsync(ws.Cell(row, 4).GetString());
-      var sectorId = await FindSectorIdAsync(ws.Cell(row, 5).GetString());
-      var typeId = await FindEducationTypeIdAsync(ws.Cell(row, 6).GetString());
-      var stageId = await FindEducationalStageIdAsync(ws.Cell(row, 7).GetString());
-
-      if (await _db.Institutions.AnyAsync(i => i.InstitutionSymbol == symbol && i.EducationalStageId == stageId))
-      {
-        skipped++;
-        continue;
-      }
-
-      _db.Institutions.Add(new Institution
-      {
-        InstitutionSymbol = symbol,
-        Name = name,
-        LocalityId = localityId,
-        DistrictId = districtId,
-        SectorId = sectorId,
-        TypeId = typeId,
-        EducationalStageId = stageId,
-        IsActive = true,
-        CreatedAt = now
-      });
-      added++;
     }
 
     await _db.SaveChangesAsync();
@@ -1329,6 +1410,14 @@ public class AdminController : Controller
     int added = 0, updated = 0, errorsCount = 0;
     var errors = new List<string>();
 
+    // Pre-load users, projects, existing allocations and all junction-table lookup
+    // indexes ONCE instead of resolving them (plus a per-semicolon-value lookup query
+    // across up to 12 columns) on every row — this was the dominant N+1 cost here.
+    var userIdsByIdNumber = await _db.Users.ToDictionaryAsync(u => u.IdNumber, u => u.Id, StringComparer.Ordinal);
+    var projectIndex = await LookupIndex.LoadAsync(_db.Projects);
+    var existingAllocations = await _db.Allocations.ToDictionaryAsync(a => (a.UserId, a.ProjectId), a => a);
+    var linkLookups = await AllocationLinkLookups.LoadAsync(_db);
+
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
     var ws = wb.Worksheet(1);
@@ -1336,43 +1425,53 @@ public class AdminController : Controller
 
     for (var row = 2; row <= lastRow; row++)
     {
-      var idNumber = ws.Cell(row, 1).GetString().Trim();
-      var projectName = ws.Cell(row, 2).GetString().Trim();
-      var user = await _db.Users.FirstOrDefaultAsync(u => u.IdNumber == idNumber);
-      var projectId = await FindProjectIdAsync(projectName);
-      if (user == null || !projectId.HasValue)
+      try
       {
-        errors.Add($"שורה {row}: עובד או פרויקט לא נמצאו");
-        errorsCount++;
-        continue;
+        var idNumber = ws.Cell(row, 1).GetString().Trim();
+        var projectName = ws.Cell(row, 2).GetString().Trim();
+        var projectId = projectIndex.Resolve(projectName);
+        if (!userIdsByIdNumber.TryGetValue(idNumber, out var userId) || !projectId.HasValue)
+        {
+          errors.Add($"שורה {row}: עובד או פרויקט לא נמצאו");
+          errorsCount++;
+          continue;
+        }
+
+        var key = (userId, projectId.Value);
+        var isNew = !existingAllocations.TryGetValue(key, out var allocation);
+        if (isNew)
+        {
+          allocation = new Allocation
+          {
+            UserId = userId,
+            ProjectId = projectId.Value,
+            CreatedAt = DateTime.UtcNow
+          };
+          existingAllocations[key] = allocation;
+        }
+
+        allocation!.AnnualEmploymentScope = ReadDecimal(ws, row, 3);
+        allocation.MonthlyEmploymentScope = ReadDecimal(ws, row, 4);
+        allocation.DailyEmploymentScope = ReadDailyScope(ws.Cell(row, 5).GetString());
+        allocation.MonthlyRowAllocation = ReadInt(ws, row, 6);
+        allocation.AnnualRowAllocation = ReadInt(ws, row, 7);
+        allocation.OutputDuration = ws.Cell(row, 8).GetString().Trim();
+        allocation.AllowExcelUpload = ReadBool(ws.Cell(row, 9).GetString());
+        allocation.Notes = EmptyToNull(ws.Cell(row, 10).GetString());
+        allocation.IsActive = true;
+        allocation.UpdatedAt = DateTime.UtcNow;
+
+        if (isNew) _db.Allocations.Add(allocation);
+        await _db.SaveChangesAsync();
+
+        await ReplaceAllocationLinksAsync(allocation.Id, ws, row, linkLookups);
+        if (isNew) added++; else updated++;
       }
-
-      var allocation = await _db.Allocations
-        .FirstOrDefaultAsync(a => a.UserId == user.Id && a.ProjectId == projectId.Value);
-      var isNew = allocation == null;
-      allocation ??= new Allocation
+      catch (Exception ex)
       {
-        UserId = user.Id,
-        ProjectId = projectId.Value,
-        CreatedAt = DateTime.UtcNow
-      };
-
-      allocation.AnnualEmploymentScope = ReadDecimal(ws, row, 3);
-      allocation.MonthlyEmploymentScope = ReadDecimal(ws, row, 4);
-      allocation.DailyEmploymentScope = ReadDailyScope(ws.Cell(row, 5).GetString());
-      allocation.MonthlyRowAllocation = ReadInt(ws, row, 6);
-      allocation.AnnualRowAllocation = ReadInt(ws, row, 7);
-      allocation.OutputDuration = ws.Cell(row, 8).GetString().Trim();
-      allocation.AllowExcelUpload = ReadBool(ws.Cell(row, 9).GetString());
-      allocation.Notes = EmptyToNull(ws.Cell(row, 10).GetString());
-      allocation.IsActive = true;
-      allocation.UpdatedAt = DateTime.UtcNow;
-
-      if (isNew) _db.Allocations.Add(allocation);
-      await _db.SaveChangesAsync();
-
-      await ReplaceAllocationLinksAsync(allocation.Id, ws, row);
-      if (isNew) added++; else updated++;
+        errors.Add($"שורה {row}: שגיאה בעיבוד השורה — {ex.Message}");
+        errorsCount++;
+      }
     }
 
     TempData["ImportResults"] = string.Join("|",
@@ -1569,47 +1668,62 @@ public class AdminController : Controller
     return count;
   }
 
-  private async Task ReplaceAllocationLinksAsync(int allocationId, IXLWorksheet ws, int row)
+  private async Task ReplaceAllocationLinksAsync(int allocationId, IXLWorksheet ws, int row, AllocationLinkLookups lookups)
   {
-    _db.Set<AllocationDistrict>().RemoveRange(_db.Set<AllocationDistrict>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationProgram>().RemoveRange(_db.Set<AllocationProgram>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationSector>().RemoveRange(_db.Set<AllocationSector>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationLocality>().RemoveRange(_db.Set<AllocationLocality>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationFramework>().RemoveRange(_db.Set<AllocationFramework>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationSubject>().RemoveRange(_db.Set<AllocationSubject>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationDomain>().RemoveRange(_db.Set<AllocationDomain>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationEducationalProgram>().RemoveRange(_db.Set<AllocationEducationalProgram>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationClass>().RemoveRange(_db.Set<AllocationClass>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationGradeLevel>().RemoveRange(_db.Set<AllocationGradeLevel>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationDiscussionCode>().RemoveRange(_db.Set<AllocationDiscussionCode>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationLocalityDistrictNational>().RemoveRange(_db.Set<AllocationLocalityDistrictNational>().Where(x => x.AllocationId == allocationId));
-    await _db.SaveChangesAsync();
+    _db.Set<AllocationDistrict>().RemoveRange(await _db.Set<AllocationDistrict>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationProgram>().RemoveRange(await _db.Set<AllocationProgram>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationSector>().RemoveRange(await _db.Set<AllocationSector>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationLocality>().RemoveRange(await _db.Set<AllocationLocality>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationFramework>().RemoveRange(await _db.Set<AllocationFramework>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationSubject>().RemoveRange(await _db.Set<AllocationSubject>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationDomain>().RemoveRange(await _db.Set<AllocationDomain>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationEducationalProgram>().RemoveRange(await _db.Set<AllocationEducationalProgram>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationClass>().RemoveRange(await _db.Set<AllocationClass>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationGradeLevel>().RemoveRange(await _db.Set<AllocationGradeLevel>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationDiscussionCode>().RemoveRange(await _db.Set<AllocationDiscussionCode>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationLocalityDistrictNational>().RemoveRange(await _db.Set<AllocationLocalityDistrictNational>().Where(x => x.AllocationId == allocationId).ToListAsync());
 
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 11).GetString(), FindDistrictIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 11).GetString(), lookups.Districts))
       _db.Set<AllocationDistrict>().Add(new AllocationDistrict { AllocationId = allocationId, DistrictId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 12).GetString(), FindProgramIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 12).GetString(), lookups.Programs))
       _db.Set<AllocationProgram>().Add(new AllocationProgram { AllocationId = allocationId, ProgramId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 13).GetString(), FindSectorIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 13).GetString(), lookups.Sectors))
       _db.Set<AllocationSector>().Add(new AllocationSector { AllocationId = allocationId, SectorId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 14).GetString(), FindLocalityIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 14).GetString(), lookups.Localities))
       _db.Set<AllocationLocality>().Add(new AllocationLocality { AllocationId = allocationId, LocalityId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 15).GetString(), FindFrameworkIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 15).GetString(), lookups.Frameworks))
       _db.Set<AllocationFramework>().Add(new AllocationFramework { AllocationId = allocationId, FrameworkId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 16).GetString(), FindSubjectIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 16).GetString(), lookups.Subjects))
       _db.Set<AllocationSubject>().Add(new AllocationSubject { AllocationId = allocationId, SubjectId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 17).GetString(), FindDomainIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 17).GetString(), lookups.Domains))
       _db.Set<AllocationDomain>().Add(new AllocationDomain { AllocationId = allocationId, DomainId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 18).GetString(), FindEducationalProgramIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 18).GetString(), lookups.EducationalPrograms))
       _db.Set<AllocationEducationalProgram>().Add(new AllocationEducationalProgram { AllocationId = allocationId, EducationalProgramId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 19).GetString(), FindClassIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 19).GetString(), lookups.Classes))
       _db.Set<AllocationClass>().Add(new AllocationClass { AllocationId = allocationId, ClassId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 20).GetString(), FindGradeLevelIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 20).GetString(), lookups.GradeLevels))
       _db.Set<AllocationGradeLevel>().Add(new AllocationGradeLevel { AllocationId = allocationId, GradeLevelId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 21).GetString(), FindDiscussionCodeIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 21).GetString(), lookups.DiscussionCodes))
       _db.Set<AllocationDiscussionCode>().Add(new AllocationDiscussionCode { AllocationId = allocationId, DiscussionCodeId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 22).GetString(), FindLocalityDistrictNationalIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 22).GetString(), lookups.LocalityDistrictNationals))
       _db.Set<AllocationLocalityDistrictNational>().Add(new AllocationLocalityDistrictNational { AllocationId = allocationId, LocalityDistrictNationalId = id });
+
+    // A single save for both the removals and additions above (previously two saves per row).
     await _db.SaveChangesAsync();
+  }
+
+  // Splits a semicolon-separated cell value and resolves each part against a pre-loaded
+  // lookup index, in place of one DB query per value (was the "resolver query per
+  // semicolon-separated value across up to 12 columns" N+1 pattern).
+  private static List<int> ResolveIds(string values, ILookupResolver resolver)
+  {
+    var ids = new List<int>();
+    foreach (var value in values.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+      var id = resolver.Resolve(value);
+      if (id.HasValue) ids.Add(id.Value);
+    }
+    return ids.Distinct().ToList();
   }
 
   private static decimal? ReadDecimal(IXLWorksheet ws, int row, int col) =>
@@ -1637,39 +1751,7 @@ public class AdminController : Controller
   private static string? EmptyToNull(string value) =>
     string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-  private static async Task<List<int>> FindIdsAsync(string values, Func<string, Task<int?>> resolver)
-  {
-    var ids = new List<int>();
-    foreach (var value in values.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-      var id = await resolver(value);
-      if (id.HasValue) ids.Add(id.Value);
-    }
-    return ids.Distinct().ToList();
-  }
-
-  private async Task<int?> FindDistrictIdAsync(string value) => await FindLookupIdAsync(_db.Districts, value);
-  private async Task<int?> FindSectorIdAsync(string value) => await FindLookupIdAsync(_db.Sectors, value);
-  private async Task<int?> FindLocalityIdAsync(string value) => await FindLookupIdAsync(_db.Localities, value);
-  private async Task<int?> FindProjectIdAsync(string value) => await FindLookupIdAsync(_db.Projects, value);
-  private async Task<int?> FindProgramIdAsync(string value) => await FindLookupIdAsync(_db.Programs, value);
-  private async Task<int?> FindSubjectIdAsync(string value) => await FindLookupIdAsync(_db.Subjects, value);
-  private async Task<int?> FindDomainIdAsync(string value) => await FindLookupIdAsync(_db.Domains, value);
-  private async Task<int?> FindEducationalProgramIdAsync(string value) => await FindLookupIdAsync(_db.EducationalPrograms, value);
-  private async Task<int?> FindClassIdAsync(string value) => await FindLookupIdAsync(_db.Classes, value);
-  private async Task<int?> FindGradeLevelIdAsync(string value) => await FindLookupIdAsync(_db.GradeLevels, value);
-  private async Task<int?> FindDiscussionCodeIdAsync(string value) => await FindLookupIdAsync(_db.DiscussionCodes, value);
-  private async Task<int?> FindLocalityDistrictNationalIdAsync(string value) => await FindLookupIdAsync(_db.LocalityDistrictNationals, value);
-  private async Task<int?> FindEducationTypeIdAsync(string value) => await FindLookupIdAsync(_db.EducationTypes, value);
   private async Task<int?> FindEducationalStageIdAsync(string value) => await FindLookupIdAsync(_db.EducationalStages, value);
-  private async Task<int?> FindFrameworkIdAsync(string value)
-  {
-    value = value.Trim();
-    if (string.IsNullOrEmpty(value)) return null;
-    if (int.TryParse(value, out var symbol))
-      return await _db.Frameworks.Where(f => f.InstitutionSymbol == symbol.ToString()).Select(f => (int?)f.Id).FirstOrDefaultAsync();
-    return await _db.Frameworks.Where(f => f.Description == value).Select(f => (int?)f.Id).FirstOrDefaultAsync();
-  }
 
   private static async Task<int?> FindLookupIdAsync<T>(IQueryable<T> query, string value)
     where T : AxiomaReporting.Core.Entities.Base.LookupEntity
@@ -1678,6 +1760,123 @@ public class AdminController : Controller
     if (string.IsNullOrEmpty(value)) return null;
     if (int.TryParse(value, out var id) && await query.AnyAsync(x => x.Id == id)) return id;
     return await query.Where(x => x.Description == value).Select(x => (int?)x.Id).FirstOrDefaultAsync();
+  }
+
+  // Resolves a single raw cell value (either a numeric Id or an exact Description match)
+  // against a pre-loaded, in-memory lookup snapshot — used by the bulk import methods to
+  // avoid issuing a DB query per row/value (see CLAUDE.md perf review finding H13).
+  private interface ILookupResolver
+  {
+    int? Resolve(string value);
+  }
+
+  private sealed class LookupIndex : ILookupResolver
+  {
+    private readonly HashSet<int> _ids;
+    private readonly Dictionary<string, int> _byDescription;
+
+    private LookupIndex(HashSet<int> ids, Dictionary<string, int> byDescription)
+    {
+      _ids = ids;
+      _byDescription = byDescription;
+    }
+
+    public static async Task<LookupIndex> LoadAsync<T>(IQueryable<T> query)
+      where T : AxiomaReporting.Core.Entities.Base.LookupEntity
+    {
+      var rows = await query.Select(x => new { x.Id, x.Description }).ToListAsync();
+      var byDescription = new Dictionary<string, int>(StringComparer.Ordinal);
+      foreach (var row in rows)
+      {
+        if (!byDescription.ContainsKey(row.Description)) byDescription[row.Description] = row.Id;
+      }
+      return new LookupIndex(rows.Select(r => r.Id).ToHashSet(), byDescription);
+    }
+
+    // Mirrors the original FindLookupIdAsync semantics: a numeric value matching an
+    // existing Id wins; otherwise fall back to an exact Description match.
+    public int? Resolve(string value)
+    {
+      value = value.Trim();
+      if (string.IsNullOrEmpty(value)) return null;
+      if (int.TryParse(value, out var id) && _ids.Contains(id)) return id;
+      return _byDescription.TryGetValue(value, out var mappedId) ? mappedId : null;
+    }
+  }
+
+  // Frameworks are matched either by numeric InstitutionSymbol or by Description
+  // (see the original FindFrameworkIdAsync); this mirrors that lookup in-memory.
+  private sealed class FrameworkLookupIndex : ILookupResolver
+  {
+    private readonly Dictionary<string, int> _bySymbol;
+    private readonly Dictionary<string, int> _byDescription;
+
+    private FrameworkLookupIndex(Dictionary<string, int> bySymbol, Dictionary<string, int> byDescription)
+    {
+      _bySymbol = bySymbol;
+      _byDescription = byDescription;
+    }
+
+    public static async Task<FrameworkLookupIndex> LoadAsync(IQueryable<Framework> query)
+    {
+      var rows = await query.Select(f => new { f.Id, f.InstitutionSymbol, f.Description }).ToListAsync();
+      var bySymbol = new Dictionary<string, int>(StringComparer.Ordinal);
+      var byDescription = new Dictionary<string, int>(StringComparer.Ordinal);
+      foreach (var row in rows)
+      {
+        if (!string.IsNullOrEmpty(row.InstitutionSymbol) && !bySymbol.ContainsKey(row.InstitutionSymbol))
+          bySymbol[row.InstitutionSymbol] = row.Id;
+        if (!string.IsNullOrEmpty(row.Description) && !byDescription.ContainsKey(row.Description))
+          byDescription[row.Description] = row.Id;
+      }
+      return new FrameworkLookupIndex(bySymbol, byDescription);
+    }
+
+    public int? Resolve(string value)
+    {
+      value = value.Trim();
+      if (string.IsNullOrEmpty(value)) return null;
+      if (int.TryParse(value, out var symbol))
+        return _bySymbol.TryGetValue(symbol.ToString(), out var idBySymbol) ? idBySymbol : null;
+      return _byDescription.TryGetValue(value, out var idByDescription) ? idByDescription : null;
+    }
+  }
+
+  // Bundles all lookup indexes referenced by ReplaceAllocationLinksAsync's 12
+  // semicolon-separated columns, loaded once per import instead of per row/value.
+  private sealed class AllocationLinkLookups
+  {
+    public LookupIndex Districts { get; private init; } = null!;
+    public LookupIndex Programs { get; private init; } = null!;
+    public LookupIndex Sectors { get; private init; } = null!;
+    public LookupIndex Localities { get; private init; } = null!;
+    public FrameworkLookupIndex Frameworks { get; private init; } = null!;
+    public LookupIndex Subjects { get; private init; } = null!;
+    public LookupIndex Domains { get; private init; } = null!;
+    public LookupIndex EducationalPrograms { get; private init; } = null!;
+    public LookupIndex Classes { get; private init; } = null!;
+    public LookupIndex GradeLevels { get; private init; } = null!;
+    public LookupIndex DiscussionCodes { get; private init; } = null!;
+    public LookupIndex LocalityDistrictNationals { get; private init; } = null!;
+
+    public static async Task<AllocationLinkLookups> LoadAsync(AppDbContext db)
+    {
+      return new AllocationLinkLookups
+      {
+        Districts = await LookupIndex.LoadAsync(db.Districts),
+        Programs = await LookupIndex.LoadAsync(db.Programs),
+        Sectors = await LookupIndex.LoadAsync(db.Sectors),
+        Localities = await LookupIndex.LoadAsync(db.Localities),
+        Frameworks = await FrameworkLookupIndex.LoadAsync(db.Frameworks),
+        Subjects = await LookupIndex.LoadAsync(db.Subjects),
+        Domains = await LookupIndex.LoadAsync(db.Domains),
+        EducationalPrograms = await LookupIndex.LoadAsync(db.EducationalPrograms),
+        Classes = await LookupIndex.LoadAsync(db.Classes),
+        GradeLevels = await LookupIndex.LoadAsync(db.GradeLevels),
+        DiscussionCodes = await LookupIndex.LoadAsync(db.DiscussionCodes),
+        LocalityDistrictNationals = await LookupIndex.LoadAsync(db.LocalityDistrictNationals)
+      };
+    }
   }
 
   // --- Batch Report Import (multi-employee) — AX-018 extension ---
@@ -1907,7 +2106,7 @@ public class AdminController : Controller
     var termsVersion = new TermsOfUseVersion
     {
       VersionNumber = nextVersion,
-      BodyHtml = bodyHtml,
+      BodyHtml = _htmlSanitizer.Sanitize(bodyHtml),
       EffectiveFrom = effectiveFrom ?? now,
       PublishedByUserId = actorId,
       CreatedAt = now
@@ -1984,7 +2183,9 @@ public class AdminController : Controller
         .Append("</td><td><div id=\"")
         .Append(previewId)
         .Append("\" class=\"border rounded p-2 bg-light\" style=\"max-height:160px;overflow:auto\">")
-        .Append(version.BodyHtml)
+        // Defense in depth: sanitize at render time too, in case this row predates
+        // the sanitize-on-save fix (see PublishPrivacyPolicy) and still holds raw HTML.
+        .Append(_htmlSanitizer.Sanitize(version.BodyHtml))
         .Append("</div></td><td><button type=\"button\" class=\"btn btn-outline-secondary btn-sm\" data-source=\"")
         .Append(previewId)
         .Append("\" onclick=\"document.getElementById('bodyHtml').value=document.getElementById(this.dataset.source).innerHTML;document.getElementById('bodyHtml').focus();\">ערוך לפי גרסה זו</button></td></tr>");
@@ -2018,7 +2219,7 @@ public class AdminController : Controller
     var privacyVersion = new PrivacyPolicyVersion
     {
       VersionNumber = nextVersion,
-      BodyHtml = bodyHtml,
+      BodyHtml = _htmlSanitizer.Sanitize(bodyHtml),
       EffectiveFrom = effectiveFrom ?? now,
       PublishedByUserId = actorId,
       CreatedAt = now
@@ -2290,13 +2491,30 @@ public class AdminController : Controller
 
   // --- Private helpers ---
 
+  private static readonly TimeSpan LookupCacheTtl = TimeSpan.FromMinutes(15);
+
+  private Task<List<T>> GetCachedLookupListAsync<T>(string cacheKey, Func<Task<List<T>>> loader)
+  {
+    if (_cache == null) return loader();
+    return _cache.GetOrCreateAsync(cacheKey, entry =>
+    {
+      entry.AbsoluteExpirationRelativeToNow = LookupCacheTtl;
+      return loader();
+    })!;
+  }
+
   private async Task LoadInstitutionDropdowns()
   {
-    ViewBag.Localities = await _db.Localities.Where(l => l.IsActive).OrderBy(l => l.Description).ToListAsync();
-    ViewBag.Districts = await _db.Districts.Where(d => d.IsActive).OrderBy(d => d.Description).ToListAsync();
-    ViewBag.Sectors = await _db.Sectors.Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync();
-    ViewBag.EducationTypes = await _db.EducationTypes.Where(t => t.IsActive).OrderBy(t => t.Description).ToListAsync();
-    ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync();
+    ViewBag.Localities = await GetCachedLookupListAsync("Admin:Dropdown:Localities",
+      () => _db.Localities.AsNoTracking().Where(l => l.IsActive).OrderBy(l => l.Description).ToListAsync());
+    ViewBag.Districts = await GetCachedLookupListAsync("Admin:Dropdown:Districts",
+      () => _db.Districts.AsNoTracking().Where(d => d.IsActive).OrderBy(d => d.Description).ToListAsync());
+    ViewBag.Sectors = await GetCachedLookupListAsync("Admin:Dropdown:Sectors",
+      () => _db.Sectors.AsNoTracking().Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync());
+    ViewBag.EducationTypes = await GetCachedLookupListAsync("Admin:Dropdown:EducationTypes",
+      () => _db.EducationTypes.AsNoTracking().Where(t => t.IsActive).OrderBy(t => t.Description).ToListAsync());
+    ViewBag.EducationalStages = await GetCachedLookupListAsync("Admin:Dropdown:EducationalStages",
+      () => _db.EducationalStages.AsNoTracking().Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync());
   }
 
   // --- Project-program scope helpers (raw SQL bridge tables) ---
