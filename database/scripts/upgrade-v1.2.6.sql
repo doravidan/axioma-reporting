@@ -1,0 +1,3 @@
+﻿-- AxiomaReporting v1.2.6 upgrade script
+-- No database schema changes are required for v1.2.6.
+-- Apply v1.2.3 migrations/scripts first if the target server is older than v1.2.3.

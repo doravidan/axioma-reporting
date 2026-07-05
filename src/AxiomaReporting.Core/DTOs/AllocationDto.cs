@@ -14,6 +14,9 @@ public class AllocationDto
   [Display(Name = "פרויקט")]
   public int ProjectId { get; set; }
 
+  [Display(Name = "סוג דיווח")]
+  public int? ReportTypeId { get; set; }
+
   [Range(0, int.MaxValue, ErrorMessage = "יש להזין מספר חיובי")]
   [Display(Name = "היקף פעילות שנתי")]
   [DisplayFormat(DataFormatString = "{0:0}", ApplyFormatInEditMode = true)]
