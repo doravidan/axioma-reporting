@@ -137,6 +137,9 @@ public class BatchReportImportService : IBatchReportImportService
     // Per-import caches so repeated employee codes don't re-query the DB per row
     var usersByCode = new Dictionary<string, User?>(StringComparer.OrdinalIgnoreCase);
     var existingRowsByUser = new Dictionary<int, List<ReportRow>>();
+    // Caches the pre-import StatusId of each user's report for this month (null = no report yet),
+    // so rows targeting an already-locked (PendingApproval/Approved) report are rejected up front.
+    var existingReportStatusByUser = new Dictionary<int, int?>();
 
     var rowsByHeaderRow = new Dictionary<int, int>();
     var progressTotalRows = CountImportableRows(workbook, rowsByHeaderRow);
@@ -210,6 +213,27 @@ public class BatchReportImportService : IBatchReportImportService
         var displayName = string.IsNullOrWhiteSpace(reporterName)
           ? $"{user.FirstName} {user.LastName}".Trim()
           : reporterName;
+
+        // Excel upload may only add rows to unapproved reports (Draft/InEntry/Returned).
+        // A report already PendingApproval (3) or Approved (4) must not be silently appended to.
+        if (!existingReportStatusByUser.TryGetValue(user.Id, out var existingStatusId))
+        {
+          existingStatusId = await _db.Reports
+            .Where(rep => rep.UserId == user.Id && rep.ReportingMonthId == reportingMonthId)
+            .Select(rep => (int?)rep.StatusId)
+            .FirstOrDefaultAsync(ct);
+          existingReportStatusByUser[user.Id] = existingStatusId;
+        }
+
+        if (existingStatusId is 3 or 4)
+        {
+          AddError(result, r, rawEmpCode, displayName,
+            "לא ניתן לייבא — הדיווח כבר אושר או ממתין לאישור", raw);
+          Increment(rejectionsByUser, rawEmpCode, user.Id, displayName);
+          AddRowResult(result, r, rawEmpCode, displayName, BatchImportRowOutcome.Rejected,
+            $"שורה {r}: נדחה — לא ניתן לייבא, הדיווח כבר אושר או ממתין לאישור");
+          continue;
+        }
 
         // Parse meeting date
         if (!TryReadMeetingDate(sheet, r, headerMap, out var meetingDate, out var dateError))

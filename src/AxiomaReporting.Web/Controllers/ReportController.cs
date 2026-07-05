@@ -636,10 +636,16 @@ public class ReportController : Controller
     if (report == null) return NotFound();
     if (!await CanViewEmployeeReportAsync(report.UserId)) return Forbid();
 
+    // Inspector roles may only export reports that have been approved.
+    if (_currentUser.UserRole is UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval &&
+        report.StatusId != 4)
+      return Forbid();
+
     var rows = await _db.ReportRows
       .Include(r => r.ReportType)
       .Include(r => r.Allocation).ThenInclude(a => a!.Project)
       .Include(r => r.Allocation).ThenInclude(a => a!.ReportType)
+      .Include(r => r.Allocation).ThenInclude(a => a!.AllocationPrograms).ThenInclude(ap => ap.Program)
       .Include(r => r.District)
       .Include(r => r.Locality)
       .Include(r => r.Framework)
@@ -678,7 +684,11 @@ public class ReportController : Controller
     ws.Cell(2, 4).Value = "סטטוס דיווח";
     ws.Cell(2, 5).Value = report.Status?.Description ?? report.Status?.Name ?? report.StatusId.ToString(CultureInfo.InvariantCulture);
     ws.Cell(3, 1).Value = "תוכניות";
-    ws.Cell(3, 2).Value = rows.Count;
+    ws.Cell(3, 2).Value = string.Join(", ", rows
+      .SelectMany(r => r.Allocation?.AllocationPrograms ?? new List<AllocationProgram>())
+      .Select(ap => ap.Program?.Description)
+      .Where(p => !string.IsNullOrWhiteSpace(p))
+      .Distinct());
     ws.Cell(3, 4).Value = "סה\"כ משך תפוקה";
     ws.Cell(3, 5).Value = rows.Sum(r => r.MeetingDuration);
 
