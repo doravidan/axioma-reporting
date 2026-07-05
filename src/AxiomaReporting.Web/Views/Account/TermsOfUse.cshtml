@@ -1,4 +1,6 @@
 @model AxiomaReporting.Core.Entities.TermsOfUseVersion
+@using AxiomaReporting.Core.Interfaces
+@inject IHtmlSanitizerService HtmlSanitizer
 @{
   ViewData["Title"] = "תנאי שימוש";
   Layout = "_AnonymousLayout";
@@ -22,7 +24,10 @@
         else
         {
           <div class="terms-body mb-4" style="max-height:60vh; overflow-y:auto; border:1px solid #dee2e6; border-radius:.25rem; padding:1rem; white-space:pre-wrap;">
-            @Html.Raw(Model.BodyHtml)
+            @* Sanitized at render time as defense-in-depth (AdminController also
+               sanitizes on save); every authenticated user is forced through this
+               page, so it must never render unsanitized stored HTML. *@
+            @Html.Raw(HtmlSanitizer.Sanitize(Model.BodyHtml))
           </div>
 
           <form asp-action="AcceptTerms" method="post" id="acceptTermsForm">

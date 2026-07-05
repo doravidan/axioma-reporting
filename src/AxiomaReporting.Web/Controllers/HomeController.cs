@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Text;
 using AxiomaReporting.Core.Entities;
+using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -15,11 +16,13 @@ public class HomeController : Controller
 {
   private readonly ILogger<HomeController> _logger;
   private readonly AppDbContext _db;
+  private readonly IHtmlSanitizerService _htmlSanitizer;
 
-  public HomeController(ILogger<HomeController> logger, AppDbContext db)
+  public HomeController(ILogger<HomeController> logger, AppDbContext db, IHtmlSanitizerService htmlSanitizer)
   {
     _logger = logger;
     _db = db;
+    _htmlSanitizer = htmlSanitizer;
   }
 
   public IActionResult Index()
@@ -47,7 +50,10 @@ public class HomeController : Controller
       sb.Append("<div class=\"small text-muted mb-3\">גרסה ").Append(latest.VersionNumber).Append(" | בתוקף מתאריך ")
         .Append(WebUtility.HtmlEncode(latest.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy HH:mm")))
         .Append("</div>");
-      sb.Append("<div class=\"border rounded p-3 bg-light\">").Append(latest.BodyHtml).Append("</div>");
+      // Defense in depth: AdminController sanitizes on save (see PublishPrivacyPolicy),
+      // but this anonymous, publicly reachable page also sanitizes at render time in
+      // case older rows predate that fix. See CLAUDE.md security review finding C1.
+      sb.Append("<div class=\"border rounded p-3 bg-light\">").Append(_htmlSanitizer.Sanitize(latest.BodyHtml)).Append("</div>");
     }
 
     sb.Append("</div></div></main></body></html>");
