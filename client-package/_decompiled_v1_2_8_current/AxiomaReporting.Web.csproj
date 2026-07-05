@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>AxiomaReporting.Web</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp6.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup />
+  <ItemGroup />
+  <ItemGroup>
+    <Reference Include="AxiomaReporting.Infrastructure">
+      <HintPath>..\_decompiled_infra_v1_2_8_current\bin\Release\netcoreapp6.0\AxiomaReporting.Infrastructure.dll</HintPath>
+    </Reference>
+    <Reference Include="AxiomaReporting.Core">
+      <HintPath>..\_decompiled_core_v1_2_8_current\bin\Release\netcoreapp6.0\AxiomaReporting.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore">
+      <HintPath>..\Microsoft.EntityFrameworkCore.dll</HintPath>
+    </Reference>
+    <Reference Include="ClosedXML">
+      <HintPath>..\ClosedXML.dll</HintPath>
+    </Reference>
+    <Reference Include="ExcelDataReader">
+      <HintPath>..\ExcelDataReader.dll</HintPath>
+    </Reference>
+    <Reference Include="ExcelDataReader.DataSet">
+      <HintPath>..\ExcelDataReader.DataSet.dll</HintPath>
+    </Reference>
+    <Reference Include="FluentValidation">
+      <HintPath>..\FluentValidation.dll</HintPath>
+    </Reference>
+    <Reference Include="FluentValidation.AspNetCore">
+      <HintPath>..\FluentValidation.AspNetCore.dll</HintPath>
+    </Reference>
+    <Reference Include="FluentValidation.DependencyInjectionExtensions">
+      <HintPath>..\FluentValidation.DependencyInjectionExtensions.dll</HintPath>
+    </Reference>
+    <Reference Include="QuestPDF">
+      <HintPath>..\QuestPDF.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore.InMemory">
+      <HintPath>..\Microsoft.EntityFrameworkCore.InMemory.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore.SqlServer">
+      <HintPath>..\Microsoft.EntityFrameworkCore.SqlServer.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore.Relational">
+      <HintPath>..\Microsoft.EntityFrameworkCore.Relational.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Text.Encoding.CodePages">
+      <HintPath>..\System.Text.Encoding.CodePages.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\QuestPdfSkia.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\qpdf.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\libgcc_s_seh-1.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\libstdc++-6.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\libwinpthread-1.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

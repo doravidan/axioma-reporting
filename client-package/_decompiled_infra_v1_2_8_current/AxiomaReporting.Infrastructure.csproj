@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>AxiomaReporting.Infrastructure</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <OutputType>Library</OutputType>
+    <TargetFramework>netcoreapp6.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup />
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="..\_decompiled_core_v1_2_8_current\AxiomaReporting.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="FluentValidation">
+      <HintPath>FluentValidation.dll</HintPath>
+    </Reference>
+    <Reference Include="ClosedXML">
+      <HintPath>ClosedXML.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore">
+      <HintPath>Microsoft.EntityFrameworkCore.dll</HintPath>
+    </Reference>
+    <Reference Include="QuestPDF">
+      <HintPath>QuestPDF.dll</HintPath>
+    </Reference>
+    <Reference Include="MimeKit">
+      <HintPath>MimeKit.dll</HintPath>
+    </Reference>
+    <Reference Include="MailKit">
+      <HintPath>MailKit.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore.Relational">
+      <HintPath>Microsoft.EntityFrameworkCore.Relational.dll</HintPath>
+    </Reference>
+    <Reference Include="BCrypt.Net-Next">
+      <HintPath>BCrypt.Net-Next.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.EntityFrameworkCore.SqlServer">
+      <HintPath>Microsoft.EntityFrameworkCore.SqlServer.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

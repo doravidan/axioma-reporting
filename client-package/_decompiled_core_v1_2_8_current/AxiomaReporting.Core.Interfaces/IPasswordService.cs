@@ -1,0 +1,14 @@
+using System;
+
+namespace AxiomaReporting.Core.Interfaces;
+
+public interface IPasswordService
+{
+	string HashPassword(string password);
+
+	bool VerifyPassword(string password, string hash);
+
+	bool IsPasswordStrong(string password);
+
+	bool IsPasswordExpired(DateTime? lastPasswordChange);
+}

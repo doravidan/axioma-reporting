@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 60" role="img" aria-label="לוגו סייט אנד סאונד">
+  <title>לוגו סייט אנד סאונד</title>
+  <rect x="0" y="0" width="260" height="60" fill="transparent"/>
+  <text x="130" y="38"
+        font-family="Arial, Helvetica, 'Segoe UI', sans-serif"
+        font-size="24"
+        font-weight="700"
+        fill="#0d6efd"
+        text-anchor="middle"
+        direction="rtl">סייט אנד סאונד</text>
+</svg>

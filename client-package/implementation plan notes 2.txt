@@ -1,0 +1,461 @@
+# Implementation Plan — Client Feedback Round 2
+
+> Audited against actual code in `src/AxiomaReporting.*` on 2026-05-18.
+> Two real bugs were confirmed during the audit (see top section); please confirm before implementation.
+
+---
+
+## Bugs confirmed during audit (read first)
+
+- **Reset-password loop bug (§8).** [AccountController.cs:366](src/AxiomaReporting.Web/Controllers/AccountController.cs#L366) sets `user.MustChangePassword = true` after a successful reset. [PostLoginRedirectAsync:453](src/AxiomaReporting.Web/Controllers/AccountController.cs#L453) then redirects back to `ChangePassword` because that flag is true. **This is the loop.** Fix: set it to `false`.
+- **Same-password not blocked on regular `ChangePassword` (§9).** [AccountController.cs:223-229](src/AxiomaReporting.Web/Controllers/AccountController.cs#L223-L229) only calls `IsPasswordInHistoryAsync`, which checks the *history* table (old hashes only — see [AuthService.cs:112-121](src/AxiomaReporting.Infrastructure/Services/AuthService.cs#L112-L121)). It does **not** check the current `user.PasswordHash`. So a user can "change" to the same current password on the ChangePassword screen. `ResetPassword` *does* check both ([AccountController.cs:356-358](src/AxiomaReporting.Web/Controllers/AccountController.cs#L356-L358)) but reuses one combined error message, which is probably why the client thought it didn't block.
+- **Approve/Reject intermittent error (§6).** [ReportStatusService.cs:108-144](src/AxiomaReporting.Infrastructure/Services/ReportStatusService.cs#L108-L144) saves the status change, then **awaits** `_emailService.SendAsync` in the same request. If SMTP is slow/fails, the controller surfaces an error **even though the DB write succeeded**. On the user's next refresh the row shows "Approved", and a second click then "fails" because email is re-sent / there's no idempotency guard. There's also no `RowVersion` on `Report` and no transaction.
+
+---
+
+## Section 1 — Rebrand "אקסיומא" ? "סייט אנד סאונד"
+
+### Approach
+Single source of truth is [BrandingService.cs](src/AxiomaReporting.Infrastructure/Services/BrandingService.cs) + the `BrandingSettings` rows it reads. Everything else either reads from there or is a hardcoded string we need to sweep.
+
+### Steps
+1. **Audit BrandingService surface area.** Read [BrandingService.cs](src/AxiomaReporting.Infrastructure/Services/BrandingService.cs) and [Admin/Branding.cshtml](src/AxiomaReporting.Web/Views/Admin/Branding.cshtml). Confirm the keys it exposes (likely `SiteName`, `OrganizationName`, `FooterText`, logo paths).
+2. **DB migration `UpdateBrandingDefaults`:** update seeded `BrandingSettings` rows from `אקסיומא` ? `סייט אנד סאונד`. Keep the old admin override behavior — if an admin already customized, do not overwrite (use `UPDATE … WHERE Value = N'אקסיומא'`).
+3. **Email templates migration `RebrandEmailTemplates`:** for every `EmailTemplate` row, run `REPLACE(Subject, N'אקסיומא', N'סייט אנד סאונד')` and same for `Body`. Run on both seeded and admin-edited templates.
+4. **Code/view sweep** with `Grep "אקסיומא"`:
+   - Razor views in `src/AxiomaReporting.Web/Views/**` — replace literal text, prefer pulling from `BrandingService` if not already.
+   - `SeedData.cs` static seed strings.
+   - `appsettings*.json` if a `Branding` section holds a default.
+   - PDF generation in [PdfReportService.cs](src/AxiomaReporting.Infrastructure/Services/PdfReportService.cs) — title strings/headers.
+   - Excel exports in any service that calls `ClosedXML` — workbook `Author`, `Title`, sheet headers.
+5. **Do NOT change** assembly names, namespaces (`AxiomaReporting.*`), folder paths, DB schema names, route paths, or the solution filename. Confirmed — these would break deployments and migrations.
+6. **Browser tab title** for "סייט אנד סאונד" `<title>` — also update `<meta name="application-name">` and PWA-related metadata if present in `_Layout.cshtml`.
+
+### Files
+- New migration files in [src/AxiomaReporting.Infrastructure/Migrations/](src/AxiomaReporting.Infrastructure/Migrations/)
+- [_Layout.cshtml](src/AxiomaReporting.Web/Views/Shared/_Layout.cshtml), [_AnonymousLayout.cshtml](src/AxiomaReporting.Web/Views/Shared/_AnonymousLayout.cshtml), [SiteLogo](src/AxiomaReporting.Web/Views/Shared/Components/SiteLogo/Default.cshtml)
+- All `Account/*.cshtml`
+- [SeedData.cs](src/AxiomaReporting.Infrastructure/Data/SeedData.cs)
+
+### Tests
+- Snapshot test that renders `_Layout.cshtml` and asserts `סייט אנד סאונד` present, `אקסיומא` absent.
+- Migration smoke test: run on a DB seeded with old branding ? verify all `BrandingSettings.Value` and `EmailTemplate.Subject/Body` updated.
+- Excel/PDF export integration test asserts new brand string in metadata.
+
+---
+
+## Section 2 — Archive / hide stale reports
+
+### Approach
+"Stale" needs a precise definition. Working hypothesis based on the existing model (`Report.StatusId`, `ReportingMonth.IsActive`):
+
+- **Stale = `Report` belonging to a `ReportingMonth` where `IsActive = false` AND `Report.StatusId` ? {Approved}**, OR
+- **Stale = `Report.StatusId = Cancelled`** (if a Cancelled status exists; if not, this clause is dropped).
+
+The default report-list queries should hide stale; admin/PM see them via an "include archived" toggle.
+
+### Steps
+1. **Define "stale" with the client** (record decision in [CLIENT_CLARIFICATIONS.md](CLIENT_CLARIFICATIONS.md)). Do not start coding until confirmed.
+2. **Add `Report.IsArchived` column** (nullable bit, default 0) via migration. Don't reuse `ReportingMonth.IsActive` for this — that's the month's lifecycle, not the report's.
+3. **One-time data backfill migration:** `UPDATE Reports SET IsArchived = 1 WHERE … <stale criteria>`. Do not delete. Document the WHERE clause in migration's `Up`.
+4. **Centralize the filter** in a new query helper (e.g., `ReportQueryFilters.ExcludeArchived(IQueryable<Report>)`) and use it in:
+   - [DashboardController](src/AxiomaReporting.Web/Controllers/DashboardController.cs) (Index, Summary)
+   - [ReportController](src/AxiomaReporting.Web/Controllers/ReportController.cs) (list endpoints)
+   - [EmployeeController](src/AxiomaReporting.Web/Controllers/EmployeeController.cs) (employee-facing lists)
+   - [DashboardFilterService](src/AxiomaReporting.Infrastructure/Services/DashboardFilterService.cs)
+5. **"Include archived" toggle** on Dashboard for Admin/PM only — a query string flag `?includeArchived=true` plus a UI checkbox.
+6. **`AuditLogService` entry** every time `IsArchived` flips (via service method `ArchiveReportAsync(int reportId)`).
+7. **Never physically delete.** Keep archived rows queryable by admin tools.
+
+### Files
+- Migration adds column + backfill
+- New `Infrastructure/Services/ReportArchiveService.cs` (small, just sets the flag + logs)
+- View edits on `Dashboard/Index.cshtml`, `Dashboard/Summary.cshtml`
+
+### Tests
+- Backfill correctness: seed a DB with reports in mixed states ? run migration ? assert correct rows flipped.
+- `ExcludeArchived` filter unit test.
+- Admin with toggle sees archived rows; Employee never does (even with `?includeArchived=true` tampered).
+
+---
+
+## Section 3 — Scope lookup tables by Project + Program
+
+The hierarchy already in the DB is:
+
+```
+Project  ??(LookupEntity)
+   ?  1
+   ?  *
+   ?
+ProjectProgram  (Project × Program, M:N join — already exists in [ProjectProgram.cs](src/AxiomaReporting.Core/Entities/ProjectProgram.cs))
+   ?  *
+   ?  1
+   ?
+Program  ??(LookupEntity, currently has no FKs)
+```
+
+Allocation already sits at the next level down:
+
+```
+Allocation  (UNIQUE UserId + ProjectId — [Allocation.cs](src/AxiomaReporting.Core/Entities/Allocation.cs))
+   ??? AllocationProgram      (M:N — which Programs of that Project this employee may use)
+   ??? AllocationSubject      (M:N — Subjects granted to this employee in this allocation)
+   ??? AllocationDomain
+   ??? AllocationFramework
+   ??? AllocationEducationalProgram
+   ??? AllocationDiscussionCode
+   ??? AllocationDistrict / AllocationLocality / AllocationSector / AllocationLocalityDistrictNational
+   ??? AllocationClass / AllocationGradeLevel
+```
+
+And the report row, fed by the allocation:
+
+```
+ReportRow ? dropdowns are populated from Allocation.AllocationSubjects etc.
+            (see [Report/Index.cshtml](src/AxiomaReporting.Web/Views/Report/Index.cshtml#L19-L38))
+```
+
+**The gap:** the lookup tables themselves (`Subject`, `Domain`, `Framework`, `EducationalProgram`, `DiscussionCode`, etc. — see [Subject.cs](src/AxiomaReporting.Core/Entities/Subject.cs), [Domain.cs](src/AxiomaReporting.Core/Entities/Domain.cs), [Framework.cs](src/AxiomaReporting.Core/Entities/Framework.cs)) are **flat global lookups** with no link to Project or Program. That is why today, when a coordinator opens [AllocationForm.cshtml](src/AxiomaReporting.Web/Views/Employee/AllocationForm.cshtml), every multiselect shows the full global list regardless of the chosen Project + Program.
+
+**Do NOT** add a nullable `ProjectId` / `ProgramId` directly on each lookup row — a Subject is often valid for many (Project, Program) pairs, so this denormalizes badly and breaks as soon as two projects share a program.
+
+**Do** introduce one M:N scope table per scoped lookup, keyed on the existing `ProjectProgram` pair (so the scope is always "this lookup is valid for this Program *within* this Project"):
+
+```
+ProjectProgramSubject              (ProjectId, ProgramId, SubjectId)
+ProjectProgramDomain               (ProjectId, ProgramId, DomainId)
+ProjectProgramFramework            (ProjectId, ProgramId, FrameworkId)
+ProjectProgramEducationalProgram   (ProjectId, ProgramId, EducationalProgramId)
+ProjectProgramDiscussionCode       (ProjectId, ProgramId, DiscussionCodeId)
+ProjectProgramGradeLevel           (ProjectId, ProgramId, GradeLevelId)
+ProjectProgramClass                (ProjectId, ProgramId, ClassId)
+```
+
+`(ProjectId, ProgramId)` is a composite FK back to `ProjectProgram` (enforce it in Fluent API).
+
+**Geographic lookups** (`District`, `Locality`, `Sector`, `LocalityDistrictNational`) are typically *not* program-scoped — they describe where the work happens. Default = no scope table for these; revisit only if the client explicitly asks. Confirm in [CLIENT_CLARIFICATIONS.md](CLIENT_CLARIFICATIONS.md) before committing.
+
+### Steps
+1. Migration `AddProjectProgramScopeTables` creates the seven tables above with composite FKs to `ProjectPrograms`.
+2. **Backfill:** for every `ProjectProgram` row, insert one scope row per existing lookup value (i.e., everything stays visible). This is a non-destructive default — admins then prune from the management screen.
+3. **Fluent configs** under [src/AxiomaReporting.Infrastructure/Data/Configurations/](src/AxiomaReporting.Infrastructure/Data/Configurations/) for each scope table.
+4. **Extend [LookupResolver.cs](src/AxiomaReporting.Infrastructure/Services/LookupResolver.cs)** with: `GetScopedSubjects(int projectId, IReadOnlyCollection<int> programIds)`, plus equivalents per lookup. Use **UNION** semantics when multiple programs are passed.
+5. **Update [Admin/ProjectPrograms.cshtml](src/AxiomaReporting.Web/Views/Admin/ProjectPrograms.cshtml)**: for each `(Project, Program)` row, add an expandable panel with a multiselect per scoped lookup. Persists to the scope tables.
+6. **One filter helper, used everywhere.** [GenericLookupService](src/AxiomaReporting.Infrastructure/Services/GenericLookupService.cs), [DashboardFilterService](src/AxiomaReporting.Infrastructure/Services/DashboardFilterService.cs), the allocation form's AJAX endpoints, and the report form must all route through the new `LookupScopeService` — no per-screen duplicate filtering.
+
+### Files
+- 7 new entity classes + 7 configurations + 1 migration
+- New `LookupScopeService` (separate from `GenericLookupService` for clarity)
+- New `Views/Admin/_ProjectProgramScopes.cshtml` partial
+
+### Tests
+- Scope tables enforce composite FK (delete a `ProjectProgram` row ? cascades to scope rows).
+- `LookupScopeService` returns UNION across multiple programs, de-duplicated.
+- Backfill produces full coverage.
+
+---
+
+## Section 4 — Employee Excel export of their own report
+
+### Approach
+Add a new action on [ReportController](src/AxiomaReporting.Web/Controllers/ReportController.cs) that streams a ClosedXML workbook scoped strictly to `currentUser.Id`.
+
+### Steps
+1. **New controller action:**
+   ```csharp
+   [Authorize]
+   [HttpGet]
+   public async Task<IActionResult> ExportMine(int allocationId, int? reportingMonthId)
+   ```
+   - Resolve current user via `ICurrentUserService`.
+   - Server-side check: the `Report.UserId == currentUserId`. If the URL is tampered to ask for another user, return 403.
+   - Default `reportingMonthId` to active month.
+2. **New service method** `IReportExcelExportService.BuildEmployeeWorkbook(int userId, int allocationId, int reportingMonthId)` returning a `MemoryStream`.
+3. **Workbook contents (one sheet):**
+   - Header band: עובד, ת.ז., קוד עובד, חודש דיווח, סטטוס דיווח, פרויקט, תוכניות
+   - Table: מס"ד | תאריך | משך תפוקה | מחוז | ישוב | מסגרת | תוכנית חינוכית | תחום | נושא 1 | נושא 2 | קוד דיון | מסקנה-כיתה | מסקנה-מסגרת | מסקנה-מיקום | שכבה | כיתה | הערות
+   - **Terminology:** use `משך תפוקה`, NOT `שעות` (per [CLAUDE.md](CLAUDE.md) rule #14).
+   - Sheet `RightToLeft = true`, default font Arial 11, autofilter on the table.
+4. **File name:** `employee-report-{employeeCode}-{yyyy-MM}.xlsx`.
+5. **UI button** on [Report/Index.cshtml](src/AxiomaReporting.Web/Views/Report/Index.cshtml) in the action bar near "הגשת דיווח": `<a asp-action="ExportMine" asp-route-allocationId="@allocationId" class="btn btn-outline-success btn-sm">הורד לאקסל</a>`. Visible to all roles that can view the report.
+6. **Audit log** entry on every download via `AuditLogService` with action `Report.ExportMine`.
+
+### Tests
+- Authorized: own report ? 200, valid `.xlsx`, correct row count.
+- Tampered `allocationId` belonging to another user ? 403.
+- Sheet has `RightToLeft = true`; Hebrew column headers render correctly when reopened with EPPlus/ClosedXML.
+
+---
+
+## Section 5 — Auto-load allocation-derived values
+
+Today, [AllocationForm.cshtml](src/AxiomaReporting.Web/Views/Employee/AllocationForm.cshtml#L300-L338) only cascades Project ? Programs through `/Employee/ProgramsForProject`. Every other multiselect (Subject, Domain, Framework, EducationalProgram, etc.) is rendered with the **full global list** and the coordinator must manually pick. This is the bug the client is reporting.
+
+The cascade must follow the linkage defined in §3:
+
+```
+Project chosen
+   ?
+   filter Programs       via ProjectProgram               (already implemented — keep as-is)
+   ?
+Programs chosen (1..N)
+   ?
+   filter Subject        via ProjectProgramSubject
+   filter Domain         via ProjectProgramDomain
+   filter Framework      via ProjectProgramFramework
+   filter EducationalProgram     via ProjectProgramEducationalProgram
+   filter DiscussionCode via ProjectProgramDiscussionCode
+   filter GradeLevel     via ProjectProgramGradeLevel
+   filter Class          via ProjectProgramClass
+   ?
+(Districts / Localities / Sectors / LocalityDistrictNational stay un-narrowed unless client confirms otherwise)
+```
+
+When the user selects **multiple** programs in the Programs multiselect, the downstream multiselects must show the **UNION** across all selected programs (the employee is allowed to work on any subject that belongs to *any* of their assigned programs), de-duplicated, sorted alphabetically (Hebrew collation).
+
+### Endpoints to add (`EmployeeController` / `AllocationsController`)
+
+Single endpoint preferred, returning all scoped pools in one round-trip:
+
+```
+GET /Allocations/ScopedLookups?projectId={id}&programIds={id1,id2,...}
+? 200 {
+    subjects:            [{id, description}, ...],
+    domains:             [{id, description}, ...],
+    frameworks:          [{id, description}, ...],
+    educationalPrograms: [{id, description}, ...],
+    discussionCodes:     [{id, description}, ...],
+    gradeLevels:         [{id, description}, ...],
+    classes:             [{id, description}, ...],
+    scopedKeys:          ["subjects","domains",...]   // which lists were actually narrowed
+  }
+```
+
+- `projectId` required; if `programIds` is empty, return the UNION across **all** programs in `ProjectProgram` for that project (so the coordinator sees the project-level pool before picking programs).
+- All filtering goes through `LookupScopeResolver` (§3). Do not write per-list SQL in the controller.
+- Authorize: only roles that can edit allocations (System Admin, Project Manager, Project Coordinator) — see [PolicyNames.cs](src/AxiomaReporting.Web/Authorization/PolicyNames.cs).
+- Return the existing selections in the response so the JS knows which previously-selected IDs are still valid vs. now out-of-scope (see "stale selection" below).
+
+### JS behaviour on [AllocationForm.cshtml](src/AxiomaReporting.Web/Views/Employee/AllocationForm.cshtml)
+
+Extend the existing `reloadPrograms()` pattern (lines 300–338) into a generic `reloadScopedLookups()`:
+
+1. Trigger on: `change` of `#projectIdSelect`, and `change` of `#programIdsSelect`.
+2. Read current selections of every downstream multiselect; remember them in a `Set`.
+3. Fire the single `ScopedLookups` request.
+4. For each returned list, rebuild that `<select>`'s `<option>` set. For each option, mark `selected` if its `id` was in the previous `Set` **and** is still present in the returned list.
+5. **Stale selection handling:** for any previously-selected ID that is no longer in the returned list, surface a non-blocking inline notice on that select: `הסרת ערכים שאינם שייכים לפרויקט/תוכנית הנבחרים: {count}`. Do NOT silently drop without telling the user.
+6. State handling:
+   - **Loading:** disable all downstream multiselects, show spinner per card.
+   - **Success with values:** enable, render.
+   - **Empty list for a given lookup:** render the select with an empty state `<option disabled>אין ערכים משויכים</option>` and a small Hebrew helper text under it: `לא הוגדרו ערכים לפרויקט/תוכנית זו — יש להגדיר אותם במסך ניהול תוכניות לפרויקט`.
+   - **HTTP error / timeout:** keep current options in place (don't blank them — coordinator may be mid-edit), show a dismissible warning alert at top of the form: `שגיאה בטעינת ערכים משויכים. נסה שוב.` Log to `console.warn` and POST a client error breadcrumb to a logging endpoint if one exists.
+7. **Project change after programs are populated:** clear `#programIdsSelect` first, then reload programs, then reload scoped lookups with empty `programIds`.
+
+### Server-side enforcement (do NOT trust the client)
+
+When the allocation is POSTed to `EmployeeService` / `AllocationsController.CreateAllocation` / `EditAllocation`, re-validate:
+
+- Every `ProgramId` in `ProgramIds` must exist in `ProjectProgram` for the chosen `ProjectId`.
+- Every `SubjectId`, `DomainId`, `FrameworkId`, `EducationalProgramId`, `DiscussionCodeId`, `GradeLevelId`, `ClassId` must exist in the corresponding `ProjectProgram<Lookup>` scope table for **at least one** of the chosen `(ProjectId, ProgramId)` pairs.
+- Reject the whole submission with field-level errors if any value is out of scope. This prevents a tampered form from granting an employee access to a Subject they shouldn't have.
+
+### Cascade also applies on the Report form
+
+The downstream effect of §5 is invisible on [Report/Index.cshtml](src/AxiomaReporting.Web/Views/Report/Index.cshtml) because the report-row dropdowns already pull from `allocation.AllocationSubjects` etc. (see lines 19–38). But two things must change there too:
+
+1. When the employee picks an **EducationalProgram** in a report row (if multiple programs exist on their allocation), the **Subject / Domain / Framework / DiscussionCode** dropdowns *within that row* must be further narrowed to the intersection of:
+   - The allocation's allowed values (`AllocationSubject`, etc.), AND
+   - The scope for the selected `(ProjectId, ProgramId)` pair.
+   - Implementation: add a row-level AJAX call `GET /Report/ScopedForProgram?allocationId={id}&programId={id}` returning the intersection, and rebuild only that row's selects (extend the existing `inlineEditRow()` flow at [Report/Index.cshtml#L468](src/AxiomaReporting.Web/Views/Report/Index.cshtml#L468)).
+2. If the allocation has exactly one program, skip the AJAX (the intersection is already what's in `AllocationX` collections).
+
+### Edge cases and acceptance
+
+- Coordinator picks Project A, no programs yet ? downstream lists show the union for Project A across all its programs. Helper text: `הצג ערכים עבור כלל התוכניות של הפרויקט. לסינון נוסף — בחר תוכניות.`
+- Coordinator picks Project A + Programs [X,Y] ? downstream lists show union of scope for (A,X) and (A,Y).
+- Coordinator changes Project to B ? programs cleared, downstream lists reload for Project B's full pool, any previously-selected lookup values that no longer apply are deselected with the inline notice from step 5.
+- A `(Project, Program)` pair has no rows in `ProjectProgramSubject` at all ? empty state per step 6, with the call-to-action pointing the admin at [Admin/ProjectPrograms.cshtml](src/AxiomaReporting.Web/Views/Admin/ProjectPrograms.cshtml).
+- Server rejects out-of-scope IDs even if JS was bypassed.
+- Existing allocations remain valid after migration (default seed grants everything for every `(Project, Program)` pair — see §3 migration strategy).
+
+### Tests
+
+- `LookupScopeResolver` returns the union across multiple programs, de-duplicated.
+- `ScopedLookups` endpoint returns 200 with empty arrays per list when no scope exists; returns 403 for unauthorized roles; returns 400 if `projectId` not in `ProjectProgram`.
+- `CreateAllocation` rejects a `SubjectId` not in scope for any chosen `(ProjectId, ProgramId)` with a field error.
+- `EditAllocation` preserves in-scope selections and reports out-of-scope ones that were stripped.
+- `Report/ScopedForProgram` returns the intersection of `AllocationSubject` and `ProjectProgramSubject` for the selected program.
+- E2E (or controller-level integration): change Project on allocation form ? Programs list updates ? Subject list updates ? re-pick a Program ? Subject list shrinks; previously-selected Subject that's no longer valid is removed and surfaced in the inline notice.
+
+---
+
+## Section 6 — Fix approve/reject intermittent error
+
+### Root-cause matrix (with fixes)
+
+| Cause | Evidence | Fix |
+|---|---|---|
+| SMTP failure surfaces to user after DB write succeeds | [ReportStatusService.cs:120,131](src/AxiomaReporting.Infrastructure/Services/ReportStatusService.cs#L120) — `SaveChangesAsync` then `await _emailService.SendAsync` | Move email send outside the success path. Queue via `NotificationDispatcher`, don't await SMTP synchronously. Return success once DB is committed. |
+| Double-click sends two approve POSTs | No button-disable on [Dashboard/Summary.cshtml](src/AxiomaReporting.Web/Views/Dashboard/Summary.cshtml) | Disable button on submit until response arrives. |
+| No idempotency on already-approved | `ApproveReportAsync` blindly overwrites `StatusId = 4` and re-sends email even if already 4 | Guard at top: `if (report.StatusId == 4) return true;` (idempotent — no email re-send). |
+| No concurrency token on `Report` | [Report.cs](src/AxiomaReporting.Core/Entities/Report.cs) — verify (compare to `Allocation.RowVersion`) | Add `byte[] RowVersion` to `Report`, mark `IsRowVersion()` in config, accept it from controller, throw on mismatch. |
+| Status change + audit not atomic | Two SaveChanges calls in sequence | Wrap status change in a single `SaveChangesAsync` (audit log writes its own row but inside the same `DbContext` SaveChanges call — confirmed possible since `AuditLogService` uses the same scoped context). |
+
+### Steps
+1. **Add `RowVersion` to `Report`:** migration `AddRowVersionToReports`, Fluent config `.Property(r => r.RowVersion).IsRowVersion()`. Pass `rowVersion` from the approve/reject forms and set it on the tracked entity before save (this triggers `DbUpdateConcurrencyException` on stale writes).
+2. **Refactor `ApproveReportAsync` / `RejectReportAsync`:**
+   - Guard against already-target-state at the top ? return success.
+   - Wrap status + `ApprovedAt`/`RejectedAt` + audit entry in a single transaction.
+   - Catch `DbUpdateConcurrencyException` ? return `(false, "הדיווח עודכן במקביל. רענן ונסה שוב.")`.
+   - After commit, enqueue email via fire-and-forget: `_ = _notificationDispatcher.QueueAsync(...)` OR call `SendAsync` with a `try/catch` that logs but doesn't propagate.
+3. **Change service return signature** to `Task<(bool Success, string? Error)>` so the controller can show a precise message instead of swallowing.
+4. **Controller (`DashboardController` / wherever approve/reject lives):**
+   - Validate `[ValidateAntiForgeryToken]`.
+   - On success, return `Json(new { success = true, status = "Approved", approvedAt = … })`.
+   - On failure, return `Json(new { success = false, error = ... })` with a 200 (front-end shows message).
+5. **JS on [Dashboard/Summary.cshtml](src/AxiomaReporting.Web/Views/Dashboard/Summary.cshtml):**
+   - Disable the row's Approve/Reject buttons while the request is in flight.
+   - On success: update the row's status badge inline without full page reload.
+   - On failure: show a Bootstrap toast with the Hebrew error.
+6. **Audit log every transition** (already partly in place — keep it; ensure it logs `userAgent` and `clientIp` for forensic value).
+
+### Tests
+- Idempotent approve: call twice ? second returns success with no second email.
+- Concurrent approve from two coordinators ? one succeeds, one gets `DbUpdateConcurrencyException` ? friendly Hebrew message.
+- SMTP failure simulation ? controller returns 200 success; user is not shown an error; failure is logged to `NotificationLogs`.
+- Stress test: 50 sequential approve/reject cycles ? no intermittent failures.
+
+---
+
+## Section 7 — Type-ahead subject picker
+
+### Approach
+Use a lightweight RTL-friendly library. Recommend **Tom Select** (smaller than Select2, modern, easy RTL, accessible). Confirm with the team before adding the dependency.
+
+### Steps
+1. **Add Tom Select** to `wwwroot/lib/tom-select/` (CSS + JS, no NPM build pipeline assumed). Reference in `_Layout.cshtml` only on pages that need it, or globally.
+2. **Apply to Subject selects** on:
+   - [Report/Index.cshtml](src/AxiomaReporting.Web/Views/Report/Index.cshtml) — both modal (`fieldSubject1`, `fieldSubject2`) and the inline-edit row selects rebuilt in `selectHtml()` (lines 446-454).
+   - [Employee/AllocationForm.cshtml](src/AxiomaReporting.Web/Views/Employee/AllocationForm.cshtml) — the `SubjectIds` multiselect (line 192-200).
+3. **Behavior:**
+   - Hebrew search: Tom Select's default substring matcher is case-insensitive; verify Unicode NFC normalization handles ם/ן/ץ/ך/ף. Add a custom `score` function if needed.
+   - Keyboard accessible (Tom Select supports this out of the box) — verify with IS 5568 review.
+   - Submitted form value name preserved ? no controller changes.
+   - Empty-result message: `לא נמצאו נושאים מתאימים` (config `not_loading_text`).
+4. **Inline-edit row in Report form** (lines 468-503) — Tom Select must be re-initialized on each row when `inlineEditRow()` runs. Wrap in a small helper `applyTomSelect(tr)`.
+5. **RTL/styling:** Tom Select inherits Bootstrap 5 RTL; override `direction: rtl` on `.ts-control` if needed in `wwwroot/css/site.css`.
+
+### Tests
+- Manual + Playwright: type Hebrew substring ? dropdown filters correctly.
+- Final-form letter test (ם vs מ at end of word).
+- Keyboard nav: Tab to select ? type ? Arrow Down ? Enter selects.
+- Submitted form posts the chosen `SubjectId` to the server unchanged.
+
+---
+
+## Section 8 — Fix Reset-Password loop
+
+### Root cause (confirmed)
+[AccountController.cs:366](src/AxiomaReporting.Web/Controllers/AccountController.cs#L366):
+```csharp
+user.MustChangePassword = true;   // ? BUG
+```
+After a fresh reset the flag is set true, then [PostLoginRedirectAsync:453](src/AxiomaReporting.Web/Controllers/AccountController.cs#L453) redirects to `ChangePassword(forced: true)`.
+
+### Steps
+1. **Change line 366** to `user.MustChangePassword = false;`. The user has just chosen a new password — there's no reason to force them to change it again.
+2. **Add new-hash to history,** because right now the new hash is never recorded ([line 364](src/AxiomaReporting.Web/Controllers/AccountController.cs#L364) adds the *old* hash only; that's correct for the convention, but verify §9 below interacts properly).
+3. **Confirm token invalidation:** [line 369](src/AxiomaReporting.Web/Controllers/AccountController.cs#L369) sets `reset.UsedAt = DateTime.UtcNow` — good. Verify the `ResetPassword GET` filter on line 321 (`UsedAt == null`) prevents re-use of the same link.
+4. **Success message** stays Hebrew: `"הסיסמה אופסה בהצלחה. ניתן להתחבר עם הסיסמה החדשה."` (more explicit than the current "הסיסמה אופסה בהצלחה").
+5. **Audit log entry** `Auth.PasswordReset` with `userId` and `ip`.
+6. **Refactor:** the duplication between `ChangePassword` and `ResetPassword` is now risky. Extract a private helper `ApplyNewPasswordAsync(User user, string newPassword, bool isReset)` on `IAuthService` that:
+   - Verifies new ? current
+   - Verifies new ? history
+   - Adds current hash to history
+   - Updates `PasswordHash`, `LastPasswordChange`, `MustChangePassword=false`, `UpdatedAt`
+   - Inside a single transaction
+7. Call this helper from both `ChangePassword` and `ResetPassword` actions.
+
+### Tests
+- E2E happy path: ForgotPassword ? email link ? ResetPassword with valid token ? redirected to Login ? log in ? land on Home (NOT on ChangePassword).
+- Reuse of token: GET `/Account/ResetPassword?token=X` after success ? redirect to Login with "קישור איפוס אינו תקין".
+- `MustChangePassword` is `false` after a successful reset.
+
+---
+
+## Section 9 — Reject reusing current / previous passwords
+
+### Root cause (confirmed)
+- **`ChangePassword` does NOT block same-as-current** ([AccountController.cs:223-229](src/AxiomaReporting.Web/Controllers/AccountController.cs#L223)).
+- **`ResetPassword` DOES block** ([AccountController.cs:356-358](src/AxiomaReporting.Web/Controllers/AccountController.cs#L356)) but uses a single combined error message that doesn't distinguish "same as current" from "in last 5".
+
+### Steps
+1. **In `IAuthService` add:**
+   ```csharp
+   Task<bool> IsSameAsCurrentPasswordAsync(int userId, string newPassword);
+   ```
+   Implementation: `BCrypt.Verify(newPassword, user.PasswordHash)`.
+2. **In both `ChangePassword` and `ResetPassword` actions, run checks in this order with distinct messages:**
+   1. New ? confirm ? `"הסיסמאות אינן תואמות"`
+   2. Strong password ? existing `StrongPasswordMessage`
+   3. New ? current ? `"הסיסמה החדשה חייבת להיות שונה מהסיסמה הנוכחית."`
+   4. New ? last 5 ? `"לא ניתן לחזור על אחת מ-5 הסיסמאות האחרונות"`
+3. **All four checks run server-side** in the action methods. Client-side validation is optional sugar.
+4. **Refactor into the helper from §8** so the four-check pipeline lives in one place.
+5. **Verify BCrypt usage** is consistent — `BCrypt.Net-Next` and constant work factor. No plaintext comparisons.
+
+### Tests
+- `ChangePassword` with `NewPassword == CurrentPassword` ? blocked with the §9 step-3 message.
+- `ChangePassword` with `NewPassword` equal to a past-5 password ? blocked with step-4 message.
+- `ResetPassword` with same-as-current ? step-3 message (not step-4).
+- `ResetPassword` with weak password ? step-2 message before step-3 fires.
+- API-level test bypassing JS: posting the field directly still triggers all checks.
+
+---
+
+# Cross-cutting work
+
+## Schema migrations (combined)
+Single migration sequence to minimize churn:
+
+1. `RebrandSettingsAndEmailTemplates` (§1)
+2. `AddIsArchivedToReports` + backfill (§2)
+3. `AddRowVersionToReports` (§6)
+4. `AddProjectProgramScopeTables` + backfill (§3, §5)
+
+Apply in order; each `Up()` is idempotent (use `IF NOT EXISTS` patterns in raw SQL).
+
+## DI registrations
+New services in `Infrastructure/DependencyInjection.cs` (or `Program.cs`):
+
+- `IReportArchiveService` ? `ReportArchiveService`
+- `ILookupScopeService` ? `LookupScopeService`
+- `IReportExcelExportService` ? `ReportExcelExportService`
+
+## Audit logging additions
+New audit actions to register in [AuditLogService](src/AxiomaReporting.Infrastructure/Services/AuditLogService.cs):
+
+- `Report.Archive`, `Report.ExportMine`, `Auth.PasswordReset`, `Allocation.ScopeRejected`, `Lookup.ScopeChanged`.
+
+## Authorization / scoping recap
+- Employee Excel export: scoped to `currentUser.Id` only.
+- `ScopedLookups` endpoint: roles that can edit allocations.
+- Approve/Reject: existing roles (Coordinator / Inspector-Approval) — no change to policy.
+- Archived reports toggle: Admin / PM only.
+
+## Suggested phasing (PR slicing)
+1. **PR 1 — Bugs first.** Sections 6, 8, 9 (smallest blast radius, fixes user-visible failures). Ship by itself.
+2. **PR 2 — Rebrand.** Section 1 (mostly text). Independent.
+3. **PR 3 — Schema foundation.** Section 3 schema + backfill + admin UI for managing scopes. Sets up §5.
+4. **PR 4 — Cascading lookups.** Section 5, builds on PR 3. Includes report-row cascading.
+5. **PR 5 — Archiving.** Section 2, after client signs off on the "stale" definition.
+6. **PR 6 — Employee Excel export.** Section 4 (small, isolated).
+7. **PR 7 — Type-ahead.** Section 7 (UI-only, isolated).
+
+This order means the user-pain bug fixes ship first, breaking schema changes come in well-tested chunks, and UI polish lands last.
+
+## Acceptance / Definition of Done
+
+All 19 test cases from the rewritten prompt pass; the two confirmed bugs (reset loop + same-password on `ChangePassword`) no longer reproduce; approve/reject is stable across 50 sequential runs and 2-user concurrent runs; rebrand is complete in UI, emails, PDF, Excel; lookup scoping is enforced server-side; `IMPLEMENTATION_STATUS.md` updated.

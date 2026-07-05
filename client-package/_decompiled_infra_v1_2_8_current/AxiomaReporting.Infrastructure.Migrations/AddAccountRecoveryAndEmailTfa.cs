@@ -1,0 +1,1340 @@
+using System;
+using AxiomaReporting.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations.Builders;
+
+namespace AxiomaReporting.Infrastructure.Migrations;
+
+[DbContext(typeof(AppDbContext))]
+[Migration("20260412154401_AddAccountRecoveryAndEmailTfa")]
+public class AddAccountRecoveryAndEmailTfa : Migration
+{
+	protected override void Up(MigrationBuilder migrationBuilder)
+	{
+		migrationBuilder.CreateTable("PasswordResetTokens", delegate(ColumnsBuilder table)
+		{
+			OperationBuilder<AddColumnOperation> id2 = table.Column<int>("int").Annotation("SqlServer:Identity", "1, 1");
+			OperationBuilder<AddColumnOperation> userId2 = table.Column<int>("int");
+			int? maxLength2 = 128;
+			return new
+			{
+				Id = id2,
+				UserId = userId2,
+				TokenHash = table.Column<string>("nvarchar(128)", null, maxLength2),
+				ExpiresAt = table.Column<DateTime>("datetime2"),
+				UsedAt = table.Column<DateTime>("datetime2", null, null, rowVersion: false, null, nullable: true),
+				CreatedAt = table.Column<DateTime>("datetime2")
+			};
+		}, null, table =>
+		{
+			table.PrimaryKey("PK_PasswordResetTokens", x => x.Id);
+			table.ForeignKey("FK_PasswordResetTokens_Users_UserId", x => x.UserId, "Users", "Id", null, ReferentialAction.NoAction, ReferentialAction.Cascade);
+		});
+		migrationBuilder.CreateTable("TwoFactorCodes", delegate(ColumnsBuilder table)
+		{
+			OperationBuilder<AddColumnOperation> id = table.Column<int>("int").Annotation("SqlServer:Identity", "1, 1");
+			OperationBuilder<AddColumnOperation> userId = table.Column<int>("int");
+			int? maxLength = 128;
+			return new
+			{
+				Id = id,
+				UserId = userId,
+				CodeHash = table.Column<string>("nvarchar(128)", null, maxLength),
+				ExpiresAt = table.Column<DateTime>("datetime2"),
+				UsedAt = table.Column<DateTime>("datetime2", null, null, rowVersion: false, null, nullable: true),
+				CreatedAt = table.Column<DateTime>("datetime2")
+			};
+		}, null, table =>
+		{
+			table.PrimaryKey("PK_TwoFactorCodes", x => x.Id);
+			table.ForeignKey("FK_TwoFactorCodes_Users_UserId", x => x.UserId, "Users", "Id", null, ReferentialAction.NoAction, ReferentialAction.Cascade);
+		});
+		migrationBuilder.InsertData("EmailTemplates", new string[7] { "Id", "Body", "CreatedAt", "IsActive", "Subject", "TypeDescription", "UpdatedAt" }, new object[2, 7]
+		{
+			{
+				6,
+				"שלום {{EmployeeName}},\n\nלאיפוס הסיסמה לחץ על הקישור הבא:\n{{ResetLink}}\n\nהקישור תקף לזמן מוגבל.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				true,
+				"איפוס סיסמה",
+				"PasswordReset",
+				null
+			},
+			{
+				7,
+				"שלום {{EmployeeName}},\n\nקוד האימות שלך הוא: {{Code}}\n\nהקוד תקף ל-{{Minutes}} דקות.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				true,
+				"קוד אימות לכניסה למערכת",
+				"TwoFactorCode",
+				null
+			}
+		});
+		migrationBuilder.InsertData("SystemConstants", new string[7] { "Id", "CreatedAt", "Description", "Key", "UpdatedAt", "UpdatedBy", "Value" }, new object[7]
+		{
+			5,
+			new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+			"הפעלת אימות דו-שלבי באמצעות מייל",
+			"TfaEmailEnabled",
+			null,
+			null,
+			"false"
+		});
+		migrationBuilder.CreateIndex("IX_PasswordResetTokens_TokenHash", "PasswordResetTokens", "TokenHash", null, unique: true);
+		migrationBuilder.CreateIndex("IX_PasswordResetTokens_UserId_ExpiresAt", "PasswordResetTokens", new string[2] { "UserId", "ExpiresAt" });
+		migrationBuilder.CreateIndex("IX_TwoFactorCodes_UserId_ExpiresAt", "TwoFactorCodes", new string[2] { "UserId", "ExpiresAt" });
+	}
+
+	protected override void Down(MigrationBuilder migrationBuilder)
+	{
+		migrationBuilder.DropTable("PasswordResetTokens");
+		migrationBuilder.DropTable("TwoFactorCodes");
+		migrationBuilder.DeleteData("EmailTemplates", "Id", 6);
+		migrationBuilder.DeleteData("EmailTemplates", "Id", 7);
+		migrationBuilder.DeleteData("SystemConstants", "Id", 5);
+	}
+
+	protected override void BuildTargetModel(ModelBuilder modelBuilder)
+	{
+		modelBuilder.HasAnnotation("ProductVersion", "8.0.25").HasAnnotation("Relational:MaxIdentifierLength", 128);
+		modelBuilder.UseIdentityColumns(1L);
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Allocation", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<bool>("AllowExcelUpload").HasColumnType("bit");
+			b.Property<decimal?>("AnnualEmploymentScope").HasPrecision(18, 4).HasColumnType("decimal(18,4)");
+			b.Property<int?>("AnnualRowAllocation").HasColumnType("int");
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<decimal?>("DailyEmploymentScope").HasPrecision(18, 4).HasColumnType("decimal(18,4)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<decimal?>("MonthlyEmploymentScope").HasPrecision(18, 4).HasColumnType("decimal(18,4)");
+			b.Property<int?>("MonthlyRowAllocation").HasColumnType("int");
+			b.Property<string>("Notes").HasMaxLength(1000).HasColumnType("nvarchar(1000)");
+			b.Property<string>("OutputDuration").HasMaxLength(500).HasColumnType("nvarchar(500)");
+			b.Property<int>("ProjectId").HasColumnType("int");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.Property<int>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("ProjectId");
+			b.HasIndex("UserId", "ProjectId").IsUnique();
+			b.ToTable("Allocations", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationClass", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("ClassId").HasColumnType("int");
+			b.HasKey("AllocationId", "ClassId");
+			b.HasIndex("ClassId");
+			b.ToTable("AllocationClasses", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationDiscussionCode", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("DiscussionCodeId").HasColumnType("int");
+			b.HasKey("AllocationId", "DiscussionCodeId");
+			b.HasIndex("DiscussionCodeId");
+			b.ToTable("AllocationDiscussionCodes", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationDistrict", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("DistrictId").HasColumnType("int");
+			b.HasKey("AllocationId", "DistrictId");
+			b.HasIndex("DistrictId");
+			b.ToTable("AllocationDistricts", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationDomain", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("DomainId").HasColumnType("int");
+			b.HasKey("AllocationId", "DomainId");
+			b.HasIndex("DomainId");
+			b.ToTable("AllocationDomains", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationEducationalProgram", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("EducationalProgramId").HasColumnType("int");
+			b.HasKey("AllocationId", "EducationalProgramId");
+			b.HasIndex("EducationalProgramId");
+			b.ToTable("AllocationEducationalPrograms", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationFramework", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("FrameworkId").HasColumnType("int");
+			b.HasKey("AllocationId", "FrameworkId");
+			b.HasIndex("FrameworkId");
+			b.ToTable("AllocationFrameworks", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationGradeLevel", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("GradeLevelId").HasColumnType("int");
+			b.HasKey("AllocationId", "GradeLevelId");
+			b.HasIndex("GradeLevelId");
+			b.ToTable("AllocationGradeLevels", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationLocality", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("LocalityId").HasColumnType("int");
+			b.HasKey("AllocationId", "LocalityId");
+			b.HasIndex("LocalityId");
+			b.ToTable("AllocationLocalities", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationLocalityDistrictNational", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("LocalityDistrictNationalId").HasColumnType("int");
+			b.HasKey("AllocationId", "LocalityDistrictNationalId");
+			b.HasIndex("LocalityDistrictNationalId");
+			b.ToTable("AllocationLocalityDistrictNationals", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationProgram", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("ProgramId").HasColumnType("int");
+			b.HasKey("AllocationId", "ProgramId");
+			b.HasIndex("ProgramId");
+			b.ToTable("AllocationPrograms", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationSector", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("SectorId").HasColumnType("int");
+			b.HasKey("AllocationId", "SectorId");
+			b.HasIndex("SectorId");
+			b.ToTable("AllocationSectors", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationSubject", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("AllocationId").HasColumnType("int");
+			b.Property<int>("SubjectId").HasColumnType("int");
+			b.HasKey("AllocationId", "SubjectId");
+			b.HasIndex("SubjectId");
+			b.ToTable("AllocationSubjects", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Authority", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Authorities", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.DiscussionCode", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("DiscussionCodes", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.District", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Districts", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.DocumentAttachment", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<string>("FileName").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<string>("FilePath").IsRequired().HasMaxLength(1000)
+				.HasColumnType("nvarchar(1000)");
+			b.Property<long>("FileSize").HasColumnType("bigint");
+			b.Property<string>("MimeType").IsRequired().HasMaxLength(200)
+				.HasColumnType("nvarchar(200)");
+			b.Property<int?>("ReportRowId").HasColumnType("int");
+			b.Property<DateTime>("UploadedAt").HasColumnType("datetime2");
+			b.Property<int>("UploadedBy").HasColumnType("int");
+			b.Property<int?>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("ReportRowId");
+			b.HasIndex("UploadedBy");
+			b.HasIndex("UserId");
+			b.ToTable("DocumentAttachments", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Domain", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Domains", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.EducationType", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("EducationTypes", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.EducationalProgram", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("EducationalPrograms", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.EducationalStage", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("EducationalStages", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.EmailServerSetting", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("FromAddress").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<string>("FromName").HasMaxLength(500).HasColumnType("nvarchar(500)");
+			b.Property<string>("Password").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<int>("Port").HasColumnType("int");
+			b.Property<string>("SmtpServer").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.Property<bool>("UseSsl").HasColumnType("bit");
+			b.Property<string>("Username").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.HasKey("Id");
+			b.ToTable("EmailServerSettings", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.EmailTemplate", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<string>("Body").IsRequired().HasColumnType("nvarchar(max)");
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<string>("Subject").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<string>("TypeDescription").IsRequired().HasMaxLength(200)
+				.HasColumnType("nvarchar(200)");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("EmailTemplates", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} התקבל בהצלחה.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "דיווח פעילות חודשית התקבל",
+				TypeDescription = "ReportReceived"
+			}, new
+			{
+				Id = 2,
+				Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} אושר.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "דיווח פעילות חודשית אושר",
+				TypeDescription = "ReportApproved"
+			}, new
+			{
+				Id = 3,
+				Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} הוחזר לתיקון.\n\nסיבת ההחזרה: {{RejectionReason}}\n\nנא לתקן ולהגיש מחדש.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "דיווח פעילות חודשית הוחזר לתיקון",
+				TypeDescription = "ReportRejected"
+			}, new
+			{
+				Id = 4,
+				Body = "שלום {{EmployeeName}},\n\nנא לשים לב שדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} טרם הוגש.\n\nהמועד האחרון להגשה: {{Deadline}}.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "תזכורת: דיווח פעילות חודשית טרם הוגש",
+				TypeDescription = "ReminderNotSubmitted"
+			}, new
+			{
+				Id = 5,
+				Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} הוחזר לתיקון וטרם תוקן.\n\nנא לתקן ולהגיש לפני: {{Deadline}}.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "תזכורת: דיווח פעילות חודשית ממתין לתיקון",
+				TypeDescription = "ReminderNeedsCorrection"
+			}, new
+			{
+				Id = 6,
+				Body = "שלום {{EmployeeName}},\n\nלאיפוס הסיסמה לחץ על הקישור הבא:\n{{ResetLink}}\n\nהקישור תקף לזמן מוגבל.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "איפוס סיסמה",
+				TypeDescription = "PasswordReset"
+			}, new
+			{
+				Id = 7,
+				Body = "שלום {{EmployeeName}},\n\nקוד האימות שלך הוא: {{Code}}\n\nהקוד תקף ל-{{Minutes}} דקות.\n\nבברכה,\nמערכת סייט אנד סאונד",
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				IsActive = true,
+				Subject = "קוד אימות לכניסה למערכת",
+				TypeDescription = "TwoFactorCode"
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.EmployeeRole", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("EmployeeRoles", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "מורה",
+				IsActive = true
+			}, new
+			{
+				Id = 2,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "מנהל",
+				IsActive = true
+			}, new
+			{
+				Id = 3,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "רכז",
+				IsActive = true
+			}, new
+			{
+				Id = 4,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "יועץ",
+				IsActive = true
+			}, new
+			{
+				Id = 5,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "מפקח",
+				IsActive = true
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Framework", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<int?>("EducationalStageId").HasColumnType("int");
+			b.Property<string>("InstitutionSymbol").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.HasIndex("EducationalStageId");
+			b.HasIndex("InstitutionSymbol", "EducationalStageId").IsUnique().HasFilter("[EducationalStageId] IS NOT NULL");
+			b.ToTable("Frameworks", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.GradeLevel", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("GradeLevels", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.InspectorAssignment", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<int?>("DistrictId").HasColumnType("int");
+			b.Property<int>("InspectorUserId").HasColumnType("int");
+			b.Property<int?>("ProgramId").HasColumnType("int");
+			b.Property<int?>("SectorId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("DistrictId");
+			b.HasIndex("InspectorUserId");
+			b.HasIndex("ProgramId");
+			b.HasIndex("SectorId");
+			b.ToTable("InspectorAssignments", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Institution", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<int?>("DistrictId").HasColumnType("int");
+			b.Property<int?>("EducationalStageId").HasColumnType("int");
+			b.Property<int>("InstitutionSymbol").HasColumnType("int");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<int?>("LocalityId").HasColumnType("int");
+			b.Property<string>("Name").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<int?>("SectorId").HasColumnType("int");
+			b.Property<int?>("TypeId").HasColumnType("int");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.HasIndex("DistrictId");
+			b.HasIndex("EducationalStageId");
+			b.HasIndex("LocalityId");
+			b.HasIndex("SectorId");
+			b.HasIndex("TypeId");
+			b.HasIndex("InstitutionSymbol", "EducationalStageId").IsUnique().HasFilter("[EducationalStageId] IS NOT NULL");
+			b.ToTable("Institutions", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Locality", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<int?>("NationalCode").HasColumnType("int");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Localities", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.LocalityDistrictNational", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("LocalityDistrictNationals", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.PasswordHistory", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").HasColumnType("datetime2");
+			b.Property<string>("PasswordHash").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<int>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("UserId");
+			b.ToTable("PasswordHistories", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.PasswordResetToken", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").HasColumnType("datetime2");
+			b.Property<DateTime>("ExpiresAt").HasColumnType("datetime2");
+			b.Property<string>("TokenHash").IsRequired().HasMaxLength(128)
+				.HasColumnType("nvarchar(128)");
+			b.Property<DateTime?>("UsedAt").HasColumnType("datetime2");
+			b.Property<int>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("TokenHash").IsUnique();
+			b.HasIndex("UserId", "ExpiresAt");
+			b.ToTable("PasswordResetTokens", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Program", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Programs", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Project", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Projects", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReminderLog", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<int>("ReportingMonthId").HasColumnType("int");
+			b.Property<DateTime>("SentAt").HasColumnType("datetime2");
+			b.Property<string>("TemplateType").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.Property<int>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("ReportingMonthId");
+			b.HasIndex("UserId", "ReportingMonthId", "TemplateType", "SentAt");
+			b.ToTable("ReminderLogs", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Report", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime?>("ApprovedAt").HasColumnType("datetime2");
+			b.Property<int?>("ApprovedBy").HasColumnType("int");
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<bool>("ImportedFromExcel").HasColumnType("bit");
+			b.Property<DateTime?>("RejectedAt").HasColumnType("datetime2");
+			b.Property<int?>("RejectedBy").HasColumnType("int");
+			b.Property<string>("RejectionReason").HasMaxLength(1000).HasColumnType("nvarchar(1000)");
+			b.Property<int>("ReportingMonthId").HasColumnType("int");
+			b.Property<int>("StatusId").HasColumnType("int");
+			b.Property<DateTime?>("SubmittedAt").HasColumnType("datetime2");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.Property<int>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("ApprovedBy");
+			b.HasIndex("RejectedBy");
+			b.HasIndex("ReportingMonthId");
+			b.HasIndex("StatusId");
+			b.HasIndex("UserId", "ReportingMonthId").IsUnique();
+			b.ToTable("Reports", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReportRow", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<int?>("AllocationId").HasColumnType("int");
+			b.Property<int?>("ClassId").HasColumnType("int");
+			b.Property<int?>("ConclusionClassId").HasColumnType("int");
+			b.Property<int?>("ConclusionFrameworkId").HasColumnType("int");
+			b.Property<int?>("ConclusionLocationId").HasColumnType("int");
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<int?>("DiscussionCodeId").HasColumnType("int");
+			b.Property<int>("DistrictId").HasColumnType("int");
+			b.Property<int>("DomainId").HasColumnType("int");
+			b.Property<int>("EducationalProgramId").HasColumnType("int");
+			b.Property<int>("FrameworkId").HasColumnType("int");
+			b.Property<int?>("GradeLevelId").HasColumnType("int");
+			b.Property<int>("LocalityId").HasColumnType("int");
+			b.Property<DateTime>("MeetingDate").HasColumnType("datetime2");
+			b.Property<decimal>("MeetingDuration").HasPrecision(18, 4).HasColumnType("decimal(18,4)");
+			b.Property<string>("Notes").HasMaxLength(2000).HasColumnType("nvarchar(2000)");
+			b.Property<int>("ReportId").HasColumnType("int");
+			b.Property<int>("SequenceNumber").HasColumnType("int");
+			b.Property<int>("Subject1Id").HasColumnType("int");
+			b.Property<int?>("Subject2Id").HasColumnType("int");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.HasIndex("AllocationId");
+			b.HasIndex("ClassId");
+			b.HasIndex("ConclusionClassId");
+			b.HasIndex("DiscussionCodeId");
+			b.HasIndex("DistrictId");
+			b.HasIndex("DomainId");
+			b.HasIndex("EducationalProgramId");
+			b.HasIndex("FrameworkId");
+			b.HasIndex("GradeLevelId");
+			b.HasIndex("LocalityId");
+			b.HasIndex("ReportId");
+			b.HasIndex("Subject1Id");
+			b.HasIndex("Subject2Id");
+			b.ToTable("ReportRows", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReportStatus", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").HasColumnType("int");
+			b.Property<string>("Description").HasMaxLength(500).HasColumnType("nvarchar(500)");
+			b.Property<string>("Name").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.HasKey("Id");
+			b.ToTable("ReportStatuses", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				Description = "טיוטה - הדוח נוצר אך לא הוגש",
+				Name = "Draft"
+			}, new
+			{
+				Id = 2,
+				Description = "בהקלדה - הדוח נמצא בתהליך הקלדה",
+				Name = "InEntry"
+			}, new
+			{
+				Id = 3,
+				Description = "ממתין לאישור - הדוח הוגש וממתין לאישור",
+				Name = "PendingApproval"
+			}, new
+			{
+				Id = 4,
+				Description = "מאושר - הדוח אושר",
+				Name = "Approved"
+			}, new
+			{
+				Id = 5,
+				Description = "הוחזר לתיקון - הדוח הוחזר לעובד לתיקון",
+				Name = "ReturnedForCorrection"
+			}, new
+			{
+				Id = 6,
+				Description = "נעול - הדוח נעול ואינו ניתן לעריכה",
+				Name = "Locked"
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReportingMonth", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<bool>("AllowFutureReporting").HasColumnType("bit");
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime>("LastReportingDate").HasColumnType("datetime2");
+			b.Property<int>("Month").HasColumnType("int");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.Property<int>("Year").HasColumnType("int");
+			b.HasKey("Id");
+			b.ToTable("ReportingMonths", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.SchoolClass", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("SchoolClasses", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Sector", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Sectors", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Subject", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<bool>("IsActive").HasColumnType("bit");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.HasKey("Id");
+			b.ToTable("Subjects", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.SystemConstant", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<string>("Description").HasMaxLength(500).HasColumnType("nvarchar(500)");
+			b.Property<string>("Key").IsRequired().HasMaxLength(200)
+				.HasColumnType("nvarchar(200)");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.Property<int?>("UpdatedBy").HasColumnType("int");
+			b.Property<string>("Value").IsRequired().HasMaxLength(1000)
+				.HasColumnType("nvarchar(1000)");
+			b.HasKey("Id");
+			b.HasIndex("Key").IsUnique();
+			b.ToTable("SystemConstants", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "מרווח בין תזכורות בימים",
+				Key = "ReminderIntervalDays",
+				Value = "3"
+			}, new
+			{
+				Id = 2,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "כמה ימים לפני הדדליין מתחילות התזכורות",
+				Key = "ReminderStartDaysBeforeDeadline",
+				Value = "7"
+			}, new
+			{
+				Id = 3,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "סף אחוז דמיון בהערות (Levenshtein normalized)",
+				Key = "NotesSimilarityThresholdPercent",
+				Value = "90"
+			}, new
+			{
+				Id = 4,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "מקסימום שעות יומי ברירת מחדל לשורת דיווח",
+				Key = "MaxDailyHoursDefault",
+				Value = "9"
+			}, new
+			{
+				Id = 5,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				Description = "הפעלת אימות דו-שלבי באמצעות מייל",
+				Key = "TfaEmailEnabled",
+				Value = "false"
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.TwoFactorCode", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<string>("CodeHash").IsRequired().HasMaxLength(128)
+				.HasColumnType("nvarchar(128)");
+			b.Property<DateTime>("CreatedAt").HasColumnType("datetime2");
+			b.Property<DateTime>("ExpiresAt").HasColumnType("datetime2");
+			b.Property<DateTime?>("UsedAt").HasColumnType("datetime2");
+			b.Property<int>("UserId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("UserId", "ExpiresAt");
+			b.ToTable("TwoFactorCodes", (string?)null);
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.User", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("int");
+			b.Property<int>("Id").UseIdentityColumn(1L);
+			b.Property<bool>("AcceptedTermsOfUse").HasColumnType("bit");
+			b.Property<bool>("AllowFutureReporting").HasColumnType("bit");
+			b.Property<DateTime>("CreatedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
+				.HasDefaultValueSql("GETUTCDATE()");
+			b.Property<int?>("CreatedBy").HasColumnType("int");
+			b.Property<string>("Email").HasMaxLength(500).HasColumnType("nvarchar(500)");
+			b.Property<string>("EmployeeCode").IsRequired().HasMaxLength(50)
+				.HasColumnType("nvarchar(50)");
+			b.Property<int>("FailedLoginAttempts").HasColumnType("int");
+			b.Property<string>("FirstName").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.Property<string>("IdNumber").IsRequired().HasMaxLength(20)
+				.HasColumnType("nvarchar(20)");
+			b.Property<bool>("IsReportingEmployee").HasColumnType("bit");
+			b.Property<string>("LastName").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.Property<DateTime?>("LastPasswordChange").HasColumnType("datetime2");
+			b.Property<bool>("MustChangePassword").HasColumnType("bit");
+			b.Property<string>("Notes").HasMaxLength(1000).HasColumnType("nvarchar(1000)");
+			b.Property<string>("PasswordHash").IsRequired().HasMaxLength(500)
+				.HasColumnType("nvarchar(500)");
+			b.Property<string>("Phone").HasMaxLength(50).HasColumnType("nvarchar(50)");
+			b.Property<int?>("RestDay").HasColumnType("int");
+			b.Property<int>("RoleId").HasColumnType("int");
+			b.Property<int>("StatusId").HasColumnType("int");
+			b.Property<DateTime?>("UpdatedAt").HasColumnType("datetime2");
+			b.Property<int?>("UpdatedBy").HasColumnType("int");
+			b.Property<int>("UserRoleId").HasColumnType("int");
+			b.HasKey("Id");
+			b.HasIndex("CreatedBy");
+			b.HasIndex("IdNumber").IsUnique();
+			b.HasIndex("RoleId");
+			b.HasIndex("StatusId");
+			b.HasIndex("UpdatedBy");
+			b.HasIndex("UserRoleId");
+			b.ToTable("Users", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				AcceptedTermsOfUse = false,
+				AllowFutureReporting = false,
+				CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+				EmployeeCode = "ADMIN001",
+				FailedLoginAttempts = 0,
+				FirstName = "מנהל",
+				IdNumber = "admin",
+				IsReportingEmployee = false,
+				LastName = "מערכת",
+				MustChangePassword = true,
+				PasswordHash = "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdGADNUvDdAfY2.",
+				RoleId = 1,
+				StatusId = 1,
+				UserRoleId = 1
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.UserRole", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").HasColumnType("int");
+			b.Property<string>("Description").HasMaxLength(500).HasColumnType("nvarchar(500)");
+			b.Property<string>("Name").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.HasKey("Id");
+			b.ToTable("UserRoles", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				Description = "מנהל מערכת - גישה מלאה לכל הפונקציות",
+				Name = "SystemAdmin"
+			}, new
+			{
+				Id = 2,
+				Description = "מנהל פרויקט - ניהול עובדים, הקצאות ופתיחת חודשים",
+				Name = "ProjectManager"
+			}, new
+			{
+				Id = 3,
+				Description = "רכז פרויקט - יצירת עובדים, הקצאות ואישור דיווחים",
+				Name = "ProjectCoordinator"
+			}, new
+			{
+				Id = 4,
+				Description = "מפקח צפייה - צפייה בלבד בהיקף מוגדר, ייצוא מאושרים",
+				Name = "InspectorView"
+			}, new
+			{
+				Id = 5,
+				Description = "מפקח אישור - צפייה + אישור/דחיית דיווחים",
+				Name = "InspectorApproval"
+			}, new
+			{
+				Id = 6,
+				Description = "עובד - צפייה בנתוניו האישיים ומילוי דיווחים",
+				Name = "Employee"
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.UserStatus", delegate(EntityTypeBuilder b)
+		{
+			b.Property<int>("Id").HasColumnType("int");
+			b.Property<string>("Name").IsRequired().HasMaxLength(100)
+				.HasColumnType("nvarchar(100)");
+			b.HasKey("Id");
+			b.ToTable("UserStatuses", (string?)null);
+			b.HasData(new
+			{
+				Id = 1,
+				Name = "Active"
+			}, new
+			{
+				Id = 2,
+				Name = "Inactive"
+			}, new
+			{
+				Id = 3,
+				Name = "Locked"
+			});
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Allocation", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Project", "Project").WithMany().HasForeignKey("ProjectId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany("Allocations").HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Project");
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationClass", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationClasses").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.SchoolClass", "SchoolClass").WithMany().HasForeignKey("ClassId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("SchoolClass");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationDiscussionCode", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationDiscussionCodes").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.DiscussionCode", "DiscussionCode").WithMany().HasForeignKey("DiscussionCodeId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("DiscussionCode");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationDistrict", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationDistricts").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.District", "District").WithMany().HasForeignKey("DistrictId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("District");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationDomain", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationDomains").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Domain", "Domain").WithMany().HasForeignKey("DomainId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("Domain");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationEducationalProgram", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationEducationalPrograms").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.EducationalProgram", "EducationalProgram").WithMany().HasForeignKey("EducationalProgramId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("EducationalProgram");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationFramework", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationFrameworks").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Framework", "Framework").WithMany().HasForeignKey("FrameworkId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("Framework");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationGradeLevel", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationGradeLevels").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.GradeLevel", "GradeLevel").WithMany().HasForeignKey("GradeLevelId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("GradeLevel");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationLocality", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationLocalities").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Locality", "Locality").WithMany().HasForeignKey("LocalityId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("Locality");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationLocalityDistrictNational", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationLocalityDistrictNationals").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.LocalityDistrictNational", "LocalityDistrictNational").WithMany().HasForeignKey("LocalityDistrictNationalId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("LocalityDistrictNational");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationProgram", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationPrograms").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Program", "Program").WithMany().HasForeignKey("ProgramId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("Program");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationSector", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationSectors").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Sector", "Sector").WithMany().HasForeignKey("SectorId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("Sector");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.AllocationSubject", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany("AllocationSubjects").HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Subject", "Subject").WithMany().HasForeignKey("SubjectId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Allocation");
+			b.Navigation("Subject");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.DocumentAttachment", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.ReportRow", "ReportRow").WithMany().HasForeignKey("ReportRowId")
+				.OnDelete(DeleteBehavior.Cascade);
+			b.HasOne("AxiomaReporting.Core.Entities.User", "UploadedByUser").WithMany().HasForeignKey("UploadedBy")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany().HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.Navigation("ReportRow");
+			b.Navigation("UploadedByUser");
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Framework", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.EducationalStage", "EducationalStage").WithMany().HasForeignKey("EducationalStageId")
+				.OnDelete(DeleteBehavior.SetNull);
+			b.Navigation("EducationalStage");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.InspectorAssignment", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.District", "District").WithMany().HasForeignKey("DistrictId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.User", "Inspector").WithMany().HasForeignKey("InspectorUserId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Program", "Program").WithMany().HasForeignKey("ProgramId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.Sector", "Sector").WithMany().HasForeignKey("SectorId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.Navigation("District");
+			b.Navigation("Inspector");
+			b.Navigation("Program");
+			b.Navigation("Sector");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Institution", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.District", "District").WithMany().HasForeignKey("DistrictId")
+				.OnDelete(DeleteBehavior.SetNull);
+			b.HasOne("AxiomaReporting.Core.Entities.EducationalStage", "EducationalStage").WithMany().HasForeignKey("EducationalStageId")
+				.OnDelete(DeleteBehavior.SetNull);
+			b.HasOne("AxiomaReporting.Core.Entities.Locality", "Locality").WithMany().HasForeignKey("LocalityId")
+				.OnDelete(DeleteBehavior.SetNull);
+			b.HasOne("AxiomaReporting.Core.Entities.Sector", "Sector").WithMany().HasForeignKey("SectorId")
+				.OnDelete(DeleteBehavior.SetNull);
+			b.HasOne("AxiomaReporting.Core.Entities.EducationType", "Type").WithMany().HasForeignKey("TypeId")
+				.OnDelete(DeleteBehavior.SetNull);
+			b.Navigation("District");
+			b.Navigation("EducationalStage");
+			b.Navigation("Locality");
+			b.Navigation("Sector");
+			b.Navigation("Type");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.PasswordHistory", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany("PasswordHistories").HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.PasswordResetToken", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany().HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReminderLog", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.ReportingMonth", "ReportingMonth").WithMany().HasForeignKey("ReportingMonthId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany().HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.Navigation("ReportingMonth");
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Report", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.User", "ApprovedByUser").WithMany().HasForeignKey("ApprovedBy")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.User", "RejectedByUser").WithMany().HasForeignKey("RejectedBy")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.ReportingMonth", "ReportingMonth").WithMany("Reports").HasForeignKey("ReportingMonthId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.ReportStatus", "Status").WithMany().HasForeignKey("StatusId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany("Reports").HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("ApprovedByUser");
+			b.Navigation("RejectedByUser");
+			b.Navigation("ReportingMonth");
+			b.Navigation("Status");
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReportRow", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.Allocation", "Allocation").WithMany().HasForeignKey("AllocationId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.SchoolClass", "Class").WithMany().HasForeignKey("ClassId")
+				.OnDelete(DeleteBehavior.NoAction)
+				.HasConstraintName("FK_ReportRows_SchoolClasses_ClassId");
+			b.HasOne("AxiomaReporting.Core.Entities.SchoolClass", "ConclusionClass").WithMany().HasForeignKey("ConclusionClassId")
+				.OnDelete(DeleteBehavior.NoAction)
+				.HasConstraintName("FK_ReportRows_SchoolClasses_ConclusionClassId");
+			b.HasOne("AxiomaReporting.Core.Entities.DiscussionCode", "DiscussionCode").WithMany().HasForeignKey("DiscussionCodeId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.District", "District").WithMany().HasForeignKey("DistrictId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Domain", "Domain").WithMany().HasForeignKey("DomainId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.EducationalProgram", "EducationalProgram").WithMany().HasForeignKey("EducationalProgramId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Framework", "Framework").WithMany().HasForeignKey("FrameworkId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.GradeLevel", "GradeLevel").WithMany().HasForeignKey("GradeLevelId")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.Locality", "Locality").WithMany().HasForeignKey("LocalityId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Report", "Report").WithMany("ReportRows").HasForeignKey("ReportId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.Subject", "Subject1").WithMany().HasForeignKey("Subject1Id")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired()
+				.HasConstraintName("FK_ReportRows_Subjects_Subject1Id");
+			b.HasOne("AxiomaReporting.Core.Entities.Subject", "Subject2").WithMany().HasForeignKey("Subject2Id")
+				.OnDelete(DeleteBehavior.NoAction)
+				.HasConstraintName("FK_ReportRows_Subjects_Subject2Id");
+			b.Navigation("Allocation");
+			b.Navigation("Class");
+			b.Navigation("ConclusionClass");
+			b.Navigation("DiscussionCode");
+			b.Navigation("District");
+			b.Navigation("Domain");
+			b.Navigation("EducationalProgram");
+			b.Navigation("Framework");
+			b.Navigation("GradeLevel");
+			b.Navigation("Locality");
+			b.Navigation("Report");
+			b.Navigation("Subject1");
+			b.Navigation("Subject2");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.TwoFactorCode", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.User", "User").WithMany().HasForeignKey("UserId")
+				.OnDelete(DeleteBehavior.Cascade)
+				.IsRequired();
+			b.Navigation("User");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.User", delegate(EntityTypeBuilder b)
+		{
+			b.HasOne("AxiomaReporting.Core.Entities.User", null).WithMany().HasForeignKey("CreatedBy")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.EmployeeRole", "Role").WithMany().HasForeignKey("RoleId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.UserStatus", "Status").WithMany().HasForeignKey("StatusId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.HasOne("AxiomaReporting.Core.Entities.User", null).WithMany().HasForeignKey("UpdatedBy")
+				.OnDelete(DeleteBehavior.NoAction);
+			b.HasOne("AxiomaReporting.Core.Entities.UserRole", "UserRole").WithMany().HasForeignKey("UserRoleId")
+				.OnDelete(DeleteBehavior.Restrict)
+				.IsRequired();
+			b.Navigation("Role");
+			b.Navigation("Status");
+			b.Navigation("UserRole");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Allocation", delegate(EntityTypeBuilder b)
+		{
+			b.Navigation("AllocationClasses");
+			b.Navigation("AllocationDiscussionCodes");
+			b.Navigation("AllocationDistricts");
+			b.Navigation("AllocationDomains");
+			b.Navigation("AllocationEducationalPrograms");
+			b.Navigation("AllocationFrameworks");
+			b.Navigation("AllocationGradeLevels");
+			b.Navigation("AllocationLocalities");
+			b.Navigation("AllocationLocalityDistrictNationals");
+			b.Navigation("AllocationPrograms");
+			b.Navigation("AllocationSectors");
+			b.Navigation("AllocationSubjects");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.Report", delegate(EntityTypeBuilder b)
+		{
+			b.Navigation("ReportRows");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.ReportingMonth", delegate(EntityTypeBuilder b)
+		{
+			b.Navigation("Reports");
+		});
+		modelBuilder.Entity("AxiomaReporting.Core.Entities.User", delegate(EntityTypeBuilder b)
+		{
+			b.Navigation("Allocations");
+			b.Navigation("PasswordHistories");
+			b.Navigation("Reports");
+		});
+	}
+}

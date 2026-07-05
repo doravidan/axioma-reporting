@@ -1,0 +1,218 @@
+/* ── IS 5568 / WCAG 2.1 AA — Skip navigation link ─────────────────────── */
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  right: 0;
+  z-index: 9999;
+  padding: 0.75rem 1.25rem;
+  background: #0f5fd7;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  border-bottom-left-radius: 6px;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 3px solid #ffcc00;
+  outline-offset: 2px;
+}
+
+html {
+  font-size: 14px;
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+/* ── IS 5568 / WCAG 2.1 AA — Visible focus indicators (2.4.7) ─────────── */
+/* Ratio: #258cfb on white ≈ 3.2:1 (UI component threshold). Double-ring   */
+/* ensures visibility on both light and dark backgrounds.                   */
+.btn:focus-visible,
+.btn:active:focus-visible,
+.btn-link.nav-link:focus-visible,
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus,
+a:focus-visible {
+  outline: 2px solid #ffcc00;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(15, 95, 215, 0.4);
+}
+
+html {
+  position: relative;
+  min-height: 100%;
+}
+
+body {
+  margin-bottom: 60px;
+}
+
+.app-navbar {
+  background: #0f5fd7;
+  border-color: #0b4fb5 !important;
+}
+
+.app-navbar .navbar-brand {
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.app-navbar-logo {
+  max-height: 36px;
+  width: auto;
+  background: #fff;
+  border-radius: 6px;
+  padding: 2px 6px;
+  display: block;
+}
+
+/* Admin branding preview block */
+.branding-preview {
+  background: #f8f9fa;
+  border: 1px dashed #d7e3f4;
+  border-radius: 8px;
+  padding: 1rem;
+  display: inline-block;
+}
+
+.branding-preview img {
+  max-height: 120px;
+  max-width: 360px;
+  height: auto;
+  width: auto;
+}
+
+.app-navbar .nav-link {
+  color: rgba(255, 255, 255, 0.88);
+  border-radius: 6px;
+  padding-inline: 0.85rem;
+}
+
+.app-navbar .nav-link:hover,
+.app-navbar .nav-link:focus,
+.app-navbar .show > .nav-link {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.app-user-nav {
+  gap: 0.5rem;
+  margin-inline-start: auto;
+}
+
+.app-main-nav {
+  margin-inline-end: 1rem;
+}
+
+.password-toggle-wrap {
+  position: relative;
+}
+
+.password-toggle-wrap .form-control {
+  padding-inline-end: 3rem;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 0.35rem;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #495057;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.password-toggle-btn svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+  margin: auto;
+}
+
+.password-toggle-btn:hover,
+.password-toggle-btn:focus {
+  background: #eef2f7;
+  color: #111827;
+}
+
+.app-logout-btn {
+  color: #0b3f91;
+  border-color: #fff;
+  font-weight: 700;
+  min-width: 74px;
+}
+
+.app-logout-btn:hover,
+.app-logout-btn:focus {
+  color: #062d68;
+  background: #eaf2ff;
+  border-color: #eaf2ff;
+}
+
+.app-navbar .dropdown-menu {
+  border: 1px solid #d7e3f4;
+  box-shadow: 0 10px 24px rgba(15, 45, 85, 0.18);
+}
+
+.app-navbar .dropdown-item {
+  color: #1f2937;
+}
+
+.app-navbar .dropdown-item:hover,
+.app-navbar .dropdown-item:focus {
+  color: #0b3f91;
+  background: #edf5ff;
+}
+
+@media (max-width: 575.98px) {
+  .app-user-nav {
+    margin-top: 0.75rem;
+    align-items: stretch;
+  }
+
+  .app-user-nav .nav-item,
+  .app-user-nav form,
+  .app-logout-btn {
+    width: 100%;
+  }
+}
+
+/* ── Anonymous (login / forgot / terms) page styling ──────────────────── */
+body.anonymous-page {
+  background: #f0f2f5;
+}
+
+.login-card-wrapper {
+  display: flex;
+  justify-content: center;
+}
+
+.login-card {
+  max-width: 400px;
+  width: 100%;
+  margin: 80px auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.login-logo {
+  text-align: center;
+  padding: 20px;
+}
+
+.login-logo-img {
+  max-width: 220px;
+  max-height: 90px;
+  height: auto;
+  width: auto;
+}
