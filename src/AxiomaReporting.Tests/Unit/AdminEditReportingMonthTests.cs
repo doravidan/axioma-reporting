@@ -54,7 +54,8 @@ public class AdminEditReportingMonthTests : IDisposable
       brandingService: null!,
       auditLog: new FakeAuditLogService(),
       hostEnvironment: null!,
-      antiforgery: new StubAntiforgery())
+      antiforgery: new StubAntiforgery(),
+      htmlSanitizer: new AxiomaReporting.Infrastructure.Services.HtmlSanitizerService())
     {
       TempData = new TempDataDictionary(new DefaultHttpContext(), new NoOpTempDataProviderAdminEditTests())
     };

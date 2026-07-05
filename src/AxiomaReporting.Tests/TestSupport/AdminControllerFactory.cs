@@ -23,7 +23,7 @@ internal static class AdminControllerFactory
     var fakeBatch = new StubBatchReportImportService();
 
     var audit = new FakeAuditLogService();
-    var controller = new AdminController(db, passwordService, fakeBatch, pdfService, fakeEmail, branding, audit, hostEnv, new StubAntiforgery())
+    var controller = new AdminController(db, passwordService, fakeBatch, pdfService, fakeEmail, branding, audit, hostEnv, new StubAntiforgery(), new HtmlSanitizerService())
     {
       TempData = new TempDataDictionary(new DefaultHttpContext(), new StubTempDataProvider())
     };
