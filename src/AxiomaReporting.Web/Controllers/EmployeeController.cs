@@ -1,3 +1,5 @@
+using System.Data;
+using System.Data.Common;
 using AxiomaReporting.Core.DTOs;
 using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
@@ -493,12 +495,13 @@ public class EmployeeController : Controller
   {
     dto.UserId = id;
     AddValidationErrors(new AllocationValidator().Validate(dto));
+    await AddAllocationScopeValidationErrorsAsync(dto);
 
     if (!ModelState.IsValid)
     {
       var user = await _employeeService.GetByIdAsync(id);
       ViewBag.Employee = user;
-      await PopulateAllocationDropdownsAsync(dto.ProjectId);
+      await PopulateAllocationDropdownsAsync(dto.ProjectId, dto.ProgramIds);
       ViewBag.IsEdit = false;
       ViewBag.OutputDurationOptions = OUTPUT_DURATION_OPTIONS;
       return View("AllocationForm", dto);
@@ -535,6 +538,7 @@ public class EmployeeController : Controller
       Id = allocation.Id,
       UserId = id,
       ProjectId = allocation.ProjectId,
+      ReportTypeId = allocation.ReportTypeId,
       AnnualEmploymentScope = allocation.AnnualEmploymentScope,
       MonthlyEmploymentScope = allocation.MonthlyEmploymentScope,
       DailyEmploymentScope = allocation.DailyEmploymentScope,
@@ -560,7 +564,7 @@ public class EmployeeController : Controller
         .Select(x => x.LocalityDistrictNationalId).ToList()
     };
 
-    await PopulateAllocationDropdownsAsync(dto.ProjectId);
+    await PopulateAllocationDropdownsAsync(dto.ProjectId, dto.ProgramIds);
     ViewBag.Employee = user;
     ViewBag.IsEdit = true;
     ViewBag.OutputDurationOptions = OUTPUT_DURATION_OPTIONS;
@@ -576,12 +580,13 @@ public class EmployeeController : Controller
   {
     dto.UserId = id;
     AddValidationErrors(new AllocationValidator().Validate(dto));
+    await AddAllocationScopeValidationErrorsAsync(dto);
 
     if (!ModelState.IsValid)
     {
       var user = await _employeeService.GetByIdAsync(id);
       ViewBag.Employee = user;
-      await PopulateAllocationDropdownsAsync(dto.ProjectId);
+      await PopulateAllocationDropdownsAsync(dto.ProjectId, dto.ProgramIds);
       ViewBag.IsEdit = true;
       ViewBag.OutputDurationOptions = OUTPUT_DURATION_OPTIONS;
       return View("AllocationForm", dto);
@@ -664,6 +669,18 @@ public class EmployeeController : Controller
     await _db.SaveChangesAsync();
     TempData["Success"] = $"נוספה הקצאה ל-{created} עובדים";
     return RedirectToFilteredIndex();
+  }
+
+  // GET /Employee/AllocationReportTypes - JSON endpoint for the allocation form's report-type dropdown.
+  [HttpGet]
+  [Route("Employee/AllocationReportTypes")]
+  public async Task<IActionResult> AllocationReportTypes()
+  {
+    return Json(await _db.ReportTypes
+      .Where(r => r.IsActive)
+      .OrderBy(r => r.Description)
+      .Select(r => new { id = r.Id, text = r.Description })
+      .ToListAsync());
   }
 
   [HttpGet]
@@ -813,39 +830,245 @@ public class EmployeeController : Controller
     ViewBag.IsAdminOrPM = isAdmin || isPM;
   }
 
-  private async Task PopulateAllocationDropdownsAsync(int? projectId = null)
+  private async Task PopulateAllocationDropdownsAsync(int? projectId = null, IReadOnlyCollection<int>? programIds = null)
   {
     ViewBag.Projects = new SelectList(
       await _db.Projects.Where(p => p.IsActive).ToListAsync(), "Id", "Description");
+    ViewBag.ReportTypes = await _db.ReportTypes.Where(r => r.IsActive).OrderBy(r => r.Description).ToListAsync();
     ViewBag.Districts = await _db.Districts.Where(d => d.IsActive).ToListAsync();
     ViewBag.Programs = await LoadProgramsForProjectAsync(projectId);
     ViewBag.Sectors = await _db.Sectors.Where(s => s.IsActive).ToListAsync();
     ViewBag.Localities = await _db.Localities.Where(l => l.IsActive).ToListAsync();
-    ViewBag.Frameworks = await _db.Frameworks.Where(f => f.IsActive).ToListAsync();
-    ViewBag.Subjects = await _db.Subjects.Where(s => s.IsActive).ToListAsync();
-    ViewBag.Domains = await _db.Domains.Where(d => d.IsActive).ToListAsync();
-    ViewBag.EducationalPrograms = await _db.EducationalPrograms.Where(e => e.IsActive).ToListAsync();
-    ViewBag.Classes = await _db.Classes.Where(c => c.IsActive).ToListAsync();
-    ViewBag.GradeLevels = await _db.GradeLevels.Where(g => g.IsActive).ToListAsync();
-    ViewBag.DiscussionCodes = await _db.DiscussionCodes.Where(d => d.IsActive).ToListAsync();
+    ViewBag.Frameworks = await LoadScopedFrameworksAsync(projectId, programIds);
+    ViewBag.Subjects = await LoadScopedSubjectsAsync(projectId, programIds);
+    ViewBag.Domains = await LoadScopedDomainsAsync(projectId, programIds);
+    ViewBag.EducationalPrograms = await LoadScopedEducationalProgramsAsync(projectId, programIds);
+    ViewBag.Classes = await LoadScopedClassesAsync(projectId, programIds);
+    ViewBag.GradeLevels = await LoadScopedGradeLevelsAsync(projectId, programIds);
+    ViewBag.DiscussionCodes = await LoadScopedDiscussionCodesAsync(projectId, programIds);
     ViewBag.LocalityDistrictNationals = await _db.LocalityDistrictNationals.Where(l => l.IsActive).ToListAsync();
   }
 
   private async Task<List<Core.Entities.Program>> LoadProgramsForProjectAsync(int? projectId)
   {
     if (!projectId.HasValue || projectId.Value <= 0)
-      return await _db.Programs.Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync();
+      return new List<Core.Entities.Program>();
 
-    var mapped = await _db.ProjectPrograms
+    return await _db.ProjectPrograms
       .Where(pp => pp.ProjectId == projectId.Value && pp.Program!.IsActive)
       .OrderBy(pp => pp.Program!.Description)
       .Select(pp => pp.Program!)
       .ToListAsync();
-
-    return mapped.Count > 0
-      ? mapped
-      : await _db.Programs.Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync();
   }
+
+  /// <summary>
+  /// Adds ModelState errors when the allocation DTO references values that are outside the
+  /// selected project/program scope (ProjectProgram* mapping tables).
+  /// </summary>
+  private async Task AddAllocationScopeValidationErrorsAsync(AllocationDto dto)
+  {
+    var programIds = NormalizeIds(dto.ProgramIds);
+    if (dto.ProjectId > 0 && programIds.Count > 0)
+    {
+      var mappedCount = await _db.ProjectPrograms
+        .Where(pp => pp.ProjectId == dto.ProjectId && programIds.Contains(pp.ProgramId))
+        .Select(pp => pp.ProgramId)
+        .Distinct()
+        .CountAsync();
+      if (mappedCount != programIds.Count)
+        ModelState.AddModelError(nameof(AllocationDto.ProgramIds), "נבחרה תוכנית שאינה שייכת לפרויקט");
+    }
+
+    await ValidateScopedIdsAsync(nameof(AllocationDto.SubjectIds), dto.ProjectId, programIds, dto.SubjectIds, "ProjectProgramSubjects", "SubjectId");
+    await ValidateScopedIdsAsync(nameof(AllocationDto.DomainIds), dto.ProjectId, programIds, dto.DomainIds, "ProjectProgramDomains", "DomainId");
+    await ValidateScopedIdsAsync(nameof(AllocationDto.FrameworkIds), dto.ProjectId, programIds, dto.FrameworkIds, "ProjectProgramFrameworks", "FrameworkId");
+    await ValidateScopedIdsAsync(nameof(AllocationDto.EducationalProgramIds), dto.ProjectId, programIds, dto.EducationalProgramIds, "ProjectProgramEducationalPrograms", "EducationalProgramId");
+    await ValidateScopedIdsAsync(nameof(AllocationDto.DiscussionCodeIds), dto.ProjectId, programIds, dto.DiscussionCodeIds, "ProjectProgramDiscussionCodes", "DiscussionCodeId");
+    await ValidateScopedIdsAsync(nameof(AllocationDto.GradeLevelIds), dto.ProjectId, programIds, dto.GradeLevelIds, "ProjectProgramGradeLevels", "GradeLevelId");
+    await ValidateScopedIdsAsync(nameof(AllocationDto.ClassIds), dto.ProjectId, programIds, dto.ClassIds, "ProjectProgramClasses", "ClassId");
+  }
+
+  private async Task ValidateScopedIdsAsync(
+    string field, int projectId, IReadOnlyCollection<int> programIds, IReadOnlyCollection<int>? selectedIds,
+    string tableName, string idColumn)
+  {
+    var ids = NormalizeIds(selectedIds);
+    if (projectId <= 0 || programIds.Count == 0 || ids.Count == 0) return;
+
+    var allowed = await ScopedIdSetAsync(tableName, idColumn, projectId, programIds);
+    if (ids.Any(id => !allowed.Contains(id)))
+      ModelState.AddModelError(field, "נבחר ערך שאינו שייך לפרויקט/תוכנית הנבחרים");
+  }
+
+  private async Task<List<Framework>> LoadScopedFrameworksAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramFrameworks", "FrameworkId", projectId, programIds);
+    var frameworks = (await _db.Frameworks
+        .Where(f => f.IsActive && (ids == null || ids.Contains(f.Id)))
+        .OrderBy(f => f.Description)
+        .ToListAsync())
+      .Where(f => int.TryParse(f.InstitutionSymbol, out _))
+      .ToList();
+    await ApplyFrameworkDisplayLabelsAsync(frameworks);
+    return frameworks;
+  }
+
+  /// <summary>
+  /// Replaces each framework's Description with "locality, institution symbol, institution name"
+  /// (falling back to the framework description) using the Institutions table.
+  /// </summary>
+  private async Task ApplyFrameworkDisplayLabelsAsync(List<Framework> frameworks)
+  {
+    if (frameworks.Count == 0) return;
+
+    var symbols = frameworks
+      .Select(f => int.TryParse(f.InstitutionSymbol, out var result) ? (int?)result : null)
+      .Where(value => value.HasValue)
+      .Select(value => value!.Value)
+      .Distinct()
+      .ToList();
+
+    var institutions = await _db.Institutions
+      .Include(i => i.Locality)
+      .Where(i => symbols.Contains(i.InstitutionSymbol))
+      .Select(i => new
+      {
+        i.InstitutionSymbol,
+        i.Name,
+        LocalityName = i.Locality != null ? i.Locality.Description : string.Empty
+      })
+      .ToListAsync();
+
+    foreach (var framework in frameworks)
+    {
+      var institution = int.TryParse(framework.InstitutionSymbol, out var symbol)
+        ? institutions.FirstOrDefault(i => i.InstitutionSymbol == symbol)
+        : null;
+      var name = !string.IsNullOrWhiteSpace(institution?.Name) ? institution!.Name : framework.Description;
+      var label = string.Join(", ",
+        new[] { institution?.LocalityName, framework.InstitutionSymbol, name }
+          .Where(part => !string.IsNullOrWhiteSpace(part)));
+      if (!string.IsNullOrWhiteSpace(label))
+        framework.Description = label;
+    }
+  }
+
+  private async Task<List<Subject>> LoadScopedSubjectsAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramSubjects", "SubjectId", projectId, programIds);
+    return await _db.Subjects
+      .Where(s => s.IsActive && (ids == null || ids.Contains(s.Id)))
+      .OrderBy(s => s.Description)
+      .ToListAsync();
+  }
+
+  private async Task<List<Domain>> LoadScopedDomainsAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramDomains", "DomainId", projectId, programIds);
+    return await _db.Domains
+      .Where(d => d.IsActive && (ids == null || ids.Contains(d.Id)))
+      .OrderBy(d => d.Description)
+      .ToListAsync();
+  }
+
+  private async Task<List<EducationalProgram>> LoadScopedEducationalProgramsAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramEducationalPrograms", "EducationalProgramId", projectId, programIds);
+    return await _db.EducationalPrograms
+      .Where(e => e.IsActive && (ids == null || ids.Contains(e.Id)))
+      .OrderBy(e => e.Description)
+      .ToListAsync();
+  }
+
+  private async Task<List<SchoolClass>> LoadScopedClassesAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramClasses", "ClassId", projectId, programIds);
+    return await _db.Classes
+      .Where(c => c.IsActive && (ids == null || ids.Contains(c.Id)))
+      .OrderBy(c => c.Description)
+      .ToListAsync();
+  }
+
+  private async Task<List<GradeLevel>> LoadScopedGradeLevelsAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramGradeLevels", "GradeLevelId", projectId, programIds);
+    return await _db.GradeLevels
+      .Where(g => g.IsActive && (ids == null || ids.Contains(g.Id)))
+      .OrderBy(g => g.Description)
+      .ToListAsync();
+  }
+
+  private async Task<List<DiscussionCode>> LoadScopedDiscussionCodesAsync(int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    var ids = await TryScopedIdSetAsync("ProjectProgramDiscussionCodes", "DiscussionCodeId", projectId, programIds);
+    return await _db.DiscussionCodes
+      .Where(d => d.IsActive && (ids == null || ids.Contains(d.Id)))
+      .OrderBy(d => d.Description)
+      .ToListAsync();
+  }
+
+  /// <summary>
+  /// Returns the set of allowed lookup IDs for the given project/programs, or null when no
+  /// project is selected (meaning "no scoping - show everything").
+  /// When no programs were selected, falls back to all programs mapped to the project.
+  /// </summary>
+  private async Task<HashSet<int>?> TryScopedIdSetAsync(
+    string tableName, string idColumn, int? projectId, IReadOnlyCollection<int>? programIds)
+  {
+    if (!projectId.HasValue || projectId.Value <= 0)
+      return null;
+
+    var list = NormalizeIds(programIds);
+    if (list.Count == 0)
+    {
+      list = await _db.ProjectPrograms
+        .Where(pp => pp.ProjectId == projectId.Value)
+        .Select(pp => pp.ProgramId)
+        .Distinct()
+        .ToListAsync();
+    }
+
+    return await ScopedIdSetAsync(tableName, idColumn, projectId.Value, list);
+  }
+
+  private async Task<HashSet<int>> ScopedIdSetAsync(
+    string tableName, string idColumn, int projectId, IReadOnlyCollection<int> programIds)
+  {
+    var values = new HashSet<int>();
+    if (programIds.Count == 0) return values;
+    if (!_db.Database.IsRelational()) return values;
+
+    var connection = _db.Database.GetDbConnection();
+    var shouldClose = connection.State == ConnectionState.Closed;
+    if (shouldClose)
+      await connection.OpenAsync();
+
+    try
+    {
+      using DbCommand command = connection.CreateCommand();
+      // tableName/idColumn are internal constants and programIds are ints - safe to inline.
+      command.CommandText =
+        $"SELECT DISTINCT {idColumn} FROM dbo.{tableName} WHERE ProjectId = @projectId AND ProgramId IN ({string.Join(",", programIds)})";
+      var projectParam = command.CreateParameter();
+      projectParam.ParameterName = "@projectId";
+      projectParam.Value = projectId;
+      command.Parameters.Add(projectParam);
+
+      using DbDataReader reader = await command.ExecuteReaderAsync();
+      while (await reader.ReadAsync())
+        values.Add(reader.GetInt32(0));
+    }
+    finally
+    {
+      if (shouldClose)
+        await connection.CloseAsync();
+    }
+
+    return values;
+  }
+
+  private static List<int> NormalizeIds(IReadOnlyCollection<int>? ids) =>
+    ids?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
 
   /// <summary>
   /// Build route values that preserve the active filter / sort / paging state across a
@@ -1087,30 +1310,20 @@ public class EmployeeController : Controller
 
   /// <summary>
   /// Returns the set of Programs (id + description) that should populate the Program dropdown for a given project.
-  /// Falls back to ALL active programs when no ProjectPrograms mapping exists (backwards-compatible default).
+  /// Only programs explicitly mapped to the project via ProjectPrograms are returned.
   /// </summary>
   internal static async Task<List<(int Id, string Description)>> GetProgramsForProjectAsync(AppDbContext db, int projectId)
   {
     if (projectId <= 0)
-      return await db.Programs
-        .Where(p => p.IsActive)
-        .OrderBy(p => p.Description)
-        .Select(p => new ValueTuple<int, string>(p.Id, p.Description))
-        .ToListAsync();
+      return new List<(int, string)>();
 
-    var mapped = await db.ProjectPrograms
-      .Where(pp => pp.ProjectId == projectId && pp.Program!.IsActive)
-      .OrderBy(pp => pp.Program!.Description)
-      .Select(pp => new ValueTuple<int, string>(pp.ProgramId, pp.Program!.Description))
-      .ToListAsync();
-
-    if (mapped.Count > 0) return mapped;
-
-    return await db.Programs
-      .Where(p => p.IsActive)
-      .OrderBy(p => p.Description)
-      .Select(p => new ValueTuple<int, string>(p.Id, p.Description))
-      .ToListAsync();
+    return (await db.ProjectPrograms
+        .Where(pp => pp.ProjectId == projectId && pp.Program!.IsActive)
+        .OrderBy(pp => pp.Program!.Description)
+        .Select(pp => new { Id = pp.ProgramId, pp.Program!.Description })
+        .ToListAsync())
+      .Select(p => (p.Id, p.Description))
+      .ToList();
   }
 
   // GET /Employee/ProgramsForProject?projectId=N - JSON endpoint for cascading Program dropdown.

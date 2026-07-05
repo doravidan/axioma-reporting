@@ -224,6 +224,24 @@ public class AccountController : Controller
     }
 
     var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    var user = await _db.Users.FindAsync(userId);
+    if (user == null)
+      return RedirectToAction(nameof(Login));
+
+    if (!_passwordService.VerifyPassword(model.CurrentPassword, user.PasswordHash))
+    {
+      ModelState.AddModelError(nameof(model.CurrentPassword), "הסיסמה הנוכחית שגויה");
+      ViewBag.Forced = forced;
+      return View(model);
+    }
+
+    if (_passwordService.VerifyPassword(model.NewPassword, user.PasswordHash))
+    {
+      ModelState.AddModelError(nameof(model.NewPassword), "הסיסמה החדשה חייבת להיות שונה מהסיסמה הנוכחית.");
+      ViewBag.Forced = forced;
+      return View(model);
+    }
+
     if (await _authService.IsPasswordInHistoryAsync(userId, model.NewPassword))
     {
       ModelState.AddModelError(nameof(model.NewPassword), "לא ניתן להשתמש בסיסמה זהה או דומה מדי לאחת מ-5 הסיסמאות האחרונות");
@@ -356,8 +374,14 @@ public class AccountController : Controller
     var user = await _db.Users.FindAsync(reset!.UserId);
     if (user == null) return RedirectToAction(nameof(Login));
 
-    if (_passwordService.VerifyPassword(newPassword, user.PasswordHash) ||
-        await _authService.IsPasswordInHistoryAsync(user.Id, newPassword))
+    if (_passwordService.VerifyPassword(newPassword, user.PasswordHash))
+    {
+      ModelState.AddModelError(nameof(newPassword), "הסיסמה החדשה חייבת להיות שונה מהסיסמה הנוכחית.");
+      ViewBag.Token = token;
+      return View();
+    }
+
+    if (await _authService.IsPasswordInHistoryAsync(user.Id, newPassword))
     {
       ModelState.AddModelError(nameof(newPassword), "לא ניתן להשתמש בסיסמה זהה או דומה מדי לאחת מ-5 הסיסמאות האחרונות");
       ViewBag.Token = token;
@@ -366,11 +390,14 @@ public class AccountController : Controller
 
     await _authService.AddPasswordToHistoryAsync(user.Id, user.PasswordHash);
     user.PasswordHash = _passwordService.HashPassword(newPassword);
-    user.MustChangePassword = true;
+    user.MustChangePassword = false;
     user.LastPasswordChange = DateTime.UtcNow;
     user.UpdatedAt = DateTime.UtcNow;
     reset.UsedAt = DateTime.UtcNow;
     await _db.SaveChangesAsync();
+
+    await _auditLog.LogAsync("Auth.PasswordReset", "User", user.Id.ToString(), null, null,
+      $"ip={HttpContext.Connection.RemoteIpAddress}");
 
     TempData["Success"] = "הסיסמה אופסה בהצלחה";
     return RedirectToAction(nameof(Login));
@@ -428,7 +455,7 @@ public class AccountController : Controller
     var authProps = new AuthenticationProperties
     {
       IsPersistent = rememberMe,
-      ExpiresUtc = rememberMe ? DateTimeOffset.UtcNow.AddDays(14) : null
+      ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(30)
     };
 
     await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProps);

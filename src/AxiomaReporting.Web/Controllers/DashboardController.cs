@@ -1,5 +1,7 @@
+using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Core.Interfaces;
+using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Authorization;
 using ClosedXML.Excel;
@@ -16,15 +18,18 @@ public class DashboardController : Controller
   private readonly IDashboardFilterService _filterService;
   private readonly ICurrentUserService _currentUser;
   private readonly IReportStatusService _reportStatusService;
+  private readonly AppDbContext _db;
 
   public DashboardController(
     IDashboardFilterService filterService,
     ICurrentUserService currentUser,
-    IReportStatusService reportStatusService)
+    IReportStatusService reportStatusService,
+    AppDbContext db)
   {
     _filterService = filterService;
     _currentUser = currentUser;
     _reportStatusService = reportStatusService;
+    _db = db;
   }
 
   [HttpGet]
@@ -70,6 +75,84 @@ public class DashboardController : Controller
     return Json(options);
   }
 
+  /// <summary>
+  /// JSON payload for the documents modal on the dashboard: all attachments related
+  /// to a report (report-level, row-level for the given allocation, or general
+  /// employee-level documents).
+  /// </summary>
+  [HttpGet]
+  public async Task<IActionResult> ReportDocuments(int reportId, int allocationId)
+  {
+    var report = await _db.Reports
+      .Include(r => r.User)
+      .Include(r => r.ReportingMonth)
+      .FirstOrDefaultAsync(r => r.Id == reportId);
+    var allocation = await _db.Allocations
+      .Include(a => a.Project)
+      .FirstOrDefaultAsync(a => a.Id == allocationId);
+
+    if (report == null || allocation == null || allocation.UserId != report.UserId)
+      return NotFound();
+
+    var reportRowIds = await _db.ReportRows
+      .Where(rr => rr.ReportId == reportId && rr.AllocationId == allocationId)
+      .Select(rr => rr.Id)
+      .ToListAsync();
+
+    var attachments = await _db.DocumentAttachments
+      .Where(a => a.ReportId == reportId
+        || (a.ReportRowId.HasValue && reportRowIds.Contains(a.ReportRowId.Value))
+        || (a.UserId == report.UserId && a.ReportId == null && a.ReportRowId == null))
+      .OrderByDescending(a => a.UploadedAt)
+      .ToListAsync();
+
+    return Json(new
+    {
+      employeeName = $"{report.User?.FirstName} {report.User?.LastName}".Trim(),
+      employeeId = report.User?.IdNumber ?? report.User?.EmployeeCode ?? "",
+      projectName = allocation.Project?.Description ?? "",
+      reportMonth = report.ReportingMonth?.Description
+        ?? (report.ReportingMonth != null ? $"{report.ReportingMonth.Month}/{report.ReportingMonth.Year}" : ""),
+      documents = attachments.Select(a => new
+      {
+        id = a.Id,
+        fileName = a.FileName,
+        description = a.Description,
+        uploadedAt = a.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
+        fileSize = FormatFileSize(a.FileSize),
+        viewUrl = Url.Action(nameof(DocumentAttachment), "Dashboard", new { attachmentId = a.Id }),
+        downloadUrl = Url.Action(nameof(DocumentAttachment), "Dashboard", new { attachmentId = a.Id, download = true })
+      })
+    });
+  }
+
+  [HttpGet]
+  public async Task<IActionResult> DocumentAttachment(int attachmentId, bool download = false)
+  {
+    var attachment = await _db.DocumentAttachments.FirstOrDefaultAsync(a => a.Id == attachmentId);
+    if (attachment == null) return NotFound();
+
+    // Path-traversal guard: the resolved file must stay under wwwroot.
+    var webRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"));
+    var relativePath = attachment.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+    var fullPath = Path.GetFullPath(Path.Combine(webRoot, relativePath));
+    if (!fullPath.StartsWith(webRoot, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(fullPath))
+      return NotFound();
+
+    var contentType = string.IsNullOrWhiteSpace(attachment.MimeType)
+      ? "application/octet-stream"
+      : attachment.MimeType;
+
+    return PhysicalFile(fullPath, contentType, download ? attachment.FileName : null);
+  }
+
+  private static string FormatFileSize(long bytes)
+  {
+    if (bytes >= 1048576) return ((decimal)bytes / 1048576m).ToString("0.#") + " MB";
+    if (bytes >= 1024) return ((decimal)bytes / 1024m).ToString("0.#") + " KB";
+    return bytes + " B";
+  }
+
   [HttpGet]
   public async Task<IActionResult> ExportExcel(DashboardFilter filter)
   {
@@ -86,12 +169,12 @@ public class DashboardController : Controller
     var ws = wb.Worksheets.Add("דיווחים");
     ws.RightToLeft = true;
 
+    // "סוג דיווח" (report type) moved up to column 3, next to the employee identity.
     var headers = new[]
     {
-      "מס\"ד", "ת.ז", "קוד עובד", "שם מדווח", "חודש דיווח", "פרויקט", "מחוז", "ישוב",
-      "מסגרת חינוכית", "תאריך מפגש", "משך מפגש", "תוכנית חינוכית", "תחום", "נושא 1", "נושא 2",
-      "קיום דיון", "כיתה", "שכבה", "סוג דיווח", "מסקנות כיתה", "מסקנות מסגרת", "מסקנות ישוב/מחוז/ארצי",
-      "מסמכים", "הערות"
+      "מס\"ד", "ת.ז", "סוג דיווח", "קוד עובד", "שם מדווח", "חודש דיווח", "פרויקט", "מחוז", "ישוב", "מסגרת חינוכית",
+      "תאריך מפגש", "משך מפגש", "תוכנית חינוכית", "תחום", "נושא 1", "נושא 2", "קיום דיון", "כיתה", "שכבה", "מסקנות כיתה",
+      "מסקנות מסגרת", "מסקנות ישוב/מחוז/ארצי", "מסמכים", "הערות"
     };
     for (var i = 0; i < headers.Length; i++)
       ws.Cell(1, i + 1).Value = headers[i];
@@ -101,23 +184,23 @@ public class DashboardController : Controller
     {
       ws.Cell(row, 1).Value = r.SequenceNumber;
       ws.Cell(row, 2).Value = r.IdNumber;
-      ws.Cell(row, 3).Value = r.EmployeeCode;
-      ws.Cell(row, 4).Value = r.FullName;
-      ws.Cell(row, 5).Value = r.MonthDescription;
-      ws.Cell(row, 6).Value = r.ProjectName;
-      ws.Cell(row, 7).Value = r.DistrictName;
-      ws.Cell(row, 8).Value = r.LocalityName;
-      ws.Cell(row, 9).Value = r.FrameworkName;
-      ws.Cell(row, 10).Value = r.MeetingDate.ToString("dd/MM/yyyy");
-      ws.Cell(row, 11).Value = (double)r.MeetingDuration;
-      ws.Cell(row, 12).Value = r.EducationalProgramName;
-      ws.Cell(row, 13).Value = r.DomainName;
-      ws.Cell(row, 14).Value = r.Subject1Name;
-      ws.Cell(row, 15).Value = r.Subject2Name;
-      ws.Cell(row, 16).Value = r.DiscussionCodeName;
-      ws.Cell(row, 17).Value = r.ClassName;
-      ws.Cell(row, 18).Value = r.GradeLevelName;
-      ws.Cell(row, 19).Value = r.ReportTypeName;
+      ws.Cell(row, 3).Value = r.ReportTypeName;
+      ws.Cell(row, 4).Value = r.EmployeeCode;
+      ws.Cell(row, 5).Value = r.FullName;
+      ws.Cell(row, 6).Value = r.MonthDescription;
+      ws.Cell(row, 7).Value = r.ProjectName;
+      ws.Cell(row, 8).Value = r.DistrictName;
+      ws.Cell(row, 9).Value = r.LocalityName;
+      ws.Cell(row, 10).Value = r.FrameworkName;
+      ws.Cell(row, 11).Value = r.MeetingDate.ToString("dd/MM/yyyy");
+      ws.Cell(row, 12).Value = (double)r.MeetingDuration;
+      ws.Cell(row, 13).Value = r.EducationalProgramName;
+      ws.Cell(row, 14).Value = r.DomainName;
+      ws.Cell(row, 15).Value = r.Subject1Name;
+      ws.Cell(row, 16).Value = r.Subject2Name;
+      ws.Cell(row, 17).Value = r.DiscussionCodeName;
+      ws.Cell(row, 18).Value = r.ClassName;
+      ws.Cell(row, 19).Value = r.GradeLevelName;
       ws.Cell(row, 20).Value = r.ConclusionClassName;
       ws.Cell(row, 21).Value = r.ConclusionFrameworkName;
       ws.Cell(row, 22).Value = r.ConclusionLocationName;
@@ -169,7 +252,7 @@ public class DashboardController : Controller
       ws.Cell(row, 7).Value = r.RowCount;
       ws.Cell(row, 8).Value = (double)r.TotalDuration;
       ws.Cell(row, 9).Value = r.MonthlyRowAllocation.HasValue ? r.RemainingRows : string.Empty;
-      ws.Cell(row, 10).Value = r.HasAttachments ? "כן" : "לא";
+      ws.Cell(row, 10).Value = r.DocumentCount;
       ws.Cell(row, 11).Value = r.SubmittedAt?.ToString("dd/MM/yyyy") ?? string.Empty;
       row++;
     }

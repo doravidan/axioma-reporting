@@ -1,7 +1,10 @@
+using System.Data;
+using System.Data.Common;
 using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
+using AxiomaReporting.Web.Authorization;
 using AxiomaReporting.Web.Models;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
@@ -42,6 +45,44 @@ public class AllocationsController : Controller
 
     await PopulateViewBagsAsync(scopedQuery, filter, page, pageSize, total);
     return View("~/Views/Employee/AllocationList.cshtml", allocations);
+  }
+
+  [HttpGet("create")]
+  [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
+  public async Task<IActionResult> Create(
+    string? idNumber = null,
+    string? employeeCode = null,
+    string? firstName = null,
+    string? lastName = null)
+  {
+    var source = _db.Users.Where(u => u.StatusId == 1 && u.IsReportingEmployee);
+
+    if (!string.IsNullOrWhiteSpace(idNumber))
+    {
+      var digits = NormalizeDigits(idNumber);
+      source = source.Where(u => u.IdNumber.Replace("-", "").Replace(" ", "").Contains(digits));
+    }
+    if (!string.IsNullOrWhiteSpace(employeeCode))
+      source = source.Where(u => u.EmployeeCode.Contains(employeeCode.Trim()));
+    if (!string.IsNullOrWhiteSpace(firstName))
+      source = source.Where(u => u.FirstName.Contains(firstName.Trim()));
+    if (!string.IsNullOrWhiteSpace(lastName))
+      source = source.Where(u => u.LastName.Contains(lastName.Trim()));
+
+    var employees = await source
+      .OrderBy(u => u.LastName)
+      .ThenBy(u => u.FirstName)
+      .Take(100)
+      .ToListAsync();
+
+    return View("~/Views/Allocations/Create.cshtml", new AllocationEmployeePickerViewModel
+    {
+      IdNumber = idNumber,
+      EmployeeCode = employeeCode,
+      FirstName = firstName,
+      LastName = lastName,
+      Employees = employees
+    });
   }
 
   [HttpGet("{allocationId:int}")]
@@ -113,6 +154,37 @@ public class AllocationsController : Controller
       stream.ToArray(),
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       $"employee_allocations_{DateTime.Now:yyyy-MM-dd}.xlsx");
+  }
+
+  [HttpGet("ScopedLookups")]
+  public async Task<IActionResult> ScopedLookups(int projectId, string? programIds = null)
+  {
+    if (projectId <= 0) return BadRequest();
+
+    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator))
+      return Forbid();
+
+    var programs = ParseIds(programIds);
+    if (programs.Count == 0)
+    {
+      programs = await _db.ProjectPrograms
+        .Where(pp => pp.ProjectId == projectId)
+        .Select(pp => pp.ProgramId)
+        .Distinct()
+        .ToListAsync();
+    }
+
+    return Json(new
+    {
+      subjects = await ScopedLookupAsync("ProjectProgramSubjects", "SubjectId", "Subjects", projectId, programs),
+      domains = await ScopedLookupAsync("ProjectProgramDomains", "DomainId", "Domains", projectId, programs),
+      frameworks = await ScopedLookupAsync("ProjectProgramFrameworks", "FrameworkId", "Frameworks", projectId, programs),
+      educationalPrograms = await ScopedLookupAsync("ProjectProgramEducationalPrograms", "EducationalProgramId", "EducationalPrograms", projectId, programs),
+      discussionCodes = await ScopedLookupAsync("ProjectProgramDiscussionCodes", "DiscussionCodeId", "DiscussionCodes", projectId, programs),
+      gradeLevels = await ScopedLookupAsync("ProjectProgramGradeLevels", "GradeLevelId", "GradeLevels", projectId, programs),
+      classes = await ScopedLookupAsync("ProjectProgramClasses", "ClassId", "SchoolClasses", projectId, programs),
+      scopedKeys = new[] { "subjects", "domains", "frameworks", "educationalPrograms", "discussionCodes", "gradeLevels", "classes" }
+    });
   }
 
   internal static async Task<IQueryable<Allocation>> BuildScopedAllocationQueryAsync(
@@ -287,6 +359,7 @@ public class AllocationsController : Controller
       .Include(a => a.AllocationGradeLevels).ThenInclude(x => x.GradeLevel)
       .Include(a => a.AllocationDiscussionCodes).ThenInclude(x => x.DiscussionCode)
       .Include(a => a.AllocationLocalityDistrictNationals).ThenInclude(x => x.LocalityDistrictNational)
+      .AsSplitQuery()
       .Where(a => a.IsActive);
 
   private static IOrderedQueryable<Allocation> ApplyAllocationSort(
@@ -317,5 +390,76 @@ public class AllocationsController : Controller
   {
     var items = values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
     return items.Count == 0 ? "" : string.Join(", ", items);
+  }
+
+  private static List<int> ParseIds(string? value)
+  {
+    if (string.IsNullOrWhiteSpace(value)) return new List<int>();
+
+    return value
+      .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+      .Select(part => int.TryParse(part, out var result) ? result : 0)
+      .Where(id => id > 0)
+      .Distinct()
+      .ToList();
+  }
+
+  private static string NormalizeDigits(string? value)
+  {
+    if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+    return new string(value.Where(char.IsDigit).ToArray());
+  }
+
+  private async Task<List<object>> ScopedLookupAsync(
+    string scopeTable,
+    string scopeColumn,
+    string lookupTable,
+    int projectId,
+    IReadOnlyCollection<int> programIds)
+  {
+    if (programIds.Count == 0) return new List<object>();
+
+    var values = new List<object>();
+    if (!_db.Database.IsRelational()) return values;
+    var connection = _db.Database.GetDbConnection();
+    var shouldClose = connection.State == ConnectionState.Closed;
+    if (shouldClose) await connection.OpenAsync();
+
+    try
+    {
+      using var command = connection.CreateCommand();
+
+      // Frameworks compose a display name of "locality, institution symbol, institution name"
+      // (falling back to the framework description) and only include numeric institution symbols.
+      if (lookupTable == "Frameworks")
+      {
+        command.CommandText = $"SELECT DISTINCT l.Id, COALESCE(NULLIF(loc.Description, '') + N', ', N'') + l.InstitutionSymbol + N', ' + COALESCE(NULLIF(i.Name, ''), l.Description) AS Description FROM dbo.{scopeTable} s JOIN dbo.Frameworks l ON l.Id = s.{scopeColumn} LEFT JOIN dbo.Institutions i ON TRY_CONVERT(int, l.InstitutionSymbol) = i.InstitutionSymbol LEFT JOIN dbo.Localities loc ON loc.Id = i.LocalityId WHERE s.ProjectId = @projectId AND s.ProgramId IN ({string.Join(",", programIds)}) AND l.IsActive = 1 AND TRY_CONVERT(int, l.InstitutionSymbol) IS NOT NULL ORDER BY Description";
+      }
+      else
+      {
+        command.CommandText = $"SELECT DISTINCT l.Id, l.Description FROM dbo.{scopeTable} s JOIN dbo.{lookupTable} l ON l.Id = s.{scopeColumn} WHERE s.ProjectId = @projectId AND s.ProgramId IN ({string.Join(",", programIds)}) AND l.IsActive = 1 ORDER BY l.Description";
+      }
+
+      var parameter = command.CreateParameter();
+      parameter.ParameterName = "@projectId";
+      parameter.Value = projectId;
+      command.Parameters.Add(parameter);
+
+      using var reader = await command.ExecuteReaderAsync();
+      while (await reader.ReadAsync())
+      {
+        values.Add(new
+        {
+          id = reader.GetInt32(0),
+          description = reader.GetString(1)
+        });
+      }
+    }
+    finally
+    {
+      if (shouldClose) await connection.CloseAsync();
+    }
+
+    return values;
   }
 }

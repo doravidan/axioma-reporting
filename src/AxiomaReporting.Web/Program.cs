@@ -1,3 +1,4 @@
+using System.Text;
 using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
@@ -9,10 +10,16 @@ using Microsoft.EntityFrameworkCore;
 using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
 
+// Windows-1255 (Hebrew) is needed by the mojibake-repair middleware below.
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
 // QuestPDF Community license (free for commercial use under 1M ARR)
 QuestPDF.Settings.License = LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
 
 // Register Hebrew font for QuestPDF once at startup
 var hebrewFontPath = Path.Combine(builder.Environment.WebRootPath ?? Path.Combine(AppContext.BaseDirectory, "wwwroot"),
@@ -39,6 +46,14 @@ builder.Services.AddControllersWithViews(options =>
   options.ModelBindingMessageProvider.SetMissingBindRequiredValueAccessor(field => $"חסר ערך חובה: {field}");
   options.ModelBindingMessageProvider.SetMissingKeyOrValueAccessor(() => "חסר ערך חובה");
   options.ModelBindingMessageProvider.SetValueIsInvalidAccessor(value => "הערך שנבחר אינו תקין");
+}).AddSessionStateTempDataProvider();
+
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+  options.IdleTimeout = TimeSpan.FromMinutes(30);
+  options.Cookie.HttpOnly = true;
+  options.Cookie.IsEssential = true;
 });
 
 var useDemoInMemory = string.Equals(
@@ -90,7 +105,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     options.LoginPath = "/Account/Login";
     options.LogoutPath = "/Account/Logout";
     options.AccessDeniedPath = "/Account/AccessDenied";
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
     options.SlidingExpiration = true;
   });
 
@@ -135,6 +150,34 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+
+// Buffer text/html responses and repair Hebrew mojibake (UTF-8 bytes previously
+// mis-decoded through Windows-1255) before the page reaches the browser.
+app.Use(async (context, next) =>
+{
+  var originalBody = context.Response.Body;
+  await using var bufferedBody = new MemoryStream();
+  context.Response.Body = bufferedBody;
+  await next();
+  context.Response.Body = originalBody;
+
+  if (IsHtmlResponse(context.Response.ContentType))
+  {
+    bufferedBody.Position = 0;
+    using var reader = new StreamReader(bufferedBody, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, -1, leaveOpen: true);
+    var repaired = RepairHebrewMojibake(await reader.ReadToEndAsync());
+    var bytes = Encoding.UTF8.GetBytes(repaired);
+    context.Response.Headers.ContentLength = bytes.Length;
+    await originalBody.WriteAsync(bytes, 0, bytes.Length);
+  }
+  else
+  {
+    bufferedBody.Position = 0;
+    await bufferedBody.CopyToAsync(originalBody);
+  }
+});
+
+app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -143,6 +186,106 @@ app.MapControllerRoute(
   pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();
+
+static bool IsHtmlResponse(string? contentType)
+{
+  return !string.IsNullOrWhiteSpace(contentType)
+    && contentType.IndexOf("text/html", StringComparison.OrdinalIgnoreCase) >= 0;
+}
+
+// A span is repaired only when a run of suspicious characters contains at least one
+// marker typical of UTF-8 Hebrew mis-decoded as Windows-1255 (e.g. '×' pairs).
+static string RepairHebrewMojibake(string value)
+{
+  if (string.IsNullOrEmpty(value)) return value;
+
+  var output = new StringBuilder(value.Length);
+  var span = new StringBuilder();
+  var spanHasMojibake = false;
+
+  foreach (var ch in value)
+  {
+    if (IsMojibakeCandidateChar(ch) || (span.Length > 0 && IsMojibakeSpanGlue(ch)))
+    {
+      span.Append(ch);
+      spanHasMojibake = spanHasMojibake || IsMojibakeMarker(ch);
+    }
+    else
+    {
+      FlushMojibakeSpan(output, span, spanHasMojibake);
+      spanHasMojibake = false;
+      output.Append(ch);
+    }
+  }
+
+  FlushMojibakeSpan(output, span, spanHasMojibake);
+  return output.ToString();
+}
+
+static void FlushMojibakeSpan(StringBuilder output, StringBuilder span, bool spanHasMojibake)
+{
+  if (span.Length == 0) return;
+  var text = span.ToString();
+  output.Append(spanHasMojibake ? RepairHebrewMojibakeSpan(text) : text);
+  span.Clear();
+}
+
+// Re-encode through Windows-1255 up to 6 times and keep the roundtrip with the best
+// Hebrew score (repairs double/triple-encoded text without corrupting clean text).
+static string RepairHebrewMojibakeSpan(string value)
+{
+  var windows1255 = Encoding.GetEncoding(1255);
+  var best = value;
+  var bestScore = HebrewTextScore(value);
+  var candidate = value;
+
+  for (var i = 0; i < 6; i++)
+  {
+    candidate = Encoding.UTF8.GetString(windows1255.GetBytes(candidate));
+    var score = HebrewTextScore(candidate);
+    if (score > bestScore)
+    {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+static int HebrewTextScore(string value)
+{
+  var score = 0;
+  foreach (var ch in value)
+  {
+    if (ch >= 'א' && ch <= 'ת')
+      score += 4;
+    else if (ch == '\ufffd')
+      score -= 30;
+    else if (IsMojibakeMarker(ch))
+      score -= 6;
+    else if (char.IsControl(ch) && ch != '\r' && ch != '\n' && ch != '\t')
+      score -= 20;
+  }
+  return score;
+}
+
+static bool IsMojibakeCandidateChar(char ch)
+{
+  // Any non-ASCII char that is not a plain Hebrew letter (א..ת) is suspicious.
+  return ch >= '\u0080' && (ch < 'א' || ch > 'ת');
+}
+
+static bool IsMojibakeMarker(char ch)
+{
+  return ch is '׳' or '×' or 'Â' or '\u05b2' or 'ײ' or '€' or '™' or '“' or '”'
+    or '\u0090' or '\u009d' or '\u009e';
+}
+
+static bool IsMojibakeSpanGlue(char ch)
+{
+  return ch is ' ' or '-' or ':' or '/' or '(' or ')' or ',' or '.';
+}
 
 static void SeedDemoData(AppDbContext db)
 {
