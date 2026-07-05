@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Run settings for the AxiomaReporting test suite.
+
+  Usage:
+    dotnet test AxiomaReporting.sln (settings) tests.runsettings
+
+  On Linux / containers the ASP.NET Core host (used by the integration and
+  Playwright tests) enables inotify file watchers on startup. Default inotify
+  instance limits are low and get exhausted when many hosts start, causing the
+  web app to crash on boot. Forcing polling file watchers avoids inotify
+  entirely so the tests start reliably. On Windows this variable is harmless.
+-->
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <DOTNET_USE_POLLING_FILE_WATCHER>1</DOTNET_USE_POLLING_FILE_WATCHER>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>

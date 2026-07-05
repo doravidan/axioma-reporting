@@ -39,6 +39,13 @@ if ! command -v dotnet >/dev/null 2>&1; then
   sudo ln -sf "$DOTNET_DIR/dotnet" /usr/local/bin/dotnet
 fi
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+# The ASP.NET Core host enables inotify file watchers on startup. Default
+# container inotify instance limits (often 128) are easily exhausted when the
+# test suite spins up many hosts, which makes the app/tests crash on boot.
+# Raise the limit and prefer polling watchers to make startup deterministic.
+sudo sysctl -w fs.inotify.max_user_instances=1024 >/dev/null 2>&1 || true
+sudo sysctl -w fs.inotify.max_user_watches=524288 >/dev/null 2>&1 || true
+export DOTNET_USE_POLLING_FILE_WATCHER=1
 dotnet --version
 
 # ---------------------------------------------------------------------------
@@ -128,6 +135,21 @@ if [ "${SKIP_SEED:-0}" != "1" ]; then
   ( cd "$REPO_ROOT/database/seed-data"
     "$SEED_ENV/bin/python" seed_lookups.py
     "$SEED_ENV/bin/python" seed_reports.py )
+fi
+
+# ---------------------------------------------------------------------------
+# 5. (Optional) run the test suite — set RUN_TESTS=1 to enable
+# ---------------------------------------------------------------------------
+if [ "${RUN_TESTS:-0}" = "1" ]; then
+  log "Installing Playwright browsers for the E2E tests"
+  PW_DIR="$REPO_ROOT/src/AxiomaReporting.Tests/bin/Debug/net6.0/.playwright"
+  if [ -f "$PW_DIR/package/cli.js" ]; then
+    # OS-level browser dependencies (needs sudo); browsers into the user cache.
+    sudo "$PW_DIR/node/linux-x64/node" "$PW_DIR/package/cli.js" install --with-deps chromium || true
+    "$PW_DIR/node/linux-x64/node" "$PW_DIR/package/cli.js" install chromium || true
+  fi
+  log "Running the full test suite"
+  dotnet test AxiomaReporting.sln -c Debug --no-build --settings "$REPO_ROOT/tests.runsettings"
 fi
 
 log "Done. Run the app with:"
