@@ -73,5 +73,10 @@ desktop.ini
 *.tmp
 *.temp
 
+# Client onboarding workbooks contain employee PII (ID numbers, phones, emails,
+# birth dates) and must NOT be committed. Drop them into this folder locally and
+# run database/seed-data/import_onboarding.py. See ONBOARDING_IMPORT.md.
+database/seed-data/onboarding/
+
 # Azure artifacts
 **/azureauth.json
