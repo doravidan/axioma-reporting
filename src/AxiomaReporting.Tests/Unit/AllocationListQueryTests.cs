@@ -126,13 +126,41 @@ public class AllocationListQueryTests : IDisposable
     results.Should().ContainSingle(a => a.Id == 100);
   }
 
+  // ProjectManager/ProjectCoordinator manage ALL allocations regardless of InspectorAssignments
+  // (H6 fix) - they must NOT be scoped like Inspector-View/Inspector-Approval.
   [Fact]
-  public async Task ScopedAllocationDashboard_ManagerWithoutAssignmentsSeesNoAllocations()
+  public async Task ScopedAllocationDashboard_CoordinatorWithoutAssignmentsSeesAllAllocations()
   {
     var results = await (await AllocationsController.BuildScopedAllocationQueryAsync(
         _db,
         currentUserId: 51,
         UserRoleEnum.ProjectCoordinator))
+      .ToListAsync();
+
+    results.Select(a => a.Id).Should().BeEquivalentTo(new[] { 100, 101 });
+  }
+
+  [Fact]
+  public async Task ScopedAllocationDashboard_ManagerWithoutAssignmentsSeesAllAllocations()
+  {
+    var results = await (await AllocationsController.BuildScopedAllocationQueryAsync(
+        _db,
+        currentUserId: 52,
+        UserRoleEnum.ProjectManager))
+      .ToListAsync();
+
+    results.Select(a => a.Id).Should().BeEquivalentTo(new[] { 100, 101 });
+  }
+
+  // Only InspectorView/InspectorApproval are scoped by InspectorAssignments - an inspector
+  // with no assignment rows should see nothing.
+  [Fact]
+  public async Task ScopedAllocationDashboard_InspectorViewWithoutAssignmentsSeesNoAllocations()
+  {
+    var results = await (await AllocationsController.BuildScopedAllocationQueryAsync(
+        _db,
+        currentUserId: 53,
+        UserRoleEnum.InspectorView))
       .ToListAsync();
 
     results.Should().BeEmpty();

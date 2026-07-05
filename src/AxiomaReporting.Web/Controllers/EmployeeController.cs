@@ -213,12 +213,27 @@ public class EmployeeController : Controller
   [ValidateAntiForgeryToken]
   public async Task<IActionResult> Edit(int id, EmployeeDto dto)
   {
-    NormalizeRequestedUserRole(dto);
     var existing = await _db.Users.AsNoTracking()
       .Where(u => u.Id == id)
-      .Select(u => new { u.EmployeeCode, u.IdNumber, u.Phone })
+      .Select(u => new { u.EmployeeCode, u.IdNumber, u.Phone, u.UserRoleId })
       .FirstOrDefaultAsync();
     if (existing == null) return NotFound();
+
+    // Block the entire edit if the target user's CURRENT role outranks the caller (e.g. a
+    // ProjectCoordinator trying to edit a SystemAdmin/ProjectManager). This must be checked
+    // against the pre-edit DB state, since NormalizeRequestedUserRole only sees the requested
+    // new role, not what the user currently holds. SystemAdmin is exempt.
+    if (_currentUser.UserRole != UserRoleEnum.SystemAdmin &&
+        existing.UserRoleId < (int)_currentUser.UserRole)
+    {
+      ModelState.AddModelError(string.Empty, "אין הרשאה לערוך משתמש בעל הרשאת מערכת גבוהה יותר");
+      ModelState.AddModelError(nameof(EmployeeDto.UserRoleId), "אין הרשאה לערוך משתמש בעל הרשאת מערכת גבוהה יותר");
+      await PopulateFormDropdownsAsync();
+      ViewBag.IsEdit = true;
+      return View("Form", dto);
+    }
+
+    NormalizeRequestedUserRole(dto);
 
     var validation = new UserValidator().Validate(dto);
     // Let admins edit other fields on legacy users whose existing values were
@@ -1178,13 +1193,24 @@ public class EmployeeController : Controller
     }
   }
 
+  /// <summary>
+  /// Enforces the role hierarchy on role assignment: UserRoleEnum numeric values are ordered
+  /// from highest privilege (SystemAdmin = 1) to lowest (Employee = 6) - see
+  /// Core/Enums/UserRoleEnum.cs and the "1"/"2"/"3" role-claim policies in Program.cs. A caller
+  /// may only assign a role at-or-below (numerically >=) their own rank; SystemAdmin is exempt.
+  /// This prevents a ProjectCoordinator (rank 3) from granting ProjectManager (2) or
+  /// SystemAdmin (1), which would otherwise be a privilege escalation.
+  /// </summary>
   private void NormalizeRequestedUserRole(EmployeeDto dto)
   {
-    if (_currentUser.UserRole != UserRoleEnum.SystemAdmin &&
-        dto.UserRoleId == (int)UserRoleEnum.SystemAdmin)
+    if (_currentUser.UserRole == UserRoleEnum.SystemAdmin) return;
+
+    var callerRank = (int)_currentUser.UserRole;
+    if (dto.UserRoleId > 0 && dto.UserRoleId < callerRank)
     {
-      dto.UserRoleId = (int)UserRoleEnum.Employee;
-      ModelState.AddModelError(nameof(dto.UserRoleId), "רק מנהל מערכת יכול להגדיר מנהל מערכת");
+      dto.UserRoleId = callerRank;
+      ModelState.AddModelError(nameof(dto.UserRoleId),
+        "אין הרשאה להגדיר הרשאת מערכת הגבוהה מהרשאת המשתמש המחובר");
     }
   }
 

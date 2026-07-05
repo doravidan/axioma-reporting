@@ -194,7 +194,10 @@ public class AllocationsController : Controller
   {
     var query = BaseAllocationQuery(db);
 
-    if (role == UserRoleEnum.SystemAdmin)
+    // SystemAdmin/ProjectManager/ProjectCoordinator manage ALL allocations (unscoped), matching
+    // DashboardFilterService.GetScopedUserIdsAsync. Only InspectorView/InspectorApproval are
+    // scoped by their InspectorAssignments rows.
+    if (role is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
       return query;
 
     if (role == UserRoleEnum.Employee)
