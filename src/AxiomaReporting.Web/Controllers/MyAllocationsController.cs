@@ -118,6 +118,7 @@ public class MyAllocationsController : Controller
   {
     return _db.Allocations
       .AsNoTracking()
+      .AsSplitQuery()
       .Include(a => a.User)
       .Include(a => a.Project)
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)

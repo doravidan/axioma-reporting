@@ -9,7 +9,7 @@ namespace AxiomaReporting.Infrastructure.Services;
 
 public interface IBatchReportImportService
 {
-  Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default);
+  Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default, string? progressId = null);
 }
 
 public class BatchImportResult
@@ -82,8 +82,8 @@ public class BatchReportImportService : IBatchReportImportService
     ["District"] = new[] { "מחוז מאשר", "מחוז" },
     ["Locality"] = new[] { "יישוב", "ישוב" },
     ["Framework"] = new[] { "שם המסגרת חינוכית", "מסגרת חינוכית" },
-    ["MeetingDate"] = new[] { "תאריך המפגש", "תאריך מפגש" },
-    ["MeetingDuration"] = new[] { "משך המפגש" },
+    ["MeetingDate"] = new[] { "תאריך המפגש", "תאריך מפגש", "תאריך" },
+    ["MeetingDuration"] = new[] { "משך המפגש", "משך המפגש (בשעות)" },
     ["EducationalProgram"] = new[] { "תוכנית חינוכית" },
     ["Domain"] = new[] { "תחום" },
     ["Subject1"] = new[] { "נושא 1", "נושא1" },
@@ -108,7 +108,7 @@ public class BatchReportImportService : IBatchReportImportService
     _emailService = emailService;
   }
 
-  public async Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default)
+  public async Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default, string? progressId = null)
   {
     var result = new BatchImportResult();
 
@@ -134,6 +134,18 @@ public class BatchReportImportService : IBatchReportImportService
     var pendingByUser = new Dictionary<int, List<(ReportRow Row, int FileRow, string EmployeeCode, string ReporterName, string AllocationLabel)>>();
     var rejectionsByUser = new Dictionary<string, (int UserId, string ReporterName, int Count)>();
 
+    // Per-import caches so repeated employee codes don't re-query the DB per row
+    var usersByCode = new Dictionary<string, User?>(StringComparer.OrdinalIgnoreCase);
+    var existingRowsByUser = new Dictionary<int, List<ReportRow>>();
+    // Caches the pre-import StatusId of each user's report for this month (null = no report yet),
+    // so rows targeting an already-locked (PendingApproval/Approved) report are rejected up front.
+    var existingReportStatusByUser = new Dictionary<int, int?>();
+
+    var rowsByHeaderRow = new Dictionary<int, int>();
+    var progressTotalRows = CountImportableRows(workbook, rowsByHeaderRow);
+    var progressProcessedRows = 0;
+    BatchImportProgressStore.Start(progressId, progressTotalRows);
+
     foreach (var sheet in workbook.Worksheets)
     {
       var headerRow = FindHeaderRow(sheet);
@@ -147,7 +159,9 @@ public class BatchReportImportService : IBatchReportImportService
       {
         ct.ThrowIfCancellationRequested();
         if (IsRowEmpty(sheet, r, headerMap)) continue;
+        progressProcessedRows++;
         result.TotalRowsRead++;
+        BatchImportProgressStore.Update(progressId, progressProcessedRows, progressTotalRows);
 
         var rawEmpCode = GetCellString(sheet, r, headerMap, "EmployeeCode");
         var reporterName = GetCellString(sheet, r, headerMap, "ReporterName");
@@ -167,13 +181,19 @@ public class BatchReportImportService : IBatchReportImportService
           continue;
         }
 
-        var user = await _db.Users
-          .Include(u => u.Allocations)
-            .ThenInclude(a => a.AllocationDistricts)
-          .Include(u => u.Allocations).ThenInclude(a => a.AllocationLocalities)
-          .Include(u => u.Allocations).ThenInclude(a => a.AllocationFrameworks)
-          .Include(u => u.Allocations).ThenInclude(a => a.AllocationEducationalPrograms)
-          .FirstOrDefaultAsync(u => u.EmployeeCode == rawEmpCode, ct);
+        if (!usersByCode.TryGetValue(rawEmpCode, out var user))
+        {
+          user = await _db.Users
+            .Include(u => u.Allocations)
+              .ThenInclude(a => a.AllocationDistricts)
+            .Include(u => u.Allocations).ThenInclude(a => a.AllocationLocalities)
+            .Include(u => u.Allocations).ThenInclude(a => a.AllocationFrameworks)
+              .ThenInclude(af => af.Framework)
+            .Include(u => u.Allocations).ThenInclude(a => a.AllocationEducationalPrograms)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(u => u.EmployeeCode == rawEmpCode, ct);
+          usersByCode[rawEmpCode] = user;
+        }
 
         if (user == null)
         {
@@ -193,6 +213,27 @@ public class BatchReportImportService : IBatchReportImportService
         var displayName = string.IsNullOrWhiteSpace(reporterName)
           ? $"{user.FirstName} {user.LastName}".Trim()
           : reporterName;
+
+        // Excel upload may only add rows to unapproved reports (Draft/InEntry/Returned).
+        // A report already PendingApproval (3) or Approved (4) must not be silently appended to.
+        if (!existingReportStatusByUser.TryGetValue(user.Id, out var existingStatusId))
+        {
+          existingStatusId = await _db.Reports
+            .Where(rep => rep.UserId == user.Id && rep.ReportingMonthId == reportingMonthId)
+            .Select(rep => (int?)rep.StatusId)
+            .FirstOrDefaultAsync(ct);
+          existingReportStatusByUser[user.Id] = existingStatusId;
+        }
+
+        if (existingStatusId is 3 or 4)
+        {
+          AddError(result, r, rawEmpCode, displayName,
+            "לא ניתן לייבא — הדיווח כבר אושר או ממתין לאישור", raw);
+          Increment(rejectionsByUser, rawEmpCode, user.Id, displayName);
+          AddRowResult(result, r, rawEmpCode, displayName, BatchImportRowOutcome.Rejected,
+            $"שורה {r}: נדחה — לא ניתן לייבא, הדיווח כבר אושר או ממתין לאישור");
+          continue;
+        }
 
         // Parse meeting date
         if (!TryReadMeetingDate(sheet, r, headerMap, out var meetingDate, out var dateError))
@@ -303,11 +344,20 @@ public class BatchReportImportService : IBatchReportImportService
           Notes = string.IsNullOrWhiteSpace(notes) ? null : notes
         };
 
-        // Find / create report for this user+month
-        var report = await _db.Reports
-          .Include(rep => rep.ReportRows)
-          .FirstOrDefaultAsync(rep => rep.UserId == user.Id && rep.ReportingMonthId == reportingMonthId, ct);
-        var existingRows = report?.ReportRows.ToList() ?? new List<ReportRow>();
+        // Find existing report rows for this user+month (cached per user)
+        if (!existingRowsByUser.TryGetValue(user.Id, out var existingRows))
+        {
+          existingRows = (await _db.Reports
+              .Include(rep => rep.ReportRows)
+              .FirstOrDefaultAsync(rep => rep.UserId == user.Id && rep.ReportingMonthId == reportingMonthId, ct))
+            ?.ReportRows.ToList() ?? new List<ReportRow>();
+          existingRowsByUser[user.Id] = existingRows;
+        }
+        else
+        {
+          // Copy so pending rows appended below don't pollute the cached list
+          existingRows = existingRows.ToList();
+        }
 
         // Add the already-pending rows for this user to the validation context
         if (pendingByUser.TryGetValue(user.Id, out var queued))
@@ -456,7 +506,29 @@ public class BatchReportImportService : IBatchReportImportService
     }
 
     // Uploader summary emails (sent by controller because it may need to attach PDF).
+    BatchImportProgressStore.Complete(progressId, progressProcessedRows, progressTotalRows);
     return result;
+  }
+
+  private static int CountImportableRows(XLWorkbook workbook, Dictionary<int, int> rowsByHeaderRow)
+  {
+    var count = 0;
+    foreach (var sheet in workbook.Worksheets)
+    {
+      var headerRow = FindHeaderRow(sheet);
+      if (headerRow < 0) continue;
+
+      var headerMap = BuildHeaderMap(sheet, headerRow);
+      if (!headerMap.ContainsKey("EmployeeCode")) continue;
+
+      var lastRow = sheet.LastRowUsed()?.RowNumber() ?? headerRow;
+      for (var r = headerRow + 1; r <= lastRow; r++)
+      {
+        if (!IsRowEmpty(sheet, r, headerMap))
+          count++;
+      }
+    }
+    return count;
   }
 
   private static Allocation? ResolveAllocation(
@@ -473,11 +545,24 @@ public class BatchReportImportService : IBatchReportImportService
     var matches = actives.Where(a =>
       (districtId == null || a.AllocationDistricts.Count == 0 || a.AllocationDistricts.Any(ad => ad.DistrictId == districtId)) &&
       (localityId == null || a.AllocationLocalities.Count == 0 || a.AllocationLocalities.Any(al => al.LocalityId == localityId)) &&
-      (frameworkId == null || a.AllocationFrameworks.Count == 0 || a.AllocationFrameworks.Any(af => af.FrameworkId == frameworkId)) &&
+      MatchesFrameworkScope(a, frameworkId) &&
       (eduProgramId == null || a.AllocationEducationalPrograms.Count == 0 || a.AllocationEducationalPrograms.Any(ae => ae.EducationalProgramId == eduProgramId)))
       .ToList();
 
     return matches.Count == 1 ? matches[0] : null;
+  }
+
+  private static bool MatchesFrameworkScope(Allocation allocation, int? frameworkId)
+  {
+    if (!frameworkId.HasValue) return true;
+
+    // Only frameworks with a numeric institution symbol constrain the allocation match;
+    // non-numeric ones are conclusion frameworks and don't scope the row.
+    var numericFrameworks = allocation.AllocationFrameworks
+      .Where(af => af.Framework != null && int.TryParse(af.Framework.InstitutionSymbol, out _))
+      .ToList();
+    if (numericFrameworks.Count == 0) return true;
+    return numericFrameworks.Any(af => af.FrameworkId == frameworkId);
   }
 
   private static void AddError(BatchImportResult result, int row, string? empCode, string? name, string msg, string? raw)
@@ -630,6 +715,19 @@ public class BatchReportImportService : IBatchReportImportService
     if (cell.IsEmpty()) return false;
 
     if (cell.TryGetValue<DateTime>(out var dt)) { date = dt.Date; return true; }
+
+    if (cell.TryGetValue<double>(out var oaDate) && oaDate > 0)
+    {
+      try
+      {
+        date = DateTime.FromOADate(oaDate).Date;
+        return true;
+      }
+      catch (ArgumentException)
+      {
+        // Not a valid OADate; fall through to text parsing
+      }
+    }
 
     var text = cell.GetString().Trim();
     if (string.IsNullOrEmpty(text)) return false;

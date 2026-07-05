@@ -23,6 +23,8 @@
         SortBy = key,
         SortDesc = filter.SortBy == key ? !filter.SortDesc : false
     }) ?? "#";
+
+    string AriaSort(string key) => filter.SortBy == key ? (filter.SortDesc ? "descending" : "ascending") : "none";
 }
 
 <div class="container-fluid mt-3">
@@ -162,26 +164,27 @@
                 <table class="table table-hover table-bordered table-sm align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th style="width:40px">
+                            <th scope="col" style="width:40px">
                                 <input type="checkbox" id="selectAllCb" title="בחר הכל" />
                             </th>
-                            <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
-                            <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
-                            <th><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
-                            <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
-                            <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
-                            <th>שורות</th>
-                            <th>משך תפוקה</th>
-                            <th>יתרת שורות</th>
-                            <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
-                            <th>פעולות</th>
+                            <th scope="col" aria-sort="@AriaSort("name")"><a class="link-dark" href="@SortLink("name")">עובד</a></th>
+                            <th scope="col" aria-sort="@AriaSort("code")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                            <th scope="col" aria-sort="@AriaSort("project")"><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
+                            <th scope="col" aria-sort="@AriaSort("month")"><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                            <th scope="col" aria-sort="@AriaSort("status")"><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                            <th scope="col">שורות</th>
+                            <th scope="col">משך תפוקה</th>
+                            <th scope="col">יתרת שורות</th>
+                            <th scope="col" aria-sort="@AriaSort("submitted")"><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                            <th scope="col">מסמכים</th>
+                            <th scope="col">פעולות</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (!rows.Any())
                         {
                             <tr>
-                                <td colspan="11" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                                <td colspan="12" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                             </tr>
                         }
                         @foreach (var r in rows)
@@ -216,6 +219,10 @@
                                     }
                                 </td>
                                 <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
+                                <td>@if (r.ReportId != 0 && r.DocumentCount > 0)
+                                    {<a class="btn btn-outline-primary btn-sm" title="פתיחת מסמכי הדיווח" href="/Report?reportId=@(r.ReportId)&allocationId=@(r.AllocationId)#documents">מסמכים (@r.DocumentCount)</a>}
+                                    else
+                                    {<span class="text-muted">0</span>}</td>
                                 <td>
                                     @if (r.StatusId == 3)
                                     {
@@ -246,22 +253,23 @@
             <table class="table table-hover table-bordered table-sm align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th><a class="link-dark" href="@SortLink("name")">עובד</a></th>
-                        <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
-                        <th><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
-                        <th><a class="link-dark" href="@SortLink("month")">חודש</a></th>
-                        <th><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
-                        <th>שורות</th>
-                        <th>משך תפוקה</th>
-                        <th>יתרת שורות</th>
-                        <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                        <th scope="col" aria-sort="@AriaSort("name")"><a class="link-dark" href="@SortLink("name")">עובד</a></th>
+                        <th scope="col" aria-sort="@AriaSort("code")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                        <th scope="col" aria-sort="@AriaSort("project")"><a class="link-dark" href="@SortLink("project")">פרויקט</a></th>
+                        <th scope="col" aria-sort="@AriaSort("month")"><a class="link-dark" href="@SortLink("month")">חודש</a></th>
+                        <th scope="col" aria-sort="@AriaSort("status")"><a class="link-dark" href="@SortLink("status")">סטטוס</a></th>
+                        <th scope="col">שורות</th>
+                        <th scope="col">משך תפוקה</th>
+                        <th scope="col">יתרת שורות</th>
+                        <th scope="col" aria-sort="@AriaSort("submitted")"><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                        <th scope="col">מסמכים</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (!rows.Any())
                     {
                         <tr>
-                            <td colspan="9" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                            <td colspan="10" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                         </tr>
                     }
                     @foreach (var r in rows)
@@ -289,6 +297,10 @@
                                 }
                             </td>
                             <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
+                            <td>@if (r.ReportId != 0 && r.DocumentCount > 0)
+                                {<a class="btn btn-outline-primary btn-sm" title="פתיחת מסמכי הדיווח" href="/Report?reportId=@(r.ReportId)&allocationId=@(r.AllocationId)#documents">מסמכים (@r.DocumentCount)</a>}
+                                else
+                                {<span class="text-muted">0</span>}</td>
                         </tr>
                     }
                 </tbody>
@@ -319,6 +331,38 @@
                     <button type="submit" class="btn btn-danger">דחה דיווח</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="dashboardDocumentsModal" tabindex="-1" aria-labelledby="dashboardDocumentsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dashboardDocumentsModalLabel">מסמכי עובד</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
+            </div>
+            <div class="modal-body">
+                <div id="dashboardDocumentsMeta" class="mb-3"></div>
+                <div id="dashboardDocumentsState" class="text-muted">טוען מסמכים...</div>
+                <div class="table-responsive d-none" id="dashboardDocumentsTableWrap">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">שם קובץ</th>
+                                <th scope="col">תיאור</th>
+                                <th scope="col">תאריך העלאה</th>
+                                <th scope="col">גודל</th>
+                                <th scope="col">פעולות</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboardDocumentsRows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+            </div>
         </div>
     </div>
 </div>
@@ -489,3 +533,73 @@
         })();
     </script>
 }
+<script>
+(function () {
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function (ch) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+        });
+    }
+
+    function showDashboardDocuments(reportId, allocationId) {
+        var modalEl = document.getElementById('dashboardDocumentsModal');
+        var meta = document.getElementById('dashboardDocumentsMeta');
+        var state = document.getElementById('dashboardDocumentsState');
+        var tableWrap = document.getElementById('dashboardDocumentsTableWrap');
+        var rows = document.getElementById('dashboardDocumentsRows');
+        if (!modalEl || !meta || !state || !tableWrap || !rows) return;
+        meta.innerHTML = '';
+        rows.innerHTML = '';
+        state.textContent = 'טוען מסמכים...';
+        state.classList.remove('d-none', 'text-danger');
+        tableWrap.classList.add('d-none');
+        new bootstrap.Modal(modalEl).show();
+
+        fetch('/Dashboard/ReportDocuments?reportId=' + encodeURIComponent(reportId) + '&allocationId=' + encodeURIComponent(allocationId), {
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        })
+            .then(function (res) { if (!res.ok) throw new Error('failed'); return res.json(); })
+            .then(function (data) {
+                meta.innerHTML = '<div class="row g-2">'
+                    + '<div class="col-md-6"><strong>עובד:</strong> ' + escapeHtml(data.employeeName) + '</div>'
+                    + '<div class="col-md-6"><strong>תעודת זהות:</strong> ' + escapeHtml(data.employeeId) + '</div>'
+                    + '<div class="col-md-6"><strong>פרויקט:</strong> ' + escapeHtml(data.projectName) + '</div>'
+                    + '<div class="col-md-6"><strong>חודש דיווח:</strong> ' + escapeHtml(data.reportMonth) + '</div>'
+                    + '</div>';
+                var docs = data.documents || [];
+                if (!docs.length) {
+                    state.textContent = 'אין מסמכים להצגה';
+                    return;
+                }
+                rows.innerHTML = docs.map(function (doc) {
+                    return '<tr>'
+                        + '<td>' + escapeHtml(doc.fileName) + '</td>'
+                        + '<td>' + escapeHtml(doc.description || '-') + '</td>'
+                        + '<td>' + escapeHtml(doc.uploadedAt) + '</td>'
+                        + '<td>' + escapeHtml(doc.fileSize) + '</td>'
+                        + '<td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="' + escapeHtml(doc.viewUrl) + '">צפייה</a> '
+                        + '<a class="btn btn-sm btn-outline-secondary" href="' + escapeHtml(doc.downloadUrl) + '">הורדה</a></td>'
+                        + '</tr>';
+                }).join('');
+                state.classList.add('d-none');
+                tableWrap.classList.remove('d-none');
+            })
+            .catch(function () {
+                state.textContent = 'לא ניתן לטעון את המסמכים כרגע';
+                state.classList.add('text-danger');
+            });
+    }
+
+    document.addEventListener('click', function (e) {
+        var link = e.target.closest('a.btn[href*="/Report?reportId="][href*="#documents"]');
+        if (!link) return;
+        var url = new URL(link.getAttribute('href'), window.location.origin);
+        var reportId = url.searchParams.get('reportId');
+        var allocationId = url.searchParams.get('allocationId');
+        if (!reportId || !allocationId) return;
+        e.preventDefault();
+        showDashboardDocuments(reportId, allocationId);
+    });
+})();
+</script>

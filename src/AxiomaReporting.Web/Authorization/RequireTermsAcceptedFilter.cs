@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -8,8 +9,9 @@ namespace AxiomaReporting.Web.Authorization;
 
 /// <summary>
 /// Global filter that blocks access to any page until the authenticated user has
-/// accepted the latest published Terms of Use version. Account controller actions
-/// (login/logout, TFA, password recovery, and the Terms screen itself) are exempt.
+/// changed a forced/expired password and accepted the latest published Terms of Use
+/// version. Account controller actions (login/logout, TFA, password recovery, and
+/// the Terms screen itself) are exempt.
 /// </summary>
 public sealed class RequireTermsAcceptedFilter : IAsyncActionFilter
 {
@@ -62,6 +64,27 @@ public sealed class RequireTermsAcceptedFilter : IAsyncActionFilter
       return;
     }
 
+    // Force a password change (before Terms) when flagged or when the password expired.
+    var currentUser = await _db.Users
+      .AsNoTracking()
+      .Where(u => u.Id == userId)
+      .Select(u => new User
+      {
+        Id = u.Id,
+        MustChangePassword = u.MustChangePassword,
+        LastPasswordChange = u.LastPasswordChange
+      })
+      .FirstOrDefaultAsync();
+
+    if (currentUser != null && (currentUser.MustChangePassword || IsPasswordExpired(currentUser.LastPasswordChange)))
+    {
+      context.Result = new RedirectToActionResult(
+        "ChangePassword",
+        "Account",
+        new Microsoft.AspNetCore.Routing.RouteValueDictionary { ["forced"] = true });
+      return;
+    }
+
     var latestVersionId = await _db.TermsOfUseVersions
       .OrderByDescending(v => v.VersionNumber)
       .Select(v => (int?)v.Id)
@@ -96,5 +119,11 @@ public sealed class RequireTermsAcceptedFilter : IAsyncActionFilter
     }
 
     await next();
+  }
+
+  private static bool IsPasswordExpired(DateTime? lastPasswordChange)
+  {
+    return !lastPasswordChange.HasValue
+      || (DateTime.UtcNow - lastPasswordChange.Value).TotalDays > 90.0;
   }
 }

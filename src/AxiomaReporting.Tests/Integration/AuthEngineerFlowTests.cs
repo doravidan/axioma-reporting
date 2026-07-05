@@ -241,10 +241,10 @@ public class AuthEngineerFlowTests
   }
 
   [Fact]
-  public async Task SelfServiceResetPassword_ForcesChangeOnNextLogin()
+  public async Task SelfServiceResetPassword_ClearsMustChangePassword()
   {
-    // Client rule: every reset path should force a password-change screen on
-    // next login, including a self-service email reset.
+    // Since v1.2.11 a successful self-service reset counts as the user choosing a
+    // fresh password, so MustChangePassword is cleared instead of forced.
     await using var factory = new CustomWebApplicationFactory();
     var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
 
@@ -278,7 +278,8 @@ public class AuthEngineerFlowTests
     using var checkScope = factory.Services.CreateScope();
     var db2 = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
     var user = await db2.Users.AsNoTracking().SingleAsync(u => u.Id == 1);
-    user.MustChangePassword.Should().BeTrue();
+    user.MustChangePassword.Should().BeFalse(
+      because: "a successful reset clears the forced-change flag since v1.2.11");
 
     var pwd = new PasswordService();
     pwd.VerifyPassword("ResetA1!", user.PasswordHash).Should().BeTrue();

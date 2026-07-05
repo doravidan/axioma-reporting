@@ -16,7 +16,7 @@ public class LoginPagePlaywrightTests : PlaywrightTestBase
     {
         await Page.GotoAsync("/Account/Login");
         var title = await Page.TitleAsync();
-        title.Should().Contain("סייט&סאונד חינוך");
+        title.Should().Contain("סייט אנד סאונד");
         title.Should().Contain("כניסה למערכת");
     }
 

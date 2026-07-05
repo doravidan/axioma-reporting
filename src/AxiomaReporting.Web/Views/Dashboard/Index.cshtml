@@ -55,6 +55,7 @@
     };
 
     string SortLink(string key) => Url.Action("Index", RouteValues(1, key)) ?? "#";
+    string AriaSort(string key) => filter.SortBy == key ? (filter.SortDesc ? "descending" : "ascending") : "none";
     string TextOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
     string DateOrDash(DashboardReportDetailRow row) => row.StatusId == 0 || row.MeetingDate == DateTime.MinValue
         ? "—"
@@ -93,6 +94,10 @@
                 <input type="hidden" name="show" value="1" />
                 <input type="hidden" name="SortBy" value="@filter.SortBy" />
                 <input type="hidden" name="SortDesc" value="@filter.SortDesc" />
+                @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
+                {
+                    <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="IncludeArchived" value="true" id="includeArchived"@{if (filter.IncludeArchived){<text> checked</text>}} /><label class="form-check-label" for="includeArchived">הצג דיווחים בארכיון</label></div>
+                }
                 <div class="row g-2">
                     <div class="col-md-1">
                         <label class="form-label form-label-sm">ת.ז</label>
@@ -154,7 +159,7 @@
                     <div class="col-md-1"><label class="form-label form-label-sm">תחום</label><select name="DomainId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in domains) { <option value="@x.Id" selected="@(filter.DomainId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">נושא 1</label><select name="Subject1Id" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in subjects) { <option value="@x.Id" selected="@(filter.Subject1Id == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">נושא 2</label><select name="Subject2Id" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in subjects) { <option value="@x.Id" selected="@(filter.Subject2Id == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-1"><label class="form-label form-label-sm">קוד דיון</label><select name="DiscussionCodeId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in discussionCodes) { <option value="@x.Id" selected="@(filter.DiscussionCodeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-1"><label class="form-label form-label-sm">קיום דיון</label><select name="DiscussionCodeId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in discussionCodes) { <option value="@x.Id" selected="@(filter.DiscussionCodeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">כיתה</label><select name="ClassId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in classes) { <option value="@x.Id" selected="@(filter.ClassId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">שכבה</label><select name="GradeLevelId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in gradeLevels) { <option value="@x.Id" selected="@(filter.GradeLevelId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">סוג דיווח</label><select name="ReportTypeId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in reportTypes) { <option value="@x.Id" selected="@(filter.ReportTypeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
@@ -196,32 +201,32 @@
                 <tr>
                     @if (showEditColumn)
                     {
-                        <th>פעולות</th>
+                        <th scope="col">פעולות</th>
                     }
-                    <th><a class="link-dark" href="@SortLink("sequence")">מס"ד</a></th>
-                    <th><a class="link-dark" href="@SortLink("idnumber")">ת.ז</a></th>
-                    <th><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
-                    <th><a class="link-dark" href="@SortLink("name")">שם מדווח</a></th>
-                    <th><a class="link-dark" href="@SortLink("month")">חודש דיווח</a></th>
-                    <th>פרויקט</th>
-                    <th><a class="link-dark" href="@SortLink("district")">מחוז</a></th>
-                    <th><a class="link-dark" href="@SortLink("locality")">יישוב</a></th>
-                    <th><a class="link-dark" href="@SortLink("framework")">מסגרת חינוכית</a></th>
-                    <th><a class="link-dark" href="@SortLink("meetingdate")">תאריך מפגש</a></th>
-                    <th><a class="link-dark" href="@SortLink("duration")">משך מפגש</a></th>
-                    <th><a class="link-dark" href="@SortLink("program")">תוכנית חינוכית</a></th>
-                    <th>תחום</th>
-                    <th>נושא 1</th>
-                    <th>נושא 2</th>
-                    <th>קוד דיון</th>
-                    <th>כיתה</th>
-                    <th>שכבה</th>
-                    <th>סוג דיווח</th>
-                    <th>מסקנה - כיתה</th>
-                    <th>מסקנה - מסגרת</th>
-                    <th>מסקנה - יישוב/מחוז/ארצי</th>
-                    <th>מסמכים</th>
-                    <th>הערות</th>
+                    <th scope="col" aria-sort="@AriaSort("sequence")"><a class="link-dark" href="@SortLink("sequence")">מס"ד</a></th>
+                    <th scope="col" aria-sort="@AriaSort("idnumber")"><a class="link-dark" href="@SortLink("idnumber")">ת.ז</a></th>
+                    <th scope="col" aria-sort="@AriaSort("code")"><a class="link-dark" href="@SortLink("code")">קוד עובד</a></th>
+                    <th scope="col" aria-sort="@AriaSort("name")"><a class="link-dark" href="@SortLink("name")">שם מדווח</a></th>
+                    <th scope="col" aria-sort="@AriaSort("month")"><a class="link-dark" href="@SortLink("month")">חודש דיווח</a></th>
+                    <th scope="col">פרויקט</th>
+                    <th scope="col" aria-sort="@AriaSort("district")"><a class="link-dark" href="@SortLink("district")">מחוז</a></th>
+                    <th scope="col" aria-sort="@AriaSort("locality")"><a class="link-dark" href="@SortLink("locality")">יישוב</a></th>
+                    <th scope="col" aria-sort="@AriaSort("framework")"><a class="link-dark" href="@SortLink("framework")">מסגרת חינוכית</a></th>
+                    <th scope="col" aria-sort="@AriaSort("meetingdate")"><a class="link-dark" href="@SortLink("meetingdate")">תאריך מפגש</a></th>
+                    <th scope="col" aria-sort="@AriaSort("duration")"><a class="link-dark" href="@SortLink("duration")">משך מפגש</a></th>
+                    <th scope="col" aria-sort="@AriaSort("program")"><a class="link-dark" href="@SortLink("program")">תוכנית חינוכית</a></th>
+                    <th scope="col">תחום</th>
+                    <th scope="col">נושא 1</th>
+                    <th scope="col">נושא 2</th>
+                    <th scope="col">קיום דיון</th>
+                    <th scope="col">כיתה</th>
+                    <th scope="col">שכבה</th>
+                    <th scope="col">סוג דיווח</th>
+                    <th scope="col">מסקנה - כיתה</th>
+                    <th scope="col">מסקנה - מסגרת</th>
+                    <th scope="col">מסקנה - יישוב/מחוז/ארצי</th>
+                    <th scope="col">מסמכים</th>
+                    <th scope="col">הערות</th>
                 </tr>
             </thead>
             <tbody>

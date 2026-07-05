@@ -19,6 +19,7 @@ public class Report : BaseEntity
   public int? RejectedBy { get; set; }
   public User? RejectedByUser { get; set; }
   public bool ImportedFromExcel { get; set; } = false;
+  public bool IsArchived { get; set; } = false;
   public byte[] RowVersion { get; set; } = Array.Empty<byte>();
   public ICollection<ReportRow> ReportRows { get; set; } = new List<ReportRow>();
 }

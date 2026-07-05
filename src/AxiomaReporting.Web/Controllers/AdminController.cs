@@ -6,11 +6,15 @@ using AxiomaReporting.Web.Authorization;
 using AxiomaReporting.Web.Models;
 using ClosedXML.Excel;
 using ExcelDataReader;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Data;
+using System.Data.Common;
 using System.Globalization;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -20,6 +24,21 @@ namespace AxiomaReporting.Web.Controllers;
 [Authorize(Policy = PolicyNames.AdminOrPM)]
 public class AdminController : Controller
 {
+  private sealed record ScopeDefinition(string Key, string TableName, string ColumnName, string LookupTable);
+
+  // Maps each scoped lookup key to its raw-SQL bridge table (ProjectId, ProgramId, <ColumnName>)
+  // and the lookup table that supplies the values.
+  private static readonly ScopeDefinition[] ProjectProgramScopeDefinitions =
+  {
+    new("subjects", "ProjectProgramSubjects", "SubjectId", "Subjects"),
+    new("domains", "ProjectProgramDomains", "DomainId", "Domains"),
+    new("frameworks", "ProjectProgramFrameworks", "FrameworkId", "Frameworks"),
+    new("educationalPrograms", "ProjectProgramEducationalPrograms", "EducationalProgramId", "EducationalPrograms"),
+    new("discussionCodes", "ProjectProgramDiscussionCodes", "DiscussionCodeId", "DiscussionCodes"),
+    new("gradeLevels", "ProjectProgramGradeLevels", "GradeLevelId", "GradeLevels"),
+    new("classes", "ProjectProgramClasses", "ClassId", "SchoolClasses")
+  };
+
   private readonly AppDbContext _db;
   private readonly IPasswordService _passwordService;
   private readonly IBatchReportImportService _batchImportService;
@@ -28,7 +47,16 @@ public class AdminController : Controller
   private readonly IBrandingService _brandingService;
   private readonly IAuditLogService _auditLog;
   private readonly IWebHostEnvironment _hostEnvironment;
+  private readonly IAntiforgery _antiforgery;
+  private readonly IHtmlSanitizerService _htmlSanitizer;
+  private readonly IMemoryCache? _cache;
 
+  // NOTE: `cache` is intentionally optional (nullable with a default value), matching the
+  // same pattern used in DashboardController: Program.cs does not currently call
+  // `builder.Services.AddMemoryCache()`, so IMemoryCache is not registered in DI. Keeping
+  // this parameter optional means the controller still activates correctly (falling back
+  // to uncached lookups) if that registration is missing, and starts caching automatically
+  // the moment it's added — see GetCachedLookupListAsync below.
   public AdminController(
     AppDbContext db,
     IPasswordService passwordService,
@@ -37,7 +65,10 @@ public class AdminController : Controller
     IEmailService emailService,
     IBrandingService brandingService,
     IAuditLogService auditLog,
-    IWebHostEnvironment hostEnvironment)
+    IWebHostEnvironment hostEnvironment,
+    IAntiforgery antiforgery,
+    IHtmlSanitizerService htmlSanitizer,
+    IMemoryCache? cache = null)
   {
     _db = db;
     _passwordService = passwordService;
@@ -47,6 +78,9 @@ public class AdminController : Controller
     _brandingService = brandingService;
     _auditLog = auditLog;
     _hostEnvironment = hostEnvironment;
+    _antiforgery = antiforgery;
+    _htmlSanitizer = htmlSanitizer;
+    _cache = cache;
   }
 
   // --- Reporting Months ---
@@ -83,7 +117,34 @@ public class AdminController : Controller
   [HttpPost, ValidateAntiForgeryToken]
   public async Task<IActionResult> ActivateReportingMonth(int id)
   {
-    // Only one reporting month can be active at a time (business rule #4)
+    // Only one reporting month can be active at a time (business rule #4).
+    // NOTE: a unique filtered index on ReportingMonths (WHERE IsActive = 1) would be
+    // a stronger defense-in-depth for this invariant — left for a future migration.
+    if (_db.Database.IsRelational())
+    {
+      // Wrap the deactivate-all + activate-one steps in a single transaction, using a
+      // bulk UPDATE (rather than loading every row into the change tracker) so two
+      // concurrent activations can't both commit and leave two active months.
+      await using var tx = await _db.Database.BeginTransactionAsync();
+
+      await _db.Database.ExecuteSqlInterpolatedAsync(
+        $"UPDATE ReportingMonths SET IsActive = 0 WHERE IsActive = 1");
+
+      var relationalMonth = await _db.ReportingMonths.FindAsync(id);
+      if (relationalMonth != null)
+      {
+        relationalMonth.IsActive = true;
+        relationalMonth.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+      }
+
+      await tx.CommitAsync();
+      TempData["Success"] = "חודש הדיווח הופעל";
+      return RedirectToAction(nameof(ReportingMonths));
+    }
+
+    // Non-relational provider fallback (e.g. EF Core InMemory used by tests), which
+    // supports neither raw SQL nor transactions.
     var reportingMonths = await _db.ReportingMonths.ToListAsync();
     foreach (var reportingMonth in reportingMonths)
     {
@@ -95,8 +156,8 @@ public class AdminController : Controller
     {
       month.IsActive = true;
       month.UpdatedAt = DateTime.UtcNow;
-      await _db.SaveChangesAsync();
     }
+    await _db.SaveChangesAsync();
     TempData["Success"] = "חודש הדיווח הופעל";
     return RedirectToAction(nameof(ReportingMonths));
   }
@@ -188,15 +249,142 @@ public class AdminController : Controller
 
   // --- Frameworks ---
 
-  [Authorize(Policy = PolicyNames.AdminOnly)]
-  public async Task<IActionResult> Frameworks()
+  // Frameworks store the institution symbol as text; resolve each framework's locality
+  // name through the matching Institution (numeric symbols only).
+  private async Task<Dictionary<int, string>> LoadFrameworkLocalityMapAsync(IEnumerable<Framework> frameworks)
   {
-    var items = await _db.Frameworks
+    var frameworkSymbols = frameworks
+      .Select(f => new { f.Id, Symbol = int.TryParse(f.InstitutionSymbol, out var symbol) ? (int?)symbol : null })
+      .Where(x => x.Symbol.HasValue)
+      .ToList();
+
+    var symbols = frameworkSymbols.Select(x => x.Symbol!.Value).Distinct().ToList();
+    if (symbols.Count == 0) return new Dictionary<int, string>();
+
+    var institutionLocalities = await _db.Institutions
+      .Include(i => i.Locality)
+      .Where(i => symbols.Contains(i.InstitutionSymbol))
+      .Select(i => new
+      {
+        i.InstitutionSymbol,
+        LocalityName = i.Locality != null ? i.Locality.Description : string.Empty
+      })
+      .ToListAsync();
+
+    return frameworkSymbols.ToDictionary(
+      x => x.Id,
+      x => institutionLocalities.FirstOrDefault(i => i.InstitutionSymbol == x.Symbol!.Value)?.LocalityName ?? string.Empty);
+  }
+
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> Frameworks(string? frameworkName, string? institutionSymbol,
+    int? educationalStageId, string? localityName, bool? isActive)
+  {
+    var source = _db.Frameworks.Include(f => f.EducationalStage).AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(frameworkName))
+      source = source.Where(f => f.Description.Contains(frameworkName));
+    if (!string.IsNullOrWhiteSpace(institutionSymbol))
+      source = source.Where(f => f.InstitutionSymbol.Contains(institutionSymbol));
+    if (educationalStageId.HasValue)
+      source = source.Where(f => f.EducationalStageId == educationalStageId);
+    if (!string.IsNullOrWhiteSpace(localityName))
+    {
+      var localitySymbols = _db.Institutions
+        .Where(i => i.Locality != null && i.Locality.Description.Contains(localityName))
+        .Select(i => i.InstitutionSymbol.ToString());
+      source = source.Where(f => localitySymbols.Contains(f.InstitutionSymbol));
+    }
+    if (isActive.HasValue)
+      source = source.Where(f => f.IsActive == isActive.Value);
+
+    var items = await source.OrderBy(f => f.Description).ToListAsync();
+
+    ViewBag.FrameworkLocalities = await LoadFrameworkLocalityMapAsync(items);
+    ViewBag.FrameworkName = frameworkName;
+    ViewBag.InstitutionSymbol = institutionSymbol;
+    ViewBag.EducationalStageId = educationalStageId;
+    ViewBag.LocalityName = localityName;
+    ViewBag.IsActive = isActive;
+    ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).ToListAsync();
+    return View(items);
+  }
+
+  [HttpPost, ValidateAntiForgeryToken]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> BulkSetFrameworksActive(bool isActive, string? frameworkName,
+    string? institutionSymbol, int? educationalStageId, string? localityName)
+  {
+    var source = _db.Frameworks.AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(frameworkName))
+      source = source.Where(f => f.Description.Contains(frameworkName));
+    if (!string.IsNullOrWhiteSpace(institutionSymbol))
+      source = source.Where(f => f.InstitutionSymbol.Contains(institutionSymbol));
+    if (educationalStageId.HasValue)
+      source = source.Where(f => f.EducationalStageId == educationalStageId);
+    if (!string.IsNullOrWhiteSpace(localityName))
+    {
+      var localitySymbols = _db.Institutions
+        .Where(i => i.Locality != null && i.Locality.Description.Contains(localityName))
+        .Select(i => i.InstitutionSymbol.ToString());
+      source = source.Where(f => localitySymbols.Contains(f.InstitutionSymbol));
+    }
+
+    var frameworks = await source.ToListAsync();
+    foreach (var framework in frameworks)
+    {
+      framework.IsActive = isActive;
+      framework.UpdatedAt = DateTime.UtcNow;
+    }
+    await _db.SaveChangesAsync();
+
+    TempData["Success"] = $"{frameworks.Count} מסגרות עודכנו ל-{(isActive ? "פעיל" : "לא פעיל")}";
+    return RedirectToAction(nameof(Frameworks), new
+    {
+      frameworkName,
+      institutionSymbol,
+      educationalStageId,
+      localityName,
+      isActive = (bool?)null
+    });
+  }
+
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> ExportFrameworks()
+  {
+    var frameworks = await _db.Frameworks
       .Include(f => f.EducationalStage)
       .OrderBy(f => f.Description)
       .ToListAsync();
-    ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).ToListAsync();
-    return View(items);
+    var localities = await LoadFrameworkLocalityMapAsync(frameworks);
+
+    using var workbook = new XLWorkbook();
+    var ws = workbook.Worksheets.Add("מסגרות");
+    ws.RightToLeft = true;
+    var headers = new[] { "יישוב", "שם מסגרת", "סמל מוסד", "שלב חינוך", "פעיל" };
+    for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
+
+    var row = 2;
+    foreach (var framework in frameworks)
+    {
+      ws.Cell(row, 1).Value = localities.TryGetValue(framework.Id, out var locality) ? locality : string.Empty;
+      ws.Cell(row, 2).Value = framework.Description;
+      ws.Cell(row, 3).Value = framework.InstitutionSymbol;
+      ws.Cell(row, 4).Value = framework.EducationalStage?.Description;
+      ws.Cell(row, 5).Value = framework.IsActive ? "כן" : "לא";
+      row++;
+    }
+
+    ws.Row(1).Style.Font.Bold = true;
+    ws.Columns().AdjustToContents();
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return File(
+      stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"frameworks_{DateTime.Now:yyyy-MM-dd}.xlsx");
   }
 
   [HttpPost, ValidateAntiForgeryToken]
@@ -280,6 +468,7 @@ public class AdminController : Controller
   public async Task<IActionResult> Institutions()
   {
     var items = await _db.Institutions
+      .AsNoTracking()
       .Include(i => i.Locality)
       .Include(i => i.District)
       .Include(i => i.Sector)
@@ -358,7 +547,12 @@ public class AdminController : Controller
   [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> SystemConstants()
   {
-    var constants = await _db.SystemConstants.OrderBy(c => c.Key).ToListAsync();
+    // Keys no longer editable from the UI (superseded settings).
+    var obsoleteKeys = new[] { "NotesSimilarityThreshold", "MaxDailyHours" };
+    var constants = await _db.SystemConstants
+      .Where(c => !obsoleteKeys.Contains(c.Key))
+      .OrderBy(c => c.Key)
+      .ToListAsync();
     return View(constants);
   }
 
@@ -484,7 +678,7 @@ public class AdminController : Controller
     {
       var before = new { template.Subject, template.Body };
       template.Subject = subject;
-      template.Body = body;
+      template.Body = _htmlSanitizer.Sanitize(body);
       template.UpdatedAt = DateTime.UtcNow;
       await _db.SaveChangesAsync();
       await _auditLog.LogAsync("EmailTemplate.Update", nameof(EmailTemplate), id.ToString(),
@@ -612,15 +806,14 @@ public class AdminController : Controller
   [Route("Admin/ProjectPrograms")]
   public async Task<IActionResult> ProjectPrograms()
   {
-    var projects = await _db.Projects
-      .Where(p => p.IsActive)
-      .OrderBy(p => p.Description)
-      .ToListAsync();
+    // Projects/Programs are cached because they're used here purely as dropdown
+    // sources; the live project<->program mapping and scope selections below are
+    // always read fresh so saves are reflected immediately.
+    var projects = await GetCachedLookupListAsync("Admin:Dropdown:Projects",
+      () => _db.Projects.AsNoTracking().Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync());
 
-    var programs = await _db.Programs
-      .Where(p => p.IsActive)
-      .OrderBy(p => p.Description)
-      .ToListAsync();
+    var programs = await GetCachedLookupListAsync("Admin:Dropdown:Programs",
+      () => _db.Programs.AsNoTracking().Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync());
 
     var projectPrograms = await _db.ProjectPrograms
       .AsNoTracking()
@@ -633,6 +826,21 @@ public class AdminController : Controller
     ViewBag.Projects = projects;
     ViewBag.Programs = programs;
     ViewBag.Mapping = mapping;
+    ViewBag.Subjects = await GetCachedLookupListAsync("Admin:Dropdown:Subjects",
+      () => _db.Subjects.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Domains = await GetCachedLookupListAsync("Admin:Dropdown:Domains",
+      () => _db.Domains.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Frameworks = await GetCachedLookupListAsync("Admin:Dropdown:Frameworks",
+      () => _db.Frameworks.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.EducationalPrograms = await GetCachedLookupListAsync("Admin:Dropdown:EducationalPrograms",
+      () => _db.EducationalPrograms.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.DiscussionCodes = await GetCachedLookupListAsync("Admin:Dropdown:DiscussionCodes",
+      () => _db.DiscussionCodes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.GradeLevels = await GetCachedLookupListAsync("Admin:Dropdown:GradeLevels",
+      () => _db.GradeLevels.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.Classes = await GetCachedLookupListAsync("Admin:Dropdown:Classes",
+      () => _db.Classes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync());
+    ViewBag.ScopeMapping = await LoadProjectProgramScopeMappingAsync();
     return View();
   }
 
@@ -669,11 +877,48 @@ public class AdminController : Controller
 
     // Add rows that don't yet exist.
     var existingIds = existing.Select(e => e.ProgramId).ToHashSet();
-    foreach (var programId in desired.Where(id => !existingIds.Contains(id)))
+    var addedProgramIds = desired.Where(id => !existingIds.Contains(id)).ToList();
+    foreach (var programId in addedProgramIds)
       _db.ProjectPrograms.Add(new ProjectProgram { ProjectId = projectId, ProgramId = programId });
 
     await _db.SaveChangesAsync();
+
+    // Keep the scope bridge tables in sync: purge rows of removed mappings and
+    // backfill full scope (all active lookup values) for newly added mappings.
+    foreach (var removed in toRemove)
+      await DeleteAllProjectProgramScopeRowsAsync(removed.ProjectId, removed.ProgramId);
+    foreach (var programId in addedProgramIds)
+      await BackfillProjectProgramScopeRowsAsync(projectId, programId);
+
+    await _db.SaveChangesAsync();
     TempData["Success"] = $"נשמרו {desired.Count} תוכניות עבור פרויקט '{project.Description}'";
+    return RedirectToAction(nameof(ProjectPrograms));
+  }
+
+  [HttpPost, ValidateAntiForgeryToken]
+  [Route("Admin/ProjectPrograms/SaveScope")]
+  public async Task<IActionResult> SaveProjectProgramScope(int projectId, int programId,
+    int[]? subjectIds, int[]? domainIds, int[]? frameworkIds, int[]? educationalProgramIds,
+    int[]? discussionCodeIds, int[]? gradeLevelIds, int[]? classIds)
+  {
+    if (!await _db.ProjectPrograms.AnyAsync(pp => pp.ProjectId == projectId && pp.ProgramId == programId))
+    {
+      TempData["Error"] = "Project-program mapping was not found.";
+      return RedirectToAction(nameof(ProjectPrograms));
+    }
+
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[0], subjectIds);
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[1], domainIds);
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[2], frameworkIds);
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[3], educationalProgramIds);
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[4], discussionCodeIds);
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[5], gradeLevelIds);
+    await ReplaceProjectProgramScopeAsync(projectId, programId, ProjectProgramScopeDefinitions[6], classIds);
+
+    await _auditLog.LogAsync("ProjectProgramScope.Update", "ProjectProgram", $"{projectId}:{programId}",
+      before: null,
+      after: new { projectId, programId, subjectIds, domainIds, frameworkIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, classIds });
+    TempData["Success"] = "Scope settings were saved.";
     return RedirectToAction(nameof(ProjectPrograms));
   }
 
@@ -768,7 +1013,7 @@ public class AdminController : Controller
         { _db.Classes.Add(new SchoolClass { Description = desc, IsActive = true, CreatedAt = now }); return true; }
         return false;
       }),
-      ["קודי דיון"] = ws => ImportSimpleAsync(ws, async desc =>
+      ["קיום דיון"] = ws => ImportSimpleAsync(ws, async desc =>
       {
         if (!await _db.DiscussionCodes.AnyAsync(x => x.Description == desc))
         { _db.DiscussionCodes.Add(new DiscussionCode { Description = desc, IsActive = true, CreatedAt = now }); return true; }
@@ -836,7 +1081,7 @@ public class AdminController : Controller
       ["תוכניות חינוכיות"] = 0,
       ["תחומים"] = 0,
       ["נושאים"] = 0,
-      ["קודי דיון"] = 0,
+      ["קיום דיון"] = 0,
       ["כיתות"] = 0,
       ["מסגרת חינוכית"] = 0,
       ["ישוב/מחוז/ארצי"] = 0,
@@ -870,7 +1115,7 @@ public class AdminController : Controller
       results["תחומים"] += EnsureLookup(_db.Domains, existingDomains, ws.Cell(row, 3).GetString(), now);
       results["נושאים"] += EnsureLookup(_db.Subjects, existingSubjects, ws.Cell(row, 4).GetString(), now);
       results["נושאים"] += EnsureLookup(_db.Subjects, existingSubjects, ws.Cell(row, 5).GetString(), now);
-      results["קודי דיון"] += EnsureLookup(_db.DiscussionCodes, existingDiscussionCodes, ws.Cell(row, 6).GetString(), now);
+      results["קיום דיון"] += EnsureLookup(_db.DiscussionCodes, existingDiscussionCodes, ws.Cell(row, 6).GetString(), now);
       results["כיתות"] += EnsureLookup(_db.Classes, existingClasses, ws.Cell(row, 7).GetString(), now);
       results["מסגרת חינוכית"] += EnsureQuestionnaireFramework(_db.Frameworks, existingFrameworks, ws.Cell(row, 8).GetString(), now);
       results["ישוב/מחוז/ארצי"] += EnsureLookup(_db.LocalityDistrictNationals, existingLocalityDistrictNationals, ws.Cell(row, 9).GetString(), now);
@@ -949,7 +1194,7 @@ public class AdminController : Controller
     results["תוכניות חינוכיות"] = await ImportValuesAsync(_db.EducationalPrograms, educationalPrograms, now);
     results["תחומים"] = await ImportValuesAsync(_db.Domains, domains, now);
     results["נושאים"] = await ImportValuesAsync(_db.Subjects, subjects, now);
-    results["קודי דיון"] = await ImportValuesAsync(_db.DiscussionCodes, discussionCodes, now);
+    results["קיום דיון"] = await ImportValuesAsync(_db.DiscussionCodes, discussionCodes, now);
     results["כיתות"] = await ImportValuesAsync(_db.Classes, classes, now);
 
     var localities = dataSet.Tables["יישוב"];
@@ -988,6 +1233,10 @@ public class AdminController : Controller
     int added = 0, skipped = 0;
     var errors = new List<string>();
 
+    // Pre-load existing employee identifiers once instead of an AnyAsync query per row.
+    var existingIdNumbers = (await _db.Users.Select(u => u.IdNumber).ToListAsync())
+      .ToHashSet(StringComparer.Ordinal);
+
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
     var ws = wb.Worksheet(1);
@@ -997,50 +1246,59 @@ public class AdminController : Controller
     // E=Email, F=Phone, G=RoleName, H=Notes
     for (var row = 2; row <= lastRow; row++)
     {
-      var employeeCode = ws.Cell(row, 1).GetString().Trim();
-      var idNumber = ws.Cell(row, 2).GetString().Trim();
-      var firstName = ws.Cell(row, 3).GetString().Trim();
-      var lastName = ws.Cell(row, 4).GetString().Trim();
-      var email = ws.Cell(row, 5).GetString().Trim();
-      var phone = ws.Cell(row, 6).GetString().Trim();
-      var roleName = ws.Cell(row, 7).GetString().Trim();
-      var notes = ws.Cell(row, 8).GetString().Trim();
-
-      if (string.IsNullOrEmpty(idNumber) || string.IsNullOrEmpty(firstName))
+      try
       {
-        errors.Add($"שורה {row}: חסר ת.ז או שם פרטי — דולגת");
-        continue;
+        var employeeCode = ws.Cell(row, 1).GetString().Trim();
+        var idNumber = ws.Cell(row, 2).GetString().Trim();
+        var firstName = ws.Cell(row, 3).GetString().Trim();
+        var lastName = ws.Cell(row, 4).GetString().Trim();
+        var email = ws.Cell(row, 5).GetString().Trim();
+        var phone = ws.Cell(row, 6).GetString().Trim();
+        var roleName = ws.Cell(row, 7).GetString().Trim();
+        var notes = ws.Cell(row, 8).GetString().Trim();
+
+        if (string.IsNullOrEmpty(idNumber) || string.IsNullOrEmpty(firstName))
+        {
+          errors.Add($"שורה {row}: חסר ת.ז או שם פרטי — דולגת");
+          continue;
+        }
+
+        // Check duplicates against the in-memory set FIRST, so BCrypt hashing
+        // (expensive, ~100-250ms per call) only runs for rows that are actually inserted.
+        if (!existingIdNumbers.Add(idNumber))
+        {
+          skipped++;
+          continue;
+        }
+
+        var role = roles.FirstOrDefault(r =>
+          r.Description.Contains(roleName, StringComparison.OrdinalIgnoreCase));
+
+        var passwordHash = _passwordService.HashPassword(idNumber);
+
+        _db.Users.Add(new User
+        {
+          EmployeeCode = string.IsNullOrEmpty(employeeCode) ? idNumber : employeeCode,
+          IdNumber = idNumber,
+          FirstName = firstName,
+          LastName = lastName,
+          Email = string.IsNullOrEmpty(email) ? null : email,
+          Phone = string.IsNullOrEmpty(phone) ? null : phone,
+          Notes = string.IsNullOrEmpty(notes) ? null : notes,
+          RoleId = role?.Id ?? 1,
+          UserRoleId = 6, // Employee
+          StatusId = 1,   // Active
+          IsReportingEmployee = true,
+          MustChangePassword = true,
+          PasswordHash = passwordHash,
+          CreatedAt = now
+        });
+        added++;
       }
-
-      if (await _db.Users.AnyAsync(u => u.IdNumber == idNumber))
+      catch (Exception ex)
       {
-        skipped++;
-        continue;
+        errors.Add($"שורה {row}: שגיאה בעיבוד השורה — {ex.Message}");
       }
-
-      var role = roles.FirstOrDefault(r =>
-        r.Description.Contains(roleName, StringComparison.OrdinalIgnoreCase));
-
-      var passwordHash = _passwordService.HashPassword(idNumber);
-
-      _db.Users.Add(new User
-      {
-        EmployeeCode = string.IsNullOrEmpty(employeeCode) ? idNumber : employeeCode,
-        IdNumber = idNumber,
-        FirstName = firstName,
-        LastName = lastName,
-        Email = string.IsNullOrEmpty(email) ? null : email,
-        Phone = string.IsNullOrEmpty(phone) ? null : phone,
-        Notes = string.IsNullOrEmpty(notes) ? null : notes,
-        RoleId = role?.Id ?? 1,
-        UserRoleId = 6, // Employee
-        StatusId = 1,   // Active
-        IsReportingEmployee = true,
-        MustChangePassword = true,
-        PasswordHash = passwordHash,
-        CreatedAt = now
-      });
-      added++;
     }
 
     await _db.SaveChangesAsync();
@@ -1065,6 +1323,20 @@ public class AdminController : Controller
     int added = 0, skipped = 0;
     var errors = new List<string>();
 
+    // Pre-load lookup indexes and existing institution keys once instead of issuing
+    // 5+ lookup queries and a duplicate-check query per row (was O(n) round-trips for ~1,300 rows).
+    var localityIndex = await LookupIndex.LoadAsync(_db.Localities);
+    var districtIndex = await LookupIndex.LoadAsync(_db.Districts);
+    var sectorIndex = await LookupIndex.LoadAsync(_db.Sectors);
+    var educationTypeIndex = await LookupIndex.LoadAsync(_db.EducationTypes);
+    var educationalStageIndex = await LookupIndex.LoadAsync(_db.EducationalStages);
+
+    var existingKeys = (await _db.Institutions
+        .Select(i => new { i.InstitutionSymbol, i.EducationalStageId })
+        .ToListAsync())
+      .Select(i => (i.InstitutionSymbol, i.EducationalStageId))
+      .ToHashSet();
+
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
     var ws = wb.Worksheet(1);
@@ -1072,44 +1344,51 @@ public class AdminController : Controller
 
     for (var row = 2; row <= lastRow; row++)
     {
-      if (!ws.Cell(row, 1).TryGetValue<int>(out var symbol))
+      try
       {
-        errors.Add($"שורה {row}: סמל מוסד חסר או לא תקין");
-        continue;
+        if (!ws.Cell(row, 1).TryGetValue<int>(out var symbol))
+        {
+          errors.Add($"שורה {row}: סמל מוסד חסר או לא תקין");
+          continue;
+        }
+
+        var name = ws.Cell(row, 2).GetString().Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+          errors.Add($"שורה {row}: שם מוסד חסר");
+          continue;
+        }
+
+        var localityId = localityIndex.Resolve(ws.Cell(row, 3).GetString());
+        var districtId = districtIndex.Resolve(ws.Cell(row, 4).GetString());
+        var sectorId = sectorIndex.Resolve(ws.Cell(row, 5).GetString());
+        var typeId = educationTypeIndex.Resolve(ws.Cell(row, 6).GetString());
+        var stageId = educationalStageIndex.Resolve(ws.Cell(row, 7).GetString());
+
+        if (!existingKeys.Add((symbol, stageId)))
+        {
+          skipped++;
+          continue;
+        }
+
+        _db.Institutions.Add(new Institution
+        {
+          InstitutionSymbol = symbol,
+          Name = name,
+          LocalityId = localityId,
+          DistrictId = districtId,
+          SectorId = sectorId,
+          TypeId = typeId,
+          EducationalStageId = stageId,
+          IsActive = true,
+          CreatedAt = now
+        });
+        added++;
       }
-
-      var name = ws.Cell(row, 2).GetString().Trim();
-      if (string.IsNullOrWhiteSpace(name))
+      catch (Exception ex)
       {
-        errors.Add($"שורה {row}: שם מוסד חסר");
-        continue;
+        errors.Add($"שורה {row}: שגיאה בעיבוד השורה — {ex.Message}");
       }
-
-      var localityId = await FindLocalityIdAsync(ws.Cell(row, 3).GetString());
-      var districtId = await FindDistrictIdAsync(ws.Cell(row, 4).GetString());
-      var sectorId = await FindSectorIdAsync(ws.Cell(row, 5).GetString());
-      var typeId = await FindEducationTypeIdAsync(ws.Cell(row, 6).GetString());
-      var stageId = await FindEducationalStageIdAsync(ws.Cell(row, 7).GetString());
-
-      if (await _db.Institutions.AnyAsync(i => i.InstitutionSymbol == symbol && i.EducationalStageId == stageId))
-      {
-        skipped++;
-        continue;
-      }
-
-      _db.Institutions.Add(new Institution
-      {
-        InstitutionSymbol = symbol,
-        Name = name,
-        LocalityId = localityId,
-        DistrictId = districtId,
-        SectorId = sectorId,
-        TypeId = typeId,
-        EducationalStageId = stageId,
-        IsActive = true,
-        CreatedAt = now
-      });
-      added++;
     }
 
     await _db.SaveChangesAsync();
@@ -1131,6 +1410,14 @@ public class AdminController : Controller
     int added = 0, updated = 0, errorsCount = 0;
     var errors = new List<string>();
 
+    // Pre-load users, projects, existing allocations and all junction-table lookup
+    // indexes ONCE instead of resolving them (plus a per-semicolon-value lookup query
+    // across up to 12 columns) on every row — this was the dominant N+1 cost here.
+    var userIdsByIdNumber = await _db.Users.ToDictionaryAsync(u => u.IdNumber, u => u.Id, StringComparer.Ordinal);
+    var projectIndex = await LookupIndex.LoadAsync(_db.Projects);
+    var existingAllocations = await _db.Allocations.ToDictionaryAsync(a => (a.UserId, a.ProjectId), a => a);
+    var linkLookups = await AllocationLinkLookups.LoadAsync(_db);
+
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
     var ws = wb.Worksheet(1);
@@ -1138,43 +1425,53 @@ public class AdminController : Controller
 
     for (var row = 2; row <= lastRow; row++)
     {
-      var idNumber = ws.Cell(row, 1).GetString().Trim();
-      var projectName = ws.Cell(row, 2).GetString().Trim();
-      var user = await _db.Users.FirstOrDefaultAsync(u => u.IdNumber == idNumber);
-      var projectId = await FindProjectIdAsync(projectName);
-      if (user == null || !projectId.HasValue)
+      try
       {
-        errors.Add($"שורה {row}: עובד או פרויקט לא נמצאו");
-        errorsCount++;
-        continue;
+        var idNumber = ws.Cell(row, 1).GetString().Trim();
+        var projectName = ws.Cell(row, 2).GetString().Trim();
+        var projectId = projectIndex.Resolve(projectName);
+        if (!userIdsByIdNumber.TryGetValue(idNumber, out var userId) || !projectId.HasValue)
+        {
+          errors.Add($"שורה {row}: עובד או פרויקט לא נמצאו");
+          errorsCount++;
+          continue;
+        }
+
+        var key = (userId, projectId.Value);
+        var isNew = !existingAllocations.TryGetValue(key, out var allocation);
+        if (isNew)
+        {
+          allocation = new Allocation
+          {
+            UserId = userId,
+            ProjectId = projectId.Value,
+            CreatedAt = DateTime.UtcNow
+          };
+          existingAllocations[key] = allocation;
+        }
+
+        allocation!.AnnualEmploymentScope = ReadDecimal(ws, row, 3);
+        allocation.MonthlyEmploymentScope = ReadDecimal(ws, row, 4);
+        allocation.DailyEmploymentScope = ReadDailyScope(ws.Cell(row, 5).GetString());
+        allocation.MonthlyRowAllocation = ReadInt(ws, row, 6);
+        allocation.AnnualRowAllocation = ReadInt(ws, row, 7);
+        allocation.OutputDuration = ws.Cell(row, 8).GetString().Trim();
+        allocation.AllowExcelUpload = ReadBool(ws.Cell(row, 9).GetString());
+        allocation.Notes = EmptyToNull(ws.Cell(row, 10).GetString());
+        allocation.IsActive = true;
+        allocation.UpdatedAt = DateTime.UtcNow;
+
+        if (isNew) _db.Allocations.Add(allocation);
+        await _db.SaveChangesAsync();
+
+        await ReplaceAllocationLinksAsync(allocation.Id, ws, row, linkLookups);
+        if (isNew) added++; else updated++;
       }
-
-      var allocation = await _db.Allocations
-        .FirstOrDefaultAsync(a => a.UserId == user.Id && a.ProjectId == projectId.Value);
-      var isNew = allocation == null;
-      allocation ??= new Allocation
+      catch (Exception ex)
       {
-        UserId = user.Id,
-        ProjectId = projectId.Value,
-        CreatedAt = DateTime.UtcNow
-      };
-
-      allocation.AnnualEmploymentScope = ReadDecimal(ws, row, 3);
-      allocation.MonthlyEmploymentScope = ReadDecimal(ws, row, 4);
-      allocation.DailyEmploymentScope = ReadDailyScope(ws.Cell(row, 5).GetString());
-      allocation.MonthlyRowAllocation = ReadInt(ws, row, 6);
-      allocation.AnnualRowAllocation = ReadInt(ws, row, 7);
-      allocation.OutputDuration = ws.Cell(row, 8).GetString().Trim();
-      allocation.AllowExcelUpload = ReadBool(ws.Cell(row, 9).GetString());
-      allocation.Notes = EmptyToNull(ws.Cell(row, 10).GetString());
-      allocation.IsActive = true;
-      allocation.UpdatedAt = DateTime.UtcNow;
-
-      if (isNew) _db.Allocations.Add(allocation);
-      await _db.SaveChangesAsync();
-
-      await ReplaceAllocationLinksAsync(allocation.Id, ws, row);
-      if (isNew) added++; else updated++;
+        errors.Add($"שורה {row}: שגיאה בעיבוד השורה — {ex.Message}");
+        errorsCount++;
+      }
     }
 
     TempData["ImportResults"] = string.Join("|",
@@ -1371,47 +1668,62 @@ public class AdminController : Controller
     return count;
   }
 
-  private async Task ReplaceAllocationLinksAsync(int allocationId, IXLWorksheet ws, int row)
+  private async Task ReplaceAllocationLinksAsync(int allocationId, IXLWorksheet ws, int row, AllocationLinkLookups lookups)
   {
-    _db.Set<AllocationDistrict>().RemoveRange(_db.Set<AllocationDistrict>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationProgram>().RemoveRange(_db.Set<AllocationProgram>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationSector>().RemoveRange(_db.Set<AllocationSector>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationLocality>().RemoveRange(_db.Set<AllocationLocality>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationFramework>().RemoveRange(_db.Set<AllocationFramework>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationSubject>().RemoveRange(_db.Set<AllocationSubject>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationDomain>().RemoveRange(_db.Set<AllocationDomain>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationEducationalProgram>().RemoveRange(_db.Set<AllocationEducationalProgram>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationClass>().RemoveRange(_db.Set<AllocationClass>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationGradeLevel>().RemoveRange(_db.Set<AllocationGradeLevel>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationDiscussionCode>().RemoveRange(_db.Set<AllocationDiscussionCode>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationLocalityDistrictNational>().RemoveRange(_db.Set<AllocationLocalityDistrictNational>().Where(x => x.AllocationId == allocationId));
-    await _db.SaveChangesAsync();
+    _db.Set<AllocationDistrict>().RemoveRange(await _db.Set<AllocationDistrict>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationProgram>().RemoveRange(await _db.Set<AllocationProgram>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationSector>().RemoveRange(await _db.Set<AllocationSector>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationLocality>().RemoveRange(await _db.Set<AllocationLocality>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationFramework>().RemoveRange(await _db.Set<AllocationFramework>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationSubject>().RemoveRange(await _db.Set<AllocationSubject>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationDomain>().RemoveRange(await _db.Set<AllocationDomain>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationEducationalProgram>().RemoveRange(await _db.Set<AllocationEducationalProgram>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationClass>().RemoveRange(await _db.Set<AllocationClass>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationGradeLevel>().RemoveRange(await _db.Set<AllocationGradeLevel>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationDiscussionCode>().RemoveRange(await _db.Set<AllocationDiscussionCode>().Where(x => x.AllocationId == allocationId).ToListAsync());
+    _db.Set<AllocationLocalityDistrictNational>().RemoveRange(await _db.Set<AllocationLocalityDistrictNational>().Where(x => x.AllocationId == allocationId).ToListAsync());
 
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 11).GetString(), FindDistrictIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 11).GetString(), lookups.Districts))
       _db.Set<AllocationDistrict>().Add(new AllocationDistrict { AllocationId = allocationId, DistrictId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 12).GetString(), FindProgramIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 12).GetString(), lookups.Programs))
       _db.Set<AllocationProgram>().Add(new AllocationProgram { AllocationId = allocationId, ProgramId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 13).GetString(), FindSectorIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 13).GetString(), lookups.Sectors))
       _db.Set<AllocationSector>().Add(new AllocationSector { AllocationId = allocationId, SectorId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 14).GetString(), FindLocalityIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 14).GetString(), lookups.Localities))
       _db.Set<AllocationLocality>().Add(new AllocationLocality { AllocationId = allocationId, LocalityId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 15).GetString(), FindFrameworkIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 15).GetString(), lookups.Frameworks))
       _db.Set<AllocationFramework>().Add(new AllocationFramework { AllocationId = allocationId, FrameworkId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 16).GetString(), FindSubjectIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 16).GetString(), lookups.Subjects))
       _db.Set<AllocationSubject>().Add(new AllocationSubject { AllocationId = allocationId, SubjectId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 17).GetString(), FindDomainIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 17).GetString(), lookups.Domains))
       _db.Set<AllocationDomain>().Add(new AllocationDomain { AllocationId = allocationId, DomainId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 18).GetString(), FindEducationalProgramIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 18).GetString(), lookups.EducationalPrograms))
       _db.Set<AllocationEducationalProgram>().Add(new AllocationEducationalProgram { AllocationId = allocationId, EducationalProgramId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 19).GetString(), FindClassIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 19).GetString(), lookups.Classes))
       _db.Set<AllocationClass>().Add(new AllocationClass { AllocationId = allocationId, ClassId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 20).GetString(), FindGradeLevelIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 20).GetString(), lookups.GradeLevels))
       _db.Set<AllocationGradeLevel>().Add(new AllocationGradeLevel { AllocationId = allocationId, GradeLevelId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 21).GetString(), FindDiscussionCodeIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 21).GetString(), lookups.DiscussionCodes))
       _db.Set<AllocationDiscussionCode>().Add(new AllocationDiscussionCode { AllocationId = allocationId, DiscussionCodeId = id });
-    foreach (var id in await FindIdsAsync(ws.Cell(row, 22).GetString(), FindLocalityDistrictNationalIdAsync))
+    foreach (var id in ResolveIds(ws.Cell(row, 22).GetString(), lookups.LocalityDistrictNationals))
       _db.Set<AllocationLocalityDistrictNational>().Add(new AllocationLocalityDistrictNational { AllocationId = allocationId, LocalityDistrictNationalId = id });
+
+    // A single save for both the removals and additions above (previously two saves per row).
     await _db.SaveChangesAsync();
+  }
+
+  // Splits a semicolon-separated cell value and resolves each part against a pre-loaded
+  // lookup index, in place of one DB query per value (was the "resolver query per
+  // semicolon-separated value across up to 12 columns" N+1 pattern).
+  private static List<int> ResolveIds(string values, ILookupResolver resolver)
+  {
+    var ids = new List<int>();
+    foreach (var value in values.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+      var id = resolver.Resolve(value);
+      if (id.HasValue) ids.Add(id.Value);
+    }
+    return ids.Distinct().ToList();
   }
 
   private static decimal? ReadDecimal(IXLWorksheet ws, int row, int col) =>
@@ -1439,39 +1751,7 @@ public class AdminController : Controller
   private static string? EmptyToNull(string value) =>
     string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-  private static async Task<List<int>> FindIdsAsync(string values, Func<string, Task<int?>> resolver)
-  {
-    var ids = new List<int>();
-    foreach (var value in values.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-      var id = await resolver(value);
-      if (id.HasValue) ids.Add(id.Value);
-    }
-    return ids.Distinct().ToList();
-  }
-
-  private async Task<int?> FindDistrictIdAsync(string value) => await FindLookupIdAsync(_db.Districts, value);
-  private async Task<int?> FindSectorIdAsync(string value) => await FindLookupIdAsync(_db.Sectors, value);
-  private async Task<int?> FindLocalityIdAsync(string value) => await FindLookupIdAsync(_db.Localities, value);
-  private async Task<int?> FindProjectIdAsync(string value) => await FindLookupIdAsync(_db.Projects, value);
-  private async Task<int?> FindProgramIdAsync(string value) => await FindLookupIdAsync(_db.Programs, value);
-  private async Task<int?> FindSubjectIdAsync(string value) => await FindLookupIdAsync(_db.Subjects, value);
-  private async Task<int?> FindDomainIdAsync(string value) => await FindLookupIdAsync(_db.Domains, value);
-  private async Task<int?> FindEducationalProgramIdAsync(string value) => await FindLookupIdAsync(_db.EducationalPrograms, value);
-  private async Task<int?> FindClassIdAsync(string value) => await FindLookupIdAsync(_db.Classes, value);
-  private async Task<int?> FindGradeLevelIdAsync(string value) => await FindLookupIdAsync(_db.GradeLevels, value);
-  private async Task<int?> FindDiscussionCodeIdAsync(string value) => await FindLookupIdAsync(_db.DiscussionCodes, value);
-  private async Task<int?> FindLocalityDistrictNationalIdAsync(string value) => await FindLookupIdAsync(_db.LocalityDistrictNationals, value);
-  private async Task<int?> FindEducationTypeIdAsync(string value) => await FindLookupIdAsync(_db.EducationTypes, value);
   private async Task<int?> FindEducationalStageIdAsync(string value) => await FindLookupIdAsync(_db.EducationalStages, value);
-  private async Task<int?> FindFrameworkIdAsync(string value)
-  {
-    value = value.Trim();
-    if (string.IsNullOrEmpty(value)) return null;
-    if (int.TryParse(value, out var symbol))
-      return await _db.Frameworks.Where(f => f.InstitutionSymbol == symbol.ToString()).Select(f => (int?)f.Id).FirstOrDefaultAsync();
-    return await _db.Frameworks.Where(f => f.Description == value).Select(f => (int?)f.Id).FirstOrDefaultAsync();
-  }
 
   private static async Task<int?> FindLookupIdAsync<T>(IQueryable<T> query, string value)
     where T : AxiomaReporting.Core.Entities.Base.LookupEntity
@@ -1480,6 +1760,123 @@ public class AdminController : Controller
     if (string.IsNullOrEmpty(value)) return null;
     if (int.TryParse(value, out var id) && await query.AnyAsync(x => x.Id == id)) return id;
     return await query.Where(x => x.Description == value).Select(x => (int?)x.Id).FirstOrDefaultAsync();
+  }
+
+  // Resolves a single raw cell value (either a numeric Id or an exact Description match)
+  // against a pre-loaded, in-memory lookup snapshot — used by the bulk import methods to
+  // avoid issuing a DB query per row/value (see CLAUDE.md perf review finding H13).
+  private interface ILookupResolver
+  {
+    int? Resolve(string value);
+  }
+
+  private sealed class LookupIndex : ILookupResolver
+  {
+    private readonly HashSet<int> _ids;
+    private readonly Dictionary<string, int> _byDescription;
+
+    private LookupIndex(HashSet<int> ids, Dictionary<string, int> byDescription)
+    {
+      _ids = ids;
+      _byDescription = byDescription;
+    }
+
+    public static async Task<LookupIndex> LoadAsync<T>(IQueryable<T> query)
+      where T : AxiomaReporting.Core.Entities.Base.LookupEntity
+    {
+      var rows = await query.Select(x => new { x.Id, x.Description }).ToListAsync();
+      var byDescription = new Dictionary<string, int>(StringComparer.Ordinal);
+      foreach (var row in rows)
+      {
+        if (!byDescription.ContainsKey(row.Description)) byDescription[row.Description] = row.Id;
+      }
+      return new LookupIndex(rows.Select(r => r.Id).ToHashSet(), byDescription);
+    }
+
+    // Mirrors the original FindLookupIdAsync semantics: a numeric value matching an
+    // existing Id wins; otherwise fall back to an exact Description match.
+    public int? Resolve(string value)
+    {
+      value = value.Trim();
+      if (string.IsNullOrEmpty(value)) return null;
+      if (int.TryParse(value, out var id) && _ids.Contains(id)) return id;
+      return _byDescription.TryGetValue(value, out var mappedId) ? mappedId : null;
+    }
+  }
+
+  // Frameworks are matched either by numeric InstitutionSymbol or by Description
+  // (see the original FindFrameworkIdAsync); this mirrors that lookup in-memory.
+  private sealed class FrameworkLookupIndex : ILookupResolver
+  {
+    private readonly Dictionary<string, int> _bySymbol;
+    private readonly Dictionary<string, int> _byDescription;
+
+    private FrameworkLookupIndex(Dictionary<string, int> bySymbol, Dictionary<string, int> byDescription)
+    {
+      _bySymbol = bySymbol;
+      _byDescription = byDescription;
+    }
+
+    public static async Task<FrameworkLookupIndex> LoadAsync(IQueryable<Framework> query)
+    {
+      var rows = await query.Select(f => new { f.Id, f.InstitutionSymbol, f.Description }).ToListAsync();
+      var bySymbol = new Dictionary<string, int>(StringComparer.Ordinal);
+      var byDescription = new Dictionary<string, int>(StringComparer.Ordinal);
+      foreach (var row in rows)
+      {
+        if (!string.IsNullOrEmpty(row.InstitutionSymbol) && !bySymbol.ContainsKey(row.InstitutionSymbol))
+          bySymbol[row.InstitutionSymbol] = row.Id;
+        if (!string.IsNullOrEmpty(row.Description) && !byDescription.ContainsKey(row.Description))
+          byDescription[row.Description] = row.Id;
+      }
+      return new FrameworkLookupIndex(bySymbol, byDescription);
+    }
+
+    public int? Resolve(string value)
+    {
+      value = value.Trim();
+      if (string.IsNullOrEmpty(value)) return null;
+      if (int.TryParse(value, out var symbol))
+        return _bySymbol.TryGetValue(symbol.ToString(), out var idBySymbol) ? idBySymbol : null;
+      return _byDescription.TryGetValue(value, out var idByDescription) ? idByDescription : null;
+    }
+  }
+
+  // Bundles all lookup indexes referenced by ReplaceAllocationLinksAsync's 12
+  // semicolon-separated columns, loaded once per import instead of per row/value.
+  private sealed class AllocationLinkLookups
+  {
+    public LookupIndex Districts { get; private init; } = null!;
+    public LookupIndex Programs { get; private init; } = null!;
+    public LookupIndex Sectors { get; private init; } = null!;
+    public LookupIndex Localities { get; private init; } = null!;
+    public FrameworkLookupIndex Frameworks { get; private init; } = null!;
+    public LookupIndex Subjects { get; private init; } = null!;
+    public LookupIndex Domains { get; private init; } = null!;
+    public LookupIndex EducationalPrograms { get; private init; } = null!;
+    public LookupIndex Classes { get; private init; } = null!;
+    public LookupIndex GradeLevels { get; private init; } = null!;
+    public LookupIndex DiscussionCodes { get; private init; } = null!;
+    public LookupIndex LocalityDistrictNationals { get; private init; } = null!;
+
+    public static async Task<AllocationLinkLookups> LoadAsync(AppDbContext db)
+    {
+      return new AllocationLinkLookups
+      {
+        Districts = await LookupIndex.LoadAsync(db.Districts),
+        Programs = await LookupIndex.LoadAsync(db.Programs),
+        Sectors = await LookupIndex.LoadAsync(db.Sectors),
+        Localities = await LookupIndex.LoadAsync(db.Localities),
+        Frameworks = await FrameworkLookupIndex.LoadAsync(db.Frameworks),
+        Subjects = await LookupIndex.LoadAsync(db.Subjects),
+        Domains = await LookupIndex.LoadAsync(db.Domains),
+        EducationalPrograms = await LookupIndex.LoadAsync(db.EducationalPrograms),
+        Classes = await LookupIndex.LoadAsync(db.Classes),
+        GradeLevels = await LookupIndex.LoadAsync(db.GradeLevels),
+        DiscussionCodes = await LookupIndex.LoadAsync(db.DiscussionCodes),
+        LocalityDistrictNationals = await LookupIndex.LoadAsync(db.LocalityDistrictNationals)
+      };
+    }
   }
 
   // --- Batch Report Import (multi-employee) — AX-018 extension ---
@@ -1499,7 +1896,7 @@ public class AdminController : Controller
   }
 
   [HttpPost, ValidateAntiForgeryToken]
-  public async Task<IActionResult> BatchReportImport(IFormFile file, int reportingMonthId, CancellationToken ct)
+  public async Task<IActionResult> BatchReportImport(IFormFile file, int reportingMonthId, string progressId, CancellationToken ct)
   {
     if (file == null || file.Length == 0)
     {
@@ -1513,16 +1910,14 @@ public class AdminController : Controller
     var month = await _db.ReportingMonths.FindAsync(new object[] { reportingMonthId }, ct);
 
     await using var stream = file.OpenReadStream();
-    var result = await _batchImportService.ImportAsync(stream, reportingMonthId, uploaderId, ct);
+    var result = await _batchImportService.ImportAsync(stream, reportingMonthId, uploaderId, ct, progressId);
 
-    // Pre-generate the errors PDF once so we can both email it as an attachment
+    // Pre-generate the errors Excel once so we can both email it as an attachment
     // and offer it as a download from the results screen.
-    byte[]? errorsPdf = null;
+    byte[]? errorsExcel = null;
     if (result.Errors.Any())
     {
-      var errorLines = result.Errors.Select(e =>
-        $"שורה {e.FileRowNumber} | קוד {e.EmployeeCode} | {e.ReporterName} | {e.ErrorMessage}").ToArray();
-      errorsPdf = _pdfReportService.CreateErrorReport(errorLines);
+      errorsExcel = CreateBatchImportErrorsExcel(result.Errors);
     }
 
     // Send uploader emails
@@ -1539,12 +1934,12 @@ public class AdminController : Controller
           ["Year"] = month.Year.ToString(CultureInfo.InvariantCulture)
         }, cancellationToken: ct);
 
-      if (errorsPdf != null)
+      if (errorsExcel != null)
       {
-        var pdfName = $"batch-import-errors-{month.Year}-{month.Month:D2}.pdf";
+        var fileName = $"batch-import-errors-{month.Year}-{month.Month:D2}.xlsx";
         var attachments = new List<AxiomaReporting.Core.Interfaces.EmailAttachment>
         {
-          new(pdfName, errorsPdf, "application/pdf")
+          new(fileName, errorsExcel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         };
         await _emailService.SendAsync(
           uploader.Email, uploaderName, "BatchImportErrors",
@@ -1558,11 +1953,16 @@ public class AdminController : Controller
       }
     }
 
-    // Stash errors in TempData so a subsequent GET can download the PDF.
+    // Stash errors in TempData (tab-separated columns) so a subsequent GET can
+    // rebuild the errors Excel for download.
     if (result.Errors.Any())
     {
-      var serialized = string.Join("\n", result.Errors.Select(e =>
-        $"שורה {e.FileRowNumber} | קוד {e.EmployeeCode} | {e.ReporterName} | {e.ErrorMessage}"));
+      var serialized = string.Join("\n", result.Errors.Select(e => string.Join("\t",
+        e.FileRowNumber.ToString(CultureInfo.InvariantCulture),
+        e.EmployeeCode ?? string.Empty,
+        e.ReporterName ?? string.Empty,
+        e.ErrorMessage,
+        e.RawValues ?? string.Empty)));
       TempData["BatchImportErrors"] = serialized;
     }
 
@@ -1576,17 +1976,88 @@ public class AdminController : Controller
   }
 
   [HttpGet]
-  public IActionResult BatchReportImportErrorsPdf()
+  public IActionResult BatchReportImportProgress(string id)
+  {
+    return Json(BatchImportProgressStore.Get(id));
+  }
+
+  [HttpGet]
+  public IActionResult BatchReportImportErrorsExcel()
   {
     var serialized = TempData["BatchImportErrors"] as string ?? string.Empty;
     TempData.Keep("BatchImportErrors");
 
-    var lines = string.IsNullOrWhiteSpace(serialized)
-      ? new[] { "No errors recorded." }
-      : serialized.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    var bytes = CreateBatchImportErrorsExcel(serialized);
+    return File(
+      bytes,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"batch-import-errors-{DateTime.Now:yyyyMMddHHmm}.xlsx");
+  }
 
-    var bytes = _pdfReportService.CreateErrorReport(lines);
-    return File(bytes, "application/pdf", $"batch-import-errors-{DateTime.Now:yyyyMMddHHmm}.pdf");
+  // Legacy route kept for old links; the errors report is now an Excel file.
+  [HttpGet]
+  public IActionResult BatchReportImportErrorsPdf()
+  {
+    return BatchReportImportErrorsExcel();
+  }
+
+  private static byte[] CreateBatchImportErrorsExcel(IEnumerable<BatchImportError> errors)
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.Worksheets.Add("שגיאות יבוא");
+    ws.RightToLeft = true;
+    var headers = new[] { "שורה בקובץ", "קוד עובד", "שם מדווח", "שגיאה", "ערכי מקור" };
+    for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
+
+    var row = 2;
+    foreach (var error in errors.OrderBy(e => e.FileRowNumber))
+    {
+      ws.Cell(row, 1).Value = error.FileRowNumber;
+      ws.Cell(row, 2).Value = error.EmployeeCode ?? string.Empty;
+      ws.Cell(row, 3).Value = error.ReporterName ?? string.Empty;
+      ws.Cell(row, 4).Value = error.ErrorMessage;
+      ws.Cell(row, 5).Value = error.RawValues ?? string.Empty;
+      row++;
+    }
+
+    ws.Row(1).Style.Font.Bold = true;
+    ws.Columns().AdjustToContents();
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return stream.ToArray();
+  }
+
+  private static byte[] CreateBatchImportErrorsExcel(string tempDataText)
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.Worksheets.Add("שגיאות יבוא");
+    ws.RightToLeft = true;
+    var headers = new[] { "שורה בקובץ", "קוד עובד", "שם מדווח", "שגיאה", "ערכי מקור" };
+    for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
+
+    var lines = string.IsNullOrWhiteSpace(tempDataText)
+      ? Array.Empty<string>()
+      : tempDataText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+    var row = 2;
+    foreach (var line in lines)
+    {
+      var cells = line.Split('\t');
+      for (var col = 0; col < headers.Length; col++)
+        ws.Cell(row, col + 1).Value = col < cells.Length ? cells[col] : string.Empty;
+      row++;
+    }
+
+    if (lines.Length == 0)
+      ws.Cell(2, 1).Value = "לא נרשמו שגיאות";
+
+    ws.Row(1).Style.Font.Bold = true;
+    ws.Columns().AdjustToContents();
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return stream.ToArray();
   }
 
   // --- Terms of Use Versions ---
@@ -1635,7 +2106,7 @@ public class AdminController : Controller
     var termsVersion = new TermsOfUseVersion
     {
       VersionNumber = nextVersion,
-      BodyHtml = bodyHtml,
+      BodyHtml = _htmlSanitizer.Sanitize(bodyHtml),
       EffectiveFrom = effectiveFrom ?? now,
       PublishedByUserId = actorId,
       CreatedAt = now
@@ -1657,6 +2128,110 @@ public class AdminController : Controller
 
     TempData["Success"] = $"גרסה {nextVersion} של תנאי השימוש פורסמה. כל המשתמשים יתבקשו לאשר מחדש.";
     return RedirectToAction(nameof(TermsOfUse));
+  }
+
+  // --- Privacy Policy Versions ---
+
+  // Renders a self-contained management page (no Razor view) for publishing and
+  // reviewing privacy policy versions.
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> PrivacyPolicy()
+  {
+    var versions = await _db.PrivacyPolicyVersions
+      .OrderByDescending(v => v.VersionNumber)
+      .Select(v => new TermsOfUseVersionListItem
+      {
+        Id = v.Id,
+        VersionNumber = v.VersionNumber,
+        EffectiveFrom = v.EffectiveFrom,
+        CreatedAt = v.CreatedAt,
+        PublishedByName = v.PublishedByUser == null
+          ? ""
+          : (v.PublishedByUser.FirstName + " " + v.PublishedByUser.LastName).Trim(),
+        AcceptanceCount = 0,
+        BodyHtml = v.BodyHtml
+      })
+      .ToListAsync();
+
+    var latestBody = versions.FirstOrDefault()?.BodyHtml ?? string.Empty;
+    var antiforgeryToken = _antiforgery.GetAndStoreTokens(HttpContext).RequestToken ?? string.Empty;
+
+    var html = new StringBuilder();
+    html.Append("<!doctype html><html lang=\"he\" dir=\"rtl\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><link rel=\"stylesheet\" href=\"/lib/bootstrap/dist/css/bootstrap.min.css\"><title>ניהול גרסאות מדיניות פרטיות</title></head><body><main class=\"container-fluid mt-3\">");
+    html.Append("<div class=\"d-flex justify-content-between align-items-center mb-3\"><h3>ניהול גרסאות מדיניות פרטיות</h3><a class=\"btn btn-outline-secondary btn-sm\" href=\"/Home/Privacy\" target=\"_blank\">צפייה במדיניות</a></div>");
+    if (TempData["Success"] != null)
+      html.Append("<div class=\"alert alert-success\">").Append(WebUtility.HtmlEncode(TempData["Success"]?.ToString())).Append("</div>");
+    if (TempData["Error"] != null)
+      html.Append("<div class=\"alert alert-danger\">").Append(WebUtility.HtmlEncode(TempData["Error"]?.ToString())).Append("</div>");
+    html.Append("<div class=\"card mb-4\"><div class=\"card-header\"><h5 class=\"mb-0\">פרסום גרסה חדשה</h5></div><div class=\"card-body\">");
+    html.Append("<form method=\"post\" action=\"/Admin/PublishPrivacyPolicy\"><input name=\"__RequestVerificationToken\" type=\"hidden\" value=\"").Append(WebUtility.HtmlEncode(antiforgeryToken)).Append("\" />");
+    html.Append("<div class=\"mb-3\"><label for=\"effectiveFrom\" class=\"form-label\">בתוקף מתאריך</label><input id=\"effectiveFrom\" name=\"effectiveFrom\" type=\"datetime-local\" class=\"form-control\" /></div>");
+    html.Append("<div class=\"mb-3\"><label for=\"bodyHtml\" class=\"form-label\">תוכן מדיניות הפרטיות <span class=\"text-danger\">*</span></label><textarea id=\"bodyHtml\" name=\"bodyHtml\" class=\"form-control\" rows=\"14\" required>");
+    html.Append(WebUtility.HtmlEncode(latestBody));
+    html.Append("</textarea><div class=\"form-text\">כל שמירה מפרסמת גרסה חדשה. הגרסה האחרונה היא זו שמוצגת למשתמשים במסך מדיניות פרטיות.</div></div>");
+    html.Append("<button type=\"submit\" class=\"btn btn-primary\">פרסם גרסה חדשה</button></form></div></div>");
+    html.Append("<div class=\"card\"><div class=\"card-header\"><h5 class=\"mb-0\">היסטוריית גרסאות</h5></div><div class=\"table-responsive\"><table class=\"table table-striped align-middle mb-0\"><thead><tr><th>גרסה</th><th>בתוקף מתאריך</th><th>נוצרה בתאריך</th><th>פורסם על ידי</th><th>תוכן</th><th></th></tr></thead><tbody>");
+    foreach (var version in versions)
+    {
+      var previewId = "privacy-preview-" + version.Id.ToString(CultureInfo.InvariantCulture);
+      html.Append("<tr><td>").Append(version.VersionNumber).Append("</td><td>")
+        .Append(WebUtility.HtmlEncode(version.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy HH:mm")))
+        .Append("</td><td>")
+        .Append(WebUtility.HtmlEncode(version.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")))
+        .Append("</td><td>")
+        .Append(WebUtility.HtmlEncode(version.PublishedByName))
+        .Append("</td><td><div id=\"")
+        .Append(previewId)
+        .Append("\" class=\"border rounded p-2 bg-light\" style=\"max-height:160px;overflow:auto\">")
+        // Defense in depth: sanitize at render time too, in case this row predates
+        // the sanitize-on-save fix (see PublishPrivacyPolicy) and still holds raw HTML.
+        .Append(_htmlSanitizer.Sanitize(version.BodyHtml))
+        .Append("</div></td><td><button type=\"button\" class=\"btn btn-outline-secondary btn-sm\" data-source=\"")
+        .Append(previewId)
+        .Append("\" onclick=\"document.getElementById('bodyHtml').value=document.getElementById(this.dataset.source).innerHTML;document.getElementById('bodyHtml').focus();\">ערוך לפי גרסה זו</button></td></tr>");
+    }
+    if (versions.Count == 0)
+      html.Append("<tr><td colspan=\"6\" class=\"text-muted text-center\">לא פורסמו גרסאות מדיניות פרטיות</td></tr>");
+    html.Append("</tbody></table></div></div></main></body></html>");
+    return Content(html.ToString(), "text/html; charset=utf-8");
+  }
+
+  [HttpPost, ValidateAntiForgeryToken]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> PublishPrivacyPolicy(string bodyHtml, DateTime? effectiveFrom)
+  {
+    if (string.IsNullOrWhiteSpace(bodyHtml))
+    {
+      TempData["Error"] = "יש להזין תוכן למדיניות הפרטיות";
+      return RedirectToAction(nameof(PrivacyPolicy));
+    }
+
+    var actorIdRaw = User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!int.TryParse(actorIdRaw, out var actorId))
+    {
+      TempData["Error"] = "לא ניתן לזהות את המשתמש המבצע";
+      return RedirectToAction(nameof(PrivacyPolicy));
+    }
+
+    var nextVersion = (await _db.PrivacyPolicyVersions.MaxAsync(v => (int?)v.VersionNumber) ?? 0) + 1;
+    var now = DateTime.UtcNow;
+
+    var privacyVersion = new PrivacyPolicyVersion
+    {
+      VersionNumber = nextVersion,
+      BodyHtml = _htmlSanitizer.Sanitize(bodyHtml),
+      EffectiveFrom = effectiveFrom ?? now,
+      PublishedByUserId = actorId,
+      CreatedAt = now
+    };
+    _db.PrivacyPolicyVersions.Add(privacyVersion);
+    await _db.SaveChangesAsync();
+
+    await _auditLog.LogAsync("Privacy.Publish", nameof(PrivacyPolicyVersion), privacyVersion.Id.ToString(),
+      after: new { privacyVersion.Id, privacyVersion.VersionNumber, privacyVersion.EffectiveFrom, privacyVersion.PublishedByUserId });
+
+    TempData["Success"] = $"גרסה {nextVersion} של מדיניות הפרטיות פורסמה.";
+    return RedirectToAction(nameof(PrivacyPolicy));
   }
 
   // --- Notification Logs (Gap 6) ---
@@ -1916,12 +2491,145 @@ public class AdminController : Controller
 
   // --- Private helpers ---
 
+  private static readonly TimeSpan LookupCacheTtl = TimeSpan.FromMinutes(15);
+
+  private Task<List<T>> GetCachedLookupListAsync<T>(string cacheKey, Func<Task<List<T>>> loader)
+  {
+    if (_cache == null) return loader();
+    return _cache.GetOrCreateAsync(cacheKey, entry =>
+    {
+      entry.AbsoluteExpirationRelativeToNow = LookupCacheTtl;
+      return loader();
+    })!;
+  }
+
   private async Task LoadInstitutionDropdowns()
   {
-    ViewBag.Localities = await _db.Localities.Where(l => l.IsActive).OrderBy(l => l.Description).ToListAsync();
-    ViewBag.Districts = await _db.Districts.Where(d => d.IsActive).OrderBy(d => d.Description).ToListAsync();
-    ViewBag.Sectors = await _db.Sectors.Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync();
-    ViewBag.EducationTypes = await _db.EducationTypes.Where(t => t.IsActive).OrderBy(t => t.Description).ToListAsync();
-    ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync();
+    ViewBag.Localities = await GetCachedLookupListAsync("Admin:Dropdown:Localities",
+      () => _db.Localities.AsNoTracking().Where(l => l.IsActive).OrderBy(l => l.Description).ToListAsync());
+    ViewBag.Districts = await GetCachedLookupListAsync("Admin:Dropdown:Districts",
+      () => _db.Districts.AsNoTracking().Where(d => d.IsActive).OrderBy(d => d.Description).ToListAsync());
+    ViewBag.Sectors = await GetCachedLookupListAsync("Admin:Dropdown:Sectors",
+      () => _db.Sectors.AsNoTracking().Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync());
+    ViewBag.EducationTypes = await GetCachedLookupListAsync("Admin:Dropdown:EducationTypes",
+      () => _db.EducationTypes.AsNoTracking().Where(t => t.IsActive).OrderBy(t => t.Description).ToListAsync());
+    ViewBag.EducationalStages = await GetCachedLookupListAsync("Admin:Dropdown:EducationalStages",
+      () => _db.EducationalStages.AsNoTracking().Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync());
   }
+
+  // --- Project-program scope helpers (raw SQL bridge tables) ---
+
+  // Loads all scope selections keyed by "<scopeKey>:<projectId>:<programId>".
+  private async Task<Dictionary<string, HashSet<int>>> LoadProjectProgramScopeMappingAsync()
+  {
+    var result = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+    // The scope bridge tables are raw-SQL only; skip when running on a non-relational
+    // provider (in-memory demo/test host) where ADO.NET commands are unavailable.
+    if (!_db.Database.IsRelational()) return result;
+    var connection = _db.Database.GetDbConnection();
+    var shouldClose = connection.State == ConnectionState.Closed;
+    if (shouldClose) await connection.OpenAsync();
+
+    try
+    {
+      foreach (var scope in ProjectProgramScopeDefinitions)
+      {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT ProjectId, ProgramId, " + scope.ColumnName + " FROM dbo." + scope.TableName;
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+          var key = ScopeKey(scope.Key, reader.GetInt32(0), reader.GetInt32(1));
+          if (!result.TryGetValue(key, out var values))
+          {
+            values = new HashSet<int>();
+            result[key] = values;
+          }
+          values.Add(reader.GetInt32(2));
+        }
+      }
+    }
+    finally
+    {
+      if (shouldClose) await connection.CloseAsync();
+    }
+
+    return result;
+  }
+
+  private async Task ReplaceProjectProgramScopeAsync(int projectId, int programId, ScopeDefinition scope, int[]? selectedIds)
+  {
+    if (!_db.Database.IsRelational()) return;
+    var ids = (selectedIds ?? Array.Empty<int>()).Where(id => id > 0).Distinct().ToList();
+    var connection = _db.Database.GetDbConnection();
+    var shouldClose = connection.State == ConnectionState.Closed;
+    if (shouldClose) await connection.OpenAsync();
+
+    try
+    {
+      using (var delete = connection.CreateCommand())
+      {
+        delete.CommandText = "DELETE FROM dbo." + scope.TableName + " WHERE ProjectId = @projectId AND ProgramId = @programId";
+        AddParameter(delete, "@projectId", projectId);
+        AddParameter(delete, "@programId", programId);
+        await delete.ExecuteNonQueryAsync();
+      }
+
+      if (ids.Count > 0)
+      {
+        var idList = string.Join(",", ids);
+        using var insert = connection.CreateCommand();
+        insert.CommandText = $"INSERT INTO dbo.{scope.TableName} (ProjectId, ProgramId, {scope.ColumnName}) SELECT @projectId, @programId, l.Id FROM dbo.{scope.LookupTable} l WHERE l.IsActive = 1 AND l.Id IN ({idList})";
+        AddParameter(insert, "@projectId", projectId);
+        AddParameter(insert, "@programId", programId);
+        await insert.ExecuteNonQueryAsync();
+      }
+    }
+    finally
+    {
+      if (shouldClose) await connection.CloseAsync();
+    }
+  }
+
+  private async Task DeleteAllProjectProgramScopeRowsAsync(int projectId, int programId)
+  {
+    foreach (var scope in ProjectProgramScopeDefinitions)
+      await ReplaceProjectProgramScopeAsync(projectId, programId, scope, Array.Empty<int>());
+  }
+
+  // A newly mapped project-program starts with the full scope (all active lookup values).
+  private async Task BackfillProjectProgramScopeRowsAsync(int projectId, int programId)
+  {
+    if (!_db.Database.IsRelational()) return;
+    var connection = _db.Database.GetDbConnection();
+    var shouldClose = connection.State == ConnectionState.Closed;
+    if (shouldClose) await connection.OpenAsync();
+
+    try
+    {
+      foreach (var scope in ProjectProgramScopeDefinitions)
+      {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"INSERT INTO dbo.{scope.TableName} (ProjectId, ProgramId, {scope.ColumnName}) SELECT @projectId, @programId, l.Id FROM dbo.{scope.LookupTable} l WHERE l.IsActive = 1 AND NOT EXISTS (SELECT 1 FROM dbo.{scope.TableName} s WHERE s.ProjectId = @projectId AND s.ProgramId = @programId AND s.{scope.ColumnName} = l.Id)";
+        AddParameter(command, "@projectId", projectId);
+        AddParameter(command, "@programId", programId);
+        await command.ExecuteNonQueryAsync();
+      }
+    }
+    finally
+    {
+      if (shouldClose) await connection.CloseAsync();
+    }
+  }
+
+  private static void AddParameter(DbCommand command, string name, object value)
+  {
+    var parameter = command.CreateParameter();
+    parameter.ParameterName = name;
+    parameter.Value = value;
+    command.Parameters.Add(parameter);
+  }
+
+  private static string ScopeKey(string scope, int projectId, int programId) =>
+    $"{scope}:{projectId}:{programId}";
 }

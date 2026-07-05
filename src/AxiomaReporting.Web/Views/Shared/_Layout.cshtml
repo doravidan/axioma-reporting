@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>@ViewData["Title"] - סייט&amp;סאונד חינוך</title>
+  <title>@ViewData["Title"] - סייט אנד סאונד</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" />
   <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
   <link rel="stylesheet" href="~/lib/choices.js/choices.min.css" asp-append-version="true" />
@@ -17,8 +17,8 @@
          aria-label="ניווט ראשי">
       <div class="container-fluid">
         <a class="navbar-brand p-0 app-navbar-brand" asp-controller="Home" asp-action="Index"
-           aria-label="דף הבית - סייט וסאונד חינוך">
-          @await Component.InvokeAsync("SiteLogo", new { cssClass = "app-navbar-logo", maxHeightPx = 36, alt = "סייט וסאונד חינוך" })
+           aria-label="דף הבית - סייט אנד סאונד">
+          @await Component.InvokeAsync("SiteLogo", new { cssClass = "app-navbar-logo", maxHeightPx = 36, alt = "סייט אנד סאונד" })
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse"
                 aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="פתח תפריט ניווט">
@@ -36,6 +36,9 @@
                 <li class="nav-item">
                   <a class="nav-link" asp-controller="MyAllocations" asp-action="Index">פעילות חודשית</a>
                 </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="/Report/History">היסטוריית דיווחים</a>
+                </li>
               }
               else
               {
@@ -46,7 +49,7 @@
               @if (!User.IsInRole("6"))
               {
                 <li class="nav-item">
-                  <a class="nav-link" asp-controller="Dashboard" asp-action="Index">דשבורד דיווחים</a>
+                  <a class="nav-link" asp-controller="Dashboard" asp-action="Index">דש בורד דיווחים</a>
                 </li>
               }
               <li class="nav-item">
@@ -70,6 +73,7 @@
                   <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">ניהול</a>
                   <ul class="dropdown-menu">
                     <li><a class="dropdown-item" asp-controller="Lookup" asp-action="Index">טבלאות עזר</a></li>
+                    <li><a class="dropdown-item" href="/Admin/PrivacyPolicy">מדיניות פרטיות</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="Frameworks">מסגרות</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="Institutions">מוסדות</a></li>
                     <li><hr class="dropdown-divider"></li>
@@ -138,8 +142,9 @@
   </div>
 
   <footer class="border-top footer text-muted mt-4">
-    <div class="container py-2">
-      &copy; 2026 סייט&amp;סאונד חינוך - מערכת דיווח פעילות חודשית
+    <div class="container py-2 d-flex gap-3 flex-wrap">
+      <span>&copy; 2026 סייט אנד סאונד - מערכת דיווח פעילות חודשית</span>
+      <a href="/Home/Privacy">מדיניות פרטיות</a>
     </div>
   </footer>
   <script src="~/lib/jquery/dist/jquery.min.js"></script>

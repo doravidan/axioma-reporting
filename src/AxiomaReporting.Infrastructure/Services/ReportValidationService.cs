@@ -40,6 +40,11 @@ public class ReportValidationService : IReportValidationService
 
   private readonly AppDbContext _db;
 
+  // Per-request caches: validation runs row-by-row over the same few allocations
+  private readonly Dictionary<int, Allocation> _allocationScopeCache = new();
+  private readonly Dictionary<int, Allocation> _allocationSimpleCache = new();
+  private HashSet<string>? _requiredFieldsCache;
+
   public ReportValidationService(AppDbContext db) { _db = db; }
 
   public async Task<ValidationResult> ValidateRowAsync(
@@ -146,18 +151,24 @@ public class ReportValidationService : IReportValidationService
   {
     if (!row.AllocationId.HasValue) return;
 
-    var allocation = await _db.Allocations
-      .Include(a => a.AllocationDistricts)
-      .Include(a => a.AllocationLocalities)
-      .Include(a => a.AllocationFrameworks)
-      .Include(a => a.AllocationEducationalPrograms)
-      .Include(a => a.AllocationDomains)
-      .Include(a => a.AllocationSubjects)
-      .Include(a => a.AllocationDiscussionCodes)
-      .Include(a => a.AllocationClasses)
-      .Include(a => a.AllocationGradeLevels)
-      .Include(a => a.AllocationLocalityDistrictNationals)
-      .FirstOrDefaultAsync(a => a.Id == row.AllocationId.Value);
+    if (!_allocationScopeCache.TryGetValue(row.AllocationId.Value, out var allocation))
+    {
+      allocation = await _db.Allocations
+        .Include(a => a.AllocationDistricts)
+        .Include(a => a.AllocationLocalities)
+        .Include(a => a.AllocationFrameworks).ThenInclude(x => x.Framework)
+        .Include(a => a.AllocationEducationalPrograms)
+        .Include(a => a.AllocationDomains)
+        .Include(a => a.AllocationSubjects)
+        .Include(a => a.AllocationDiscussionCodes)
+        .Include(a => a.AllocationClasses).ThenInclude(x => x.SchoolClass)
+        .Include(a => a.AllocationGradeLevels)
+        .Include(a => a.AllocationLocalityDistrictNationals)
+        .AsSplitQuery()
+        .FirstOrDefaultAsync(a => a.Id == row.AllocationId.Value);
+      if (allocation != null)
+        _allocationScopeCache[row.AllocationId.Value] = allocation;
+    }
 
     if (allocation == null)
     {
@@ -165,11 +176,22 @@ public class ReportValidationService : IReportValidationService
       return;
     }
 
+    // Frameworks with a numeric institution symbol scope the framework field; the rest
+    // scope the conclusion framework. Classes split the same way by description.
+    var numericFrameworks = allocation.AllocationFrameworks
+      .Where(x => x.Framework != null && IsNumberOnly(x.Framework.InstitutionSymbol)).ToList();
+    var conclusionFrameworks = allocation.AllocationFrameworks
+      .Where(x => x.Framework != null && !IsNumberOnly(x.Framework.InstitutionSymbol)).ToList();
+    var numericClasses = allocation.AllocationClasses
+      .Where(x => x.SchoolClass != null && IsNumberOnly(x.SchoolClass.Description)).ToList();
+    var conclusionClasses = allocation.AllocationClasses
+      .Where(x => x.SchoolClass != null && !IsNumberOnly(x.SchoolClass.Description)).ToList();
+
     if (allocation.AllocationDistricts.Any() && !allocation.AllocationDistricts.Any(x => x.DistrictId == row.DistrictId))
       result.AddError("המחוז אינו תואם להקצאת העובד");
     if (allocation.AllocationLocalities.Any() && !allocation.AllocationLocalities.Any(x => x.LocalityId == row.LocalityId))
       result.AddError("היישוב אינו תואם להקצאת העובד");
-    if (allocation.AllocationFrameworks.Any() && !allocation.AllocationFrameworks.Any(x => x.FrameworkId == row.FrameworkId))
+    if (numericFrameworks.Any() && !numericFrameworks.Any(x => x.FrameworkId == row.FrameworkId))
       result.AddError("המסגרת אינה תואמת להקצאת העובד");
     if (allocation.AllocationEducationalPrograms.Any() && !allocation.AllocationEducationalPrograms.Any(x => x.EducationalProgramId == row.EducationalProgramId))
       result.AddError("התוכנית החינוכית אינה תואמת להקצאת העובד");
@@ -181,17 +203,19 @@ public class ReportValidationService : IReportValidationService
       result.AddError("נושא 2 אינו תואם להקצאת העובד");
     if (row.DiscussionCodeId.HasValue && allocation.AllocationDiscussionCodes.Any() && !allocation.AllocationDiscussionCodes.Any(x => x.DiscussionCodeId == row.DiscussionCodeId.Value))
       result.AddError("קוד הדיון אינו תואם להקצאת העובד");
-    if (row.ClassId.HasValue && allocation.AllocationClasses.Any() && !allocation.AllocationClasses.Any(x => x.ClassId == row.ClassId.Value))
+    if (row.ClassId.HasValue && numericClasses.Any() && !numericClasses.Any(x => x.ClassId == row.ClassId.Value))
       result.AddError("הכיתה אינה תואמת להקצאת העובד");
     if (row.GradeLevelId.HasValue && allocation.AllocationGradeLevels.Any() && !allocation.AllocationGradeLevels.Any(x => x.GradeLevelId == row.GradeLevelId.Value))
       result.AddError("השכבה אינה תואמת להקצאת העובד");
-    if (row.ConclusionClassId.HasValue && allocation.AllocationClasses.Any() && !allocation.AllocationClasses.Any(x => x.ClassId == row.ConclusionClassId.Value))
+    if (row.ConclusionClassId.HasValue && conclusionClasses.Any() && !conclusionClasses.Any(x => x.ClassId == row.ConclusionClassId.Value))
       result.AddError("מסקנה - כיתה אינה תואמת להקצאת העובד");
-    if (row.ConclusionFrameworkId.HasValue && allocation.AllocationFrameworks.Any() && !allocation.AllocationFrameworks.Any(x => x.FrameworkId == row.ConclusionFrameworkId.Value))
+    if (row.ConclusionFrameworkId.HasValue && conclusionFrameworks.Any() && !conclusionFrameworks.Any(x => x.FrameworkId == row.ConclusionFrameworkId.Value))
       result.AddError("מסקנה - מסגרת אינה תואמת להקצאת העובד");
     if (row.ConclusionLocationId.HasValue && allocation.AllocationLocalityDistrictNationals.Any() && !allocation.AllocationLocalityDistrictNationals.Any(x => x.LocalityDistrictNationalId == row.ConclusionLocationId.Value))
       result.AddError("מסקנה - מיקום אינה תואמת להקצאת העובד");
   }
+
+  private static bool IsNumberOnly(string? value) => int.TryParse(value?.Trim(), out _);
 
   private async Task ValidateDailyLimitAsync(
     ValidationResult result, ReportRow row, DateTime meetingDate, List<ReportRow> allRowsInReport)
@@ -202,7 +226,7 @@ public class ReportValidationService : IReportValidationService
     decimal? limit = null;
     if (row.AllocationId.HasValue)
     {
-      var allocation = await _db.Allocations.FindAsync(row.AllocationId.Value);
+      var allocation = await GetSimpleAllocationAsync(row.AllocationId.Value);
       if (allocation != null && !allocation.DailyEmploymentScope.HasValue)
         return;
       limit = allocation?.DailyEmploymentScope;
@@ -225,7 +249,7 @@ public class ReportValidationService : IReportValidationService
   {
     if (!row.AllocationId.HasValue) return;
 
-    var allocation = await _db.Allocations.FindAsync(row.AllocationId.Value);
+    var allocation = await GetSimpleAllocationAsync(row.AllocationId.Value);
     if (allocation?.MonthlyEmploymentScope == null) return;
 
     var monthlyTotal = allRowsInReport
@@ -240,7 +264,7 @@ public class ReportValidationService : IReportValidationService
   {
     if (!row.AllocationId.HasValue) return;
 
-    var allocation = await _db.Allocations.FindAsync(row.AllocationId.Value);
+    var allocation = await GetSimpleAllocationAsync(row.AllocationId.Value);
     if (string.IsNullOrWhiteSpace(allocation?.OutputDuration)) return;
 
     var tokens = allocation.OutputDuration
@@ -266,7 +290,6 @@ public class ReportValidationService : IReportValidationService
       r != row &&
       r.AllocationId == row.AllocationId &&
       r.MeetingDate.Date == meetingDate &&
-      r.MeetingDuration == row.MeetingDuration &&
       r.DistrictId == row.DistrictId &&
       r.LocalityId == row.LocalityId &&
       r.FrameworkId == row.FrameworkId &&
@@ -300,8 +323,11 @@ public class ReportValidationService : IReportValidationService
   private async Task ValidateNotesSimilarityAsync(
     ValidationResult result, ReportRow row, List<ReportRow> allRowsInReport)
   {
+    // Notes similarity check disabled in v1.2.x per client feedback.
     if (string.IsNullOrEmpty(row.Notes)) return;
+    return;
 
+#pragma warning disable CS0162 // Unreachable code kept intentionally for potential re-enable
     var thresholdConstant = await _db.SystemConstants
       .FirstOrDefaultAsync(c => c.Key == "NotesSimilarityThresholdPercent");
     var threshold = double.TryParse(thresholdConstant?.Value, out var t) ? t : 90.0;
@@ -315,21 +341,36 @@ public class ReportValidationService : IReportValidationService
         break;
       }
     }
+#pragma warning restore CS0162
   }
 
   private async Task<HashSet<string>> GetRequiredFieldsAsync()
   {
+    if (_requiredFieldsCache != null) return _requiredFieldsCache;
+
     var configured = await _db.SystemConstants
       .Where(c => c.Key == RequiredReportFieldsKey)
       .Select(c => c.Value)
       .FirstOrDefaultAsync();
 
-    if (string.IsNullOrWhiteSpace(configured))
-      return new HashSet<string>(DefaultRequiredFields, StringComparer.OrdinalIgnoreCase);
+    _requiredFieldsCache = string.IsNullOrWhiteSpace(configured)
+      ? new HashSet<string>(DefaultRequiredFields, StringComparer.OrdinalIgnoreCase)
+      : configured
+          .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+          .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    return configured
-      .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-      .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    return _requiredFieldsCache;
+  }
+
+  private async Task<Allocation?> GetSimpleAllocationAsync(int allocationId)
+  {
+    if (!_allocationSimpleCache.TryGetValue(allocationId, out var allocation))
+    {
+      allocation = await _db.Allocations.FindAsync(allocationId);
+      if (allocation != null)
+        _allocationSimpleCache[allocationId] = allocation;
+    }
+    return allocation;
   }
 
   private static double NotesSimilarity(string a, string b)

@@ -28,7 +28,9 @@ public class AdminFrameworkTests : IDisposable
       emailService: null!,
       brandingService: null!,
       auditLog: new TestSupport.FakeAuditLogService(),
-      hostEnvironment: null!)
+      hostEnvironment: null!,
+      antiforgery: new TestSupport.StubAntiforgery(),
+      htmlSanitizer: new AxiomaReporting.Infrastructure.Services.HtmlSanitizerService())
     {
       TempData = new TempDataDictionary(new DefaultHttpContext(), new NoOpTempDataProvider()),
       ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }

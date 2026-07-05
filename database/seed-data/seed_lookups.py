@@ -2,20 +2,27 @@
 AX-024 Seed Script — loads all lookup tables from the client Excel files into AxiomaReporting DB.
 Run once after the database is created and migrations applied.
 """
-import sys, io, pyodbc, pyxlsb, openpyxl
+import sys, io, os, pyodbc, pyxlsb, openpyxl
 from datetime import datetime
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=.\\SQLEXPRESS;"
-    "DATABASE=AxiomaReporting;"
-    "Trusted_Connection=yes;"
+# Connection string is overridable via the AXIOMA_CONN_STR environment variable
+# so the same script runs on Windows (SQLEXPRESS / Windows auth) and on a
+# Linux dev box (SQL Server on TCP with SQL auth). Default keeps prior behavior.
+CONN_STR = os.environ.get(
+    "AXIOMA_CONN_STR",
+    (
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=.\\SQLEXPRESS;"
+        "DATABASE=AxiomaReporting;"
+        "Trusted_Connection=yes;"
+    ),
 )
 
-BASE   = r"F:\דווח עובדים אקסיומא\database\seed-data"
-TABLOT = f"{BASE}\\טבלאות.xlsb"
+# Base folder holding the client Excel files; override with AXIOMA_SEED_DIR.
+BASE   = os.environ.get("AXIOMA_SEED_DIR", r"F:\דווח עובדים אקסיומא\database\seed-data")
+TABLOT = os.path.join(BASE, "טבלאות.xlsb")
 NOW    = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 def connect():

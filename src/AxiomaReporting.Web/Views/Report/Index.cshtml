@@ -22,8 +22,45 @@
     ?? new List<AxiomaReporting.Core.Entities.District>();
   var localities = allocation?.AllocationLocalities.Select(x => x.Locality).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.Locality>();
+  var manualLocalities = ViewData["ManualLocalities"] as List<AxiomaReporting.Core.Entities.Locality>
+    ?? new List<AxiomaReporting.Core.Entities.Locality>();
+  if (manualLocalities.Count > 0)
+  {
+    localities = manualLocalities;
+  }
+  var nonCityLocalityTokens = new[]
+  {
+    "בית ספר", "בתי ספר", "בי\"ס", "בי'ס", "אולפנ", "אורט", "מח\"ט", "מועדונית", "מרכז נוער", "מרכזי חינוך",
+    "מרכזים לגיל הרך", "מרכז לגיל הרך", "גיל הרך", "עוגנים", "מסגרות", "כיתות", "על יסודי", "תיכון", "ישיבה", "ישיבת",
+    "תורה", "תלמוד", "חינוך", "אמי\"ת", "אמי״ת", "עמל", "הילה ", "בית חם", "תעשית", "חברה וטבע",
+    "ברסלב", "לצעירים", "מדרשה", "מכנובקא", "ק.הרצוג", "ברנקו", "משכן", "אהבת", "באר אברהם", "בית דוד",
+    "בית אליהו", "בית צבי", "בית רבן", "בני אהרון", "אמרי", "אקרא", "היכל"
+  };
+  Func<string?, bool> isCityLocalityText = value =>
+  {
+    var text = value?.Trim() ?? string.Empty;
+    return !string.IsNullOrWhiteSpace(text)
+      && !int.TryParse(text, out _)
+      && !nonCityLocalityTokens.Any(token => text.Contains(token, StringComparison.OrdinalIgnoreCase));
+  };
+  localities = localities
+    .Where(x => isCityLocalityText(x.Description))
+    .OrderBy(x => x.Description)
+    .ToList();
   var frameworks = allocation?.AllocationFrameworks.Select(x => x.Framework).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.Framework>();
+  var conclusionFrameworks = frameworks
+    .Where(x => !int.TryParse(x.InstitutionSymbol?.Trim(), out _))
+    .OrderBy(x => x.Description)
+    .ToList();
+  var numericFrameworks = frameworks
+    .Where(x => int.TryParse(x.InstitutionSymbol?.Trim(), out _))
+    .OrderBy(x => x.Description)
+    .ToList();
+  if (numericFrameworks.Count > 0)
+  {
+    frameworks = numericFrameworks;
+  }
   var edPrograms = allocation?.AllocationEducationalPrograms.Select(x => x.EducationalProgram).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.EducationalProgram>();
   var domains = allocation?.AllocationDomains.Select(x => x.Domain).Where(x => x != null).Select(x => x!).ToList()
@@ -36,6 +73,19 @@
     ?? new List<AxiomaReporting.Core.Entities.GradeLevel>();
   var classes = allocation?.AllocationClasses.Select(x => x.SchoolClass).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.SchoolClass>();
+  var conclusionClasses = classes
+    .Where(x => !int.TryParse(x.Description?.Trim(), out _))
+    .OrderBy(x => x.Description)
+    .ToList();
+  var numericClasses = classes
+    .Where(x => int.TryParse(x.Description?.Trim(), out _))
+    .OrderBy(x => int.TryParse(x.Description?.Trim(), out var parsed) ? parsed : int.MaxValue)
+    .ThenBy(x => x.Description)
+    .ToList();
+  if (numericClasses.Count > 0)
+  {
+    classes = numericClasses;
+  }
   var locDist = allocation?.AllocationLocalityDistrictNationals.Select(x => x.LocalityDistrictNational).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.LocalityDistrictNational>();
   var requiredFields = ViewBag.RequiredReportFields as HashSet<string> ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -62,8 +112,8 @@
     ["Subject1Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
     ["Subject2Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
     ["DiscussionCodeId"] = discCodes.Select(x => new { id = x.Id, text = x.Description }),
-    ["ConclusionClassId"] = classes.Select(x => new { id = x.Id, text = x.Description }),
-    ["ConclusionFrameworkId"] = frameworks.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionClassId"] = conclusionClasses.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionFrameworkId"] = conclusionFrameworks.Select(x => new { id = x.Id, text = x.Description }),
     ["ConclusionLocationId"] = locDist.Select(x => new { id = x.Id, text = x.Description }),
     ["GradeLevelId"] = gradeLevels.Select(x => new { id = x.Id, text = x.Description }),
     ["ClassId"] = classes.Select(x => new { id = x.Id, text = x.Description })
@@ -118,6 +168,10 @@
 }
 
 <div class="container-fluid mt-3">
+  <div class="d-flex justify-content-end gap-2 mb-3 flex-wrap">
+    <a class="btn btn-outline-secondary btn-sm" href="/Report/History@(employee != null ? $"?userId={employee.Id}" : "")">היסטוריית דיווחים</a>
+    <a class="btn btn-primary btn-sm" href="/Report/Manual">הוספת דיווח ידני</a>
+  </div>
   @if (!string.IsNullOrWhiteSpace(returnUrl))
   {
     <div class="mb-3">
@@ -136,10 +190,10 @@
   {
     <div class="alert alert-danger" role="alert" aria-live="assertive" aria-atomic="true">
       @Html.Raw(string.Join("<br/>", (TempData["Errors"]!.ToString() ?? "").Split('|')))
-      @if (TempData["ExcelErrorPdf"] != null)
+      @if (TempData["ExcelErrorFile"] != null)
       {
         <div class="mt-2">
-          <a href="@TempData["ExcelErrorPdf"]" target="_blank" class="btn btn-sm btn-outline-danger">הורד PDF שגיאות</a>
+          <a href="@TempData["ExcelErrorFile"]" target="_blank" class="btn btn-sm btn-outline-danger">הורד Excel שגיאות</a>
         </div>
       }
     </div>
@@ -167,7 +221,11 @@
         <div class="col-md-3"><strong>חודש:</strong> @month?.Description</div>
         <div class="col-md-3"><strong>סטטוס:</strong> @StatusText(report?.StatusId, report?.Status?.Name)</div>
         <div class="col-md-3"><strong>שורות בהקצאה:</strong> @Model.Count / @allocation?.MonthlyRowAllocation</div>
-        <div class="col-md-6 text-start">
+        @if (report != null)
+        {
+          <div class="col-md-3"><a class="btn btn-sm btn-outline-success" href="/Report/ExportReportMonth?reportId=@report.Id">ייצוא אקסל חודשי</a></div>
+        }
+        <div class="col-md-3 text-start">
           @{
             var allocsList = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
           }
@@ -257,6 +315,7 @@
           <thead class="table-light">
             <tr>
               <th scope="col" class="sortable" aria-sort="none">מס"ד</th>
+              <th scope="col" class="sortable" aria-sort="none">סוג דיווח</th>
               <th scope="col" class="sortable" aria-sort="none">תאריך</th>
               <th scope="col" class="sortable" aria-sort="none">משך</th>
               <th scope="col" class="sortable" aria-sort="none">מחוז</th>
@@ -266,7 +325,7 @@
               <th scope="col" class="sortable" aria-sort="none">תחום</th>
               <th scope="col" class="sortable" aria-sort="none">נושא 1</th>
               <th scope="col" class="sortable" aria-sort="none">נושא 2</th>
-              <th scope="col" class="sortable" aria-sort="none">קוד דיון</th>
+              <th scope="col" class="sortable" aria-sort="none">קיום דיון</th>
               <th scope="col" class="sortable" aria-sort="none">מסקנה-כיתה</th>
               <th scope="col" class="sortable" aria-sort="none">מסקנה-מסגרת</th>
               <th scope="col" class="sortable" aria-sort="none">מסקנה-מיקום</th>
@@ -282,6 +341,7 @@
               var rowVersionB64 = row.RowVersion != null ? Convert.ToBase64String(row.RowVersion) : "";
               <tr data-row-id="@row.Id" data-row-version="@rowVersionB64">
                 <td>@row.SequenceNumber</td>
+                <td>@(row.ReportType?.Description ?? allocation?.ReportType?.Description)</td>
                 <td @Html.Raw(FieldAttrs("MeetingDate", "date"))>@row.MeetingDate.ToString("dd/MM/yyyy")</td>
                 <td @Html.Raw(FieldAttrs("MeetingDuration", "duration"))>@row.MeetingDuration</td>
                 <td @Html.Raw(FieldAttrs("DistrictId"))>@row.District?.Description</td>
@@ -450,7 +510,7 @@
                 </select>
               </div>
               <div class="col-md-2">
-                <label class="form-label" for="fieldDiscussion">קוד דיון@(Star("DiscussionCodeId"))</label>
+                <label class="form-label" for="fieldDiscussion">קיום דיון@(Star("DiscussionCodeId"))</label>
                 <select id="fieldDiscussion" name="row.DiscussionCodeId" class="form-select"
                         required="@Req("DiscussionCodeId")" aria-required="@(Req("DiscussionCodeId") ? "true" : "false")">
                   <option value="">---</option>
@@ -462,7 +522,7 @@
                 <select id="fieldConclusionClass" name="row.ConclusionClassId" class="form-select"
                         required="@Req("ConclusionClassId")" aria-required="@(Req("ConclusionClassId") ? "true" : "false")">
                   <option value="">---</option>
-                  @foreach (var item in classes) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in conclusionClasses) { <option value="@item.Id">@item.Description</option> }
                 </select>
               </div>
               <div class="col-md-2">
@@ -470,7 +530,7 @@
                 <select id="fieldConclusionFramework" name="row.ConclusionFrameworkId" class="form-select"
                         required="@Req("ConclusionFrameworkId")" aria-required="@(Req("ConclusionFrameworkId") ? "true" : "false")">
                   <option value="">---</option>
-                  @foreach (var item in frameworks) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in conclusionFrameworks) { <option value="@item.Id">@item.Description</option> }
                 </select>
               </div>
               <div class="col-md-2">
@@ -522,18 +582,6 @@
     const inlineDurationUnlimited = @Json.Serialize(durationUnlimited);
     const inlineReportId = @report?.Id;
     const inlineAllocationId = @allocationId;
-    const reportUrls = {
-      getRow: '@Url.Action("GetRow", "Report")',
-      saveRow: '@Url.Action("SaveRow", "Report")',
-      deleteRow: '@Url.Action("DeleteRow", "Report")',
-      uploadAttachment: '@Url.Action("UploadAttachment", "Report")',
-      deleteAttachment: '@Url.Action("DeleteAttachment", "Report")'
-    };
-
-    function withQuery(url, key, value) {
-      const separator = url.includes('?') ? '&' : '?';
-      return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-    }
 
     function htmlEscape(value) {
       return String(value ?? '')
@@ -613,7 +661,8 @@
         const selected = String(item.id) === String(value ?? '') ? ' selected' : '';
         return `<option value="${htmlEscape(item.id)}"${selected}>${htmlEscape(item.text)}</option>`;
       }));
-      return `<select class="form-select form-select-sm cell-field">${options.join('')}</select>`;
+      const autocompleteAttr = (field === 'Subject1Id' || field === 'Subject2Id') ? ' data-subject-autocomplete="1"' : '';
+      return `<select class="form-select form-select-sm cell-field"${autocompleteAttr}>${options.join('')}</select>`;
     }
 
     function appendRowFormData(data, row) {
@@ -668,7 +717,7 @@
       const type = cell.dataset.editType || 'select';
       const optional = cell.dataset.editOptional === 'true';
       const rowId = tr.dataset.rowId;
-      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', rowId));
+      const resp = await fetch('/Report/GetRow?rowId=' + rowId);
       if (!resp.ok) {
         alert('לא ניתן לטעון את התא לעריכה');
         return;
@@ -719,7 +768,7 @@
       const field = cell.dataset.editField;
       const input = cell.querySelector('.cell-field');
       const rowId = tr.dataset.rowId;
-      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', rowId));
+      const resp = await fetch('/Report/GetRow?rowId=' + rowId);
       if (!resp.ok) {
         cell.querySelector('.cell-edit-error').textContent = 'לא ניתן לטעון את השורה לשמירה';
         return;
@@ -738,7 +787,7 @@
       appendRowFormData(data, row);
 
       button.disabled = true;
-      const saveResp = await fetch(reportUrls.saveRow, { method: 'POST', body: data });
+      const saveResp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
       const result = await saveResp.json().catch(() => ({ success: false, error: 'שגיאה בשמירת התא' }));
       if (!result.success) {
         button.disabled = false;
@@ -763,7 +812,7 @@
       const tr = document.querySelector(`tr[data-row-id="${id}"]`);
       if (!tr || tr.dataset.inlineEditing === 'true') return;
 
-      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', id));
+      const resp = await fetch('/Report/GetRow?rowId=' + id);
       if (!resp.ok) {
         alert('לא ניתן לטעון את השורה לעריכה');
         return;
@@ -788,7 +837,7 @@
             <div class="col-md-2"><label class="form-label">תחום</label>${selectHtml('DomainId', row.domainId, false)}</div>
             <div class="col-md-2"><label class="form-label">נושא 1</label>${selectHtml('Subject1Id', row.subject1Id, false)}</div>
             <div class="col-md-2"><label class="form-label">נושא 2</label>${selectHtml('Subject2Id', row.subject2Id, true)}</div>
-            <div class="col-md-2"><label class="form-label">קוד דיון</label>${selectHtml('DiscussionCodeId', row.discussionCodeId, true)}</div>
+            <div class="col-md-2"><label class="form-label">קיום דיון</label>${selectHtml('DiscussionCodeId', row.discussionCodeId, true)}</div>
             <div class="col-md-2"><label class="form-label">מסקנה - כיתה</label>${selectHtml('ConclusionClassId', row.conclusionClassId, true)}</div>
             <div class="col-md-2"><label class="form-label">מסקנה - מסגרת</label>${selectHtml('ConclusionFrameworkId', row.conclusionFrameworkId, true)}</div>
             <div class="col-md-2"><label class="form-label">מסקנה - מיקום</label>${selectHtml('ConclusionLocationId', row.conclusionLocationId, true)}</div>
@@ -827,7 +876,7 @@
         data.append(field.dataset.name, field.value || '');
       });
 
-      const resp = await fetch(reportUrls.saveRow, { method: 'POST', body: data });
+      const resp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) {
         location.reload();
@@ -882,7 +931,10 @@
     }
 
     function setSelect(id, value) {
-      document.getElementById(id).value = value || '';
+      const select = document.getElementById(id);
+      if (!select) return;
+      select.value = value || '';
+      if (window.refreshSubjectAutocomplete) window.refreshSubjectAutocomplete(select);
     }
 
     function addRow() {
@@ -896,7 +948,7 @@
 
     async function editRow(id) {
       document.getElementById('rowErrors').style.display = 'none';
-      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', id));
+      const resp = await fetch('/Report/GetRow?rowId=' + id);
       if (!resp.ok) {
         alert('לא ניתן לטעון את השורה לעריכה');
         return;
@@ -927,7 +979,7 @@
 
     async function duplicateRow(id) {
       document.getElementById('rowErrors').style.display = 'none';
-      const resp = await fetch(withQuery(reportUrls.getRow, 'rowId', id));
+      const resp = await fetch('/Report/GetRow?rowId=' + id);
       if (!resp.ok) {
         alert('לא ניתן לטעון את השורה לשכפול');
         return;
@@ -962,7 +1014,7 @@
       const errDiv = document.getElementById('rowErrors');
       errDiv.style.display = 'none';
 
-      const resp = await fetch(reportUrls.saveRow, { method: 'POST', body: data });
+      const resp = await fetch('/Report/SaveRow', { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) {
         location.reload();
@@ -981,7 +1033,7 @@
       data.append('rowId', rowId);
       data.append('rowVersion', rv);
       data.append('__RequestVerificationToken', token);
-      const resp = await fetch(reportUrls.deleteRow, { method: 'POST', body: data });
+      const resp = await fetch('/Report/DeleteRow', { method: 'POST', body: data });
       const result = await resp.json().catch(() => ({ success: false }));
       if (result.success) {
         location.reload();
@@ -1000,7 +1052,7 @@
       const descriptionInput = document.getElementById('report-file-description');
       data.append('description', descriptionInput ? descriptionInput.value : '');
       data.append('__RequestVerificationToken', token);
-      const resp = await fetch(reportUrls.uploadAttachment, { method: 'POST', body: data });
+      const resp = await fetch('/Report/UploadAttachment', { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) location.reload();
       else alert(result.error || 'שגיאה בהעלאת מסמך');
@@ -1012,7 +1064,7 @@
       const data = new FormData();
       data.append('attachmentId', attachmentId);
       data.append('__RequestVerificationToken', token);
-      const resp = await fetch(reportUrls.deleteAttachment, { method: 'POST', body: data });
+      const resp = await fetch('/Report/DeleteAttachment', { method: 'POST', body: data });
       const result = await resp.json();
       if (result.success) location.reload();
       else alert(result.error || 'שגיאה במחיקת מסמך');

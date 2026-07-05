@@ -128,6 +128,10 @@
         <a asp-controller="Employee" asp-action="CreateAllocation" asp-route-id="@employeeContext.Id" class="btn btn-primary">הוסף הקצאה</a>
         <a asp-controller="Employee" asp-action="Edit" asp-route-id="@employeeContext.Id" class="btn btn-outline-secondary">חזרה לכרטיס עובד</a>
       }
+      else
+      {
+        <a href="/allocations/create" class="btn btn-primary">הוסף הקצאה</a>
+      }
       <a href="@ExportLink()" class="btn btn-success">יצא לאקסל</a>
     </div>
   </div>

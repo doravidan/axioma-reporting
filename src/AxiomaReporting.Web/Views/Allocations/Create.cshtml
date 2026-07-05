@@ -1,0 +1,11 @@
+@model AxiomaReporting.Web.Models.AllocationEmployeePickerViewModel
+@removeTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+  Layout = "_Layout";
+  ViewData["Title"] = "הוספת הקצאה";
+}
+<div class="container mt-4" dir="rtl"><div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"><h3 class="mb-0">הוספת הקצאה לעובד</h3><a class="btn btn-outline-secondary" href="/allocations">חזרה להקצאות</a></div><form method="get" action="/allocations/create" class="card card-body mb-3"><div class="row g-2 align-items-end"><div class="col-md-3"><label class="form-label" for="allocation-picker-id">ת.ז</label><input id="allocation-picker-id" class="form-control" name="idNumber" value="@(Model.IdNumber ?? string.Empty)" autocomplete="off" /></div><div class="col-md-3"><label class="form-label" for="allocation-picker-code">קוד עובד</label><input id="allocation-picker-code" class="form-control" name="employeeCode" value="@(Model.EmployeeCode ?? string.Empty)" autocomplete="off" /></div><div class="col-md-3"><label class="form-label" for="allocation-picker-first">שם פרטי</label><input id="allocation-picker-first" class="form-control" name="firstName" value="@(Model.FirstName ?? string.Empty)" autocomplete="off" /></div><div class="col-md-3"><label class="form-label" for="allocation-picker-last">שם משפחה</label><input id="allocation-picker-last" class="form-control" name="lastName" value="@(Model.LastName ?? string.Empty)" autocomplete="off" /></div><div class="col-12"><button class="btn btn-primary">חפש</button></div></div></form><div class="card"><div class="card-header">בחר עובד</div><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th scope="col">ת.ז</th><th scope="col">קוד עובד</th><th scope="col">שם פרטי</th><th scope="col">שם משפחה</th><th scope="col"></th></tr></thead><tbody>@if (Model.Employees.Count == 0)
+{<tr><td colspan="5" class="text-muted text-center py-4">לא נמצאו עובדים תואמים</td></tr>}
+else
+{foreach (var employee in Model.Employees)
+{<tr><td>@employee.IdNumber</td><td>@employee.EmployeeCode</td><td>@employee.FirstName</td><td>@employee.LastName</td><td><a class="btn btn-sm btn-success" href="/Employee/@(employee.Id)/Allocations/Create">הוסף הקצאה</a></td></tr>}}</tbody></table></div></div></div>

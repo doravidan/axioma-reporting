@@ -1,4 +1,6 @@
 @model AxiomaReporting.Core.Entities.NotificationLog
+@using AxiomaReporting.Core.Interfaces
+@inject IHtmlSanitizerService HtmlSanitizer
 @{
   string TypeLabel(string? value) => value switch
   {
@@ -88,6 +90,9 @@
 <div class="mb-3">
   <h6>תוכן</h6>
   <div class="border rounded p-2 bg-light" style="max-height: 320px; overflow: auto;">
-    @Html.Raw(Model.Body)
+    @* Sanitized at render time: the body is composed from an admin-authored email
+       template (now sanitized on save), but older logged emails may predate that
+       fix. See CLAUDE.md security review finding C1. *@
+    @Html.Raw(HtmlSanitizer.Sanitize(Model.Body))
   </div>
 </div>

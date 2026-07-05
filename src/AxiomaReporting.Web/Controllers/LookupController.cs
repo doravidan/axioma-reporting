@@ -1,3 +1,4 @@
+using System.Data;
 using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Entities.Base;
 using AxiomaReporting.Core.Interfaces;
@@ -38,7 +39,7 @@ public class LookupController : Controller
     ["educationalstages"] = "שלבי חינוך",
     ["educationtypes"] = "סוגי חינוך",
     ["localitydistrictnational"] = "ישוב/מחוז/ארצי",
-    ["discussioncodes"] = "קוד דיון",
+    ["discussioncodes"] = "קיום דיון",
   };
 
   [HttpGet]
@@ -314,25 +315,32 @@ public class LookupController : Controller
                     : null,
       "subjects" => await _db.ReportRows.AnyAsync(r => r.Subject1Id == id || r.Subject2Id == id) ? "דיווחים"
                     : await _db.Set<AllocationSubject>().AnyAsync(a => a.SubjectId == id) ? "הקצאות"
+                    : await ProjectProgramScopeInUseAsync("ProjectProgramSubjects", "SubjectId", id) ? "שיוכי פרויקט-תוכנית"
                     : null,
       "domains" => await _db.ReportRows.AnyAsync(r => r.DomainId == id) ? "דיווחים"
                    : await _db.Set<AllocationDomain>().AnyAsync(a => a.DomainId == id) ? "הקצאות"
+                   : await ProjectProgramScopeInUseAsync("ProjectProgramDomains", "DomainId", id) ? "שיוכי פרויקט-תוכנית"
                    : null,
       "educationalprograms" => await _db.ReportRows.AnyAsync(r => r.EducationalProgramId == id) ? "דיווחים"
                                : await _db.Set<AllocationEducationalProgram>().AnyAsync(a => a.EducationalProgramId == id) ? "הקצאות"
+                               : await ProjectProgramScopeInUseAsync("ProjectProgramEducationalPrograms", "EducationalProgramId", id) ? "שיוכי פרויקט-תוכנית"
                                : null,
       "classes" => await _db.ReportRows.AnyAsync(r => r.ClassId == id || r.ConclusionClassId == id) ? "דיווחים"
                    : await _db.Set<AllocationClass>().AnyAsync(a => a.ClassId == id) ? "הקצאות"
+                   : await ProjectProgramScopeInUseAsync("ProjectProgramClasses", "ClassId", id) ? "שיוכי פרויקט-תוכנית"
                    : null,
       "gradelevels" => await _db.ReportRows.AnyAsync(r => r.GradeLevelId == id) ? "דיווחים"
                        : await _db.Set<AllocationGradeLevel>().AnyAsync(a => a.GradeLevelId == id) ? "הקצאות"
+                       : await ProjectProgramScopeInUseAsync("ProjectProgramGradeLevels", "GradeLevelId", id) ? "שיוכי פרויקט-תוכנית"
                        : null,
       "discussioncodes" => await _db.ReportRows.AnyAsync(r => r.DiscussionCodeId == id) ? "דיווחים"
                            : await _db.Set<AllocationDiscussionCode>().AnyAsync(a => a.DiscussionCodeId == id) ? "הקצאות"
+                           : await ProjectProgramScopeInUseAsync("ProjectProgramDiscussionCodes", "DiscussionCodeId", id) ? "שיוכי פרויקט-תוכנית"
                            : null,
       "frameworks" => await _db.ReportRows.AnyAsync(r => r.FrameworkId == id) ? "דיווחים"
                       : await _db.ReportRows.AnyAsync(r => r.ConclusionFrameworkId == id) ? "דיווחי סיכום"
                       : await _db.Set<AllocationFramework>().AnyAsync(a => a.FrameworkId == id) ? "הקצאות"
+                      : await ProjectProgramScopeInUseAsync("ProjectProgramFrameworks", "FrameworkId", id) ? "שיוכי פרויקט-תוכנית"
                       : null,
       "educationalstages" => await _db.Frameworks.AnyAsync(f => f.EducationalStageId == id) ? "מסגרות"
                              : await _db.Institutions.AnyAsync(i => i.EducationalStageId == id) ? "מוסדות"
@@ -346,6 +354,37 @@ public class LookupController : Controller
       _ => null
     };
     return context == null ? (true, null) : (false, $"לא ניתן למחוק — הערך בשימוש במערכת: {context}");
+  }
+
+  /// <summary>
+  /// Checks whether a lookup value is referenced by one of the raw-SQL <c>ProjectProgram*</c>
+  /// bridge tables (no EF entities exist for these - see AdminController.ProjectProgramScopeDefinitions
+  /// for the canonical table/column mapping). Safe no-op under the in-memory test provider.
+  /// </summary>
+  private async Task<bool> ProjectProgramScopeInUseAsync(string tableName, string idColumn, int id)
+  {
+    if (!_db.Database.IsRelational()) return false;
+
+    var connection = _db.Database.GetDbConnection();
+    var shouldClose = connection.State == ConnectionState.Closed;
+    if (shouldClose) await connection.OpenAsync();
+
+    try
+    {
+      using var command = connection.CreateCommand();
+      command.CommandText = $"SELECT COUNT(1) FROM dbo.{tableName} WHERE {idColumn} = @id";
+      var parameter = command.CreateParameter();
+      parameter.ParameterName = "@id";
+      parameter.Value = id;
+      command.Parameters.Add(parameter);
+
+      var result = await command.ExecuteScalarAsync();
+      return result != null && Convert.ToInt32(result) > 0;
+    }
+    finally
+    {
+      if (shouldClose) await connection.CloseAsync();
+    }
   }
 
   private async Task<string?> InstitutionInUseAsync(int id)

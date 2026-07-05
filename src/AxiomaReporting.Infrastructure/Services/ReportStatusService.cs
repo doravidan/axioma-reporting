@@ -72,6 +72,8 @@ public class ReportStatusService : IReportStatusService
       .Include(r => r.User)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return false;
+    // Only Draft(1), InEntry(2) or ReturnedForCorrection(5) reports may be submitted.
+    if (report.StatusId is not (1 or 2 or 5)) return false;
 
     var previousStatus = report.StatusId;
     report.StatusId = 3; // Pending Approval
@@ -111,6 +113,8 @@ public class ReportStatusService : IReportStatusService
       .Include(r => r.User)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return false;
+    // Only reports awaiting approval (PendingApproval = 3) may be approved.
+    if (report.StatusId != 3) return false;
 
     var previousStatus = report.StatusId;
     report.StatusId = 4; // Approved
@@ -149,6 +153,8 @@ public class ReportStatusService : IReportStatusService
       .Include(r => r.User)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return false;
+    // Only reports awaiting approval (PendingApproval = 3) may be rejected.
+    if (report.StatusId != 3) return false;
 
     var previousStatus = report.StatusId;
     report.StatusId = 5; // Returned for Correction

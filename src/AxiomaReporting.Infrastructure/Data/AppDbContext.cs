@@ -52,6 +52,7 @@ public class AppDbContext : DbContext
   public DbSet<TwoFactorCode> TwoFactorCodes => Set<TwoFactorCode>();
   public DbSet<TermsOfUseVersion> TermsOfUseVersions => Set<TermsOfUseVersion>();
   public DbSet<TermsOfUseAcceptance> TermsOfUseAcceptances => Set<TermsOfUseAcceptance>();
+  public DbSet<PrivacyPolicyVersion> PrivacyPolicyVersions => Set<PrivacyPolicyVersion>();
   public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
   public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 

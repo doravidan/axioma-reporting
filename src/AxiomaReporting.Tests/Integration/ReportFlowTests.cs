@@ -348,7 +348,7 @@ public class ReportFlowTests : IDisposable
   }
 
   [Fact]
-  public async Task Coordinator_CannotEditApprovedReport_SaveRowReturnsError()
+  public async Task Coordinator_CanEditApprovedReport_SaveRowSucceeds()
   {
     int reportId;
     using (var setup = _factory.Services.CreateScope())
@@ -379,8 +379,10 @@ public class ReportFlowTests : IDisposable
     saveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
     var json = await ParseJsonAsync(saveResponse);
-    json.GetProperty("success").GetBoolean().Should().BeFalse(
-      because: "coordinators cannot add rows to an already-approved report");
+    // Since v1.2.11 coordinators (like admins and PMs) may correct already-approved
+    // reports — the deadline-override roles bypass the approved-status lock.
+    json.GetProperty("success").GetBoolean().Should().BeTrue(
+      because: "coordinators may correct rows on an already-approved report since v1.2.11");
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────

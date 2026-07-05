@@ -2,20 +2,25 @@
 AX-024 Historical Report Seed — imports report rows from BASE DATA.xlsb into AxiomaReporting DB.
 Run after seed_lookups.py has populated all lookup tables.
 """
-import sys, io, pyodbc, pyxlsb
+import sys, io, os, pyodbc, pyxlsb
 from datetime import datetime, timedelta
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=.\\SQLEXPRESS;"
-    "DATABASE=AxiomaReporting;"
-    "Trusted_Connection=yes;"
+# Overridable via AXIOMA_CONN_STR so the script runs on Windows (SQLEXPRESS /
+# Windows auth) or a Linux dev box (SQL Server on TCP with SQL auth).
+CONN_STR = os.environ.get(
+    "AXIOMA_CONN_STR",
+    (
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=.\\SQLEXPRESS;"
+        "DATABASE=AxiomaReporting;"
+        "Trusted_Connection=yes;"
+    ),
 )
 
-BASE     = r"F:\דווח עובדים אקסיומא\database\seed-data"
-BASE_XL  = f"{BASE}\\BASE DATA.xlsb"
+BASE     = os.environ.get("AXIOMA_SEED_DIR", r"F:\דווח עובדים אקסיומא\database\seed-data")
+BASE_XL  = os.path.join(BASE, "BASE DATA.xlsb")
 NOW      = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 # StatusId=4 = Approved (historical data is already approved)

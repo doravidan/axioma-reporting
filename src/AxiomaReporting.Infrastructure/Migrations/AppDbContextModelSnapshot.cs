@@ -70,6 +70,9 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.Property<int>("ProjectId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("ReportTypeId")
+                        .HasColumnType("int");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -85,6 +88,8 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("ReportTypeId");
 
                     b.HasIndex("UserId", "ProjectId");
 
@@ -689,7 +694,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 1,
-                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} התקבל בהצלחה.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} התקבל בהצלחה.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "דיווח פעילות חודשית התקבל",
@@ -698,7 +703,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 2,
-                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} אושר.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} אושר.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "דיווח פעילות חודשית אושר",
@@ -707,7 +712,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 3,
-                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} הוחזר לתיקון.\n\nסיבת ההחזרה: {{RejectionReason}}\n\nנא לתקן ולהגיש מחדש.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} הוחזר לתיקון.\n\nסיבת ההחזרה: {{RejectionReason}}\n\nנא לתקן ולהגיש מחדש.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "דיווח פעילות חודשית הוחזר לתיקון",
@@ -716,7 +721,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 4,
-                            Body = "שלום {{EmployeeName}},\n\nנא לשים לב שדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} טרם הוגש.\n\nהמועד האחרון להגשה: {{Deadline}}.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nנא לשים לב שדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} טרם הוגש.\n\nהמועד האחרון להגשה: {{Deadline}}.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "תזכורת: דיווח פעילות חודשית טרם הוגש",
@@ -725,7 +730,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 5,
-                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} הוחזר לתיקון וטרם תוקן.\n\nנא לתקן ולהגיש לפני: {{Deadline}}.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} הוחזר לתיקון וטרם תוקן.\n\nנא לתקן ולהגיש לפני: {{Deadline}}.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "תזכורת: דיווח פעילות חודשית ממתין לתיקון",
@@ -734,7 +739,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 6,
-                            Body = "שלום {{EmployeeName}},\n\nלאיפוס הסיסמה לחץ על הקישור הבא:\n{{ResetLink}}\n\nהקישור תקף לזמן מוגבל.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nלאיפוס הסיסמה לחץ על הקישור הבא:\n{{ResetLink}}\n\nהקישור תקף לזמן מוגבל.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "איפוס סיסמה",
@@ -743,7 +748,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 7,
-                            Body = "שלום {{EmployeeName}},\n\nקוד האימות שלך הוא: {{Code}}\n\nהקוד תקף ל-{{Minutes}} דקות.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nקוד האימות שלך הוא: {{Code}}\n\nהקוד תקף ל-{{Minutes}} דקות.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "קוד אימות לכניסה למערכת",
@@ -752,7 +757,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 8,
-                            Body = "שלום {{EmployeeName}},\n\nסיסמתך תפוג בעוד {{DaysLeft}} ימים (בתאריך {{ExpiryDate}}).\n\nנא להתחבר למערכת ולשנות את הסיסמה לפני מועד הפקיעה.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{EmployeeName}},\n\nסיסמתך תפוג בעוד {{DaysLeft}} ימים (בתאריך {{ExpiryDate}}).\n\nנא להתחבר למערכת ולשנות את הסיסמה לפני מועד הפקיעה.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "התראה: סיסמתך עומדת לפוג",
@@ -761,7 +766,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 9,
-                            Body = "שלום {{UploaderName}},\n\nקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נקלט בהצלחה.\n\nסה\"כ דיווחים שנקלטו: {{RowsImported}}\nסה\"כ עובדים: {{EmployeesCount}}\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{UploaderName}},\n\nקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נקלט בהצלחה.\n\nסה\"כ דיווחים שנקלטו: {{RowsImported}}\nסה\"כ עובדים: {{EmployeesCount}}\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "קובץ דיווח מרוכז נקלט בהצלחה",
@@ -770,7 +775,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         new
                         {
                             Id = 10,
-                            Body = "שלום {{UploaderName}},\n\nבקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נמצאו {{ErrorsCount}} שגיאות.\nשורות תקינות נקלטו למערכת; שורות שגויות לא נקלטו.\n\nשורות שלא עברו בדיקת תקינות:\n{{ErrorList}}\n\nרשימת השגיאות המפורטת מצורפת גם כקובץ PDF.\n\nבברכה,\nמערכת אקסיומא",
+                            Body = "שלום {{UploaderName}},\n\nבקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נמצאו {{ErrorsCount}} שגיאות.\nשורות תקינות נקלטו למערכת; שורות שגויות לא נקלטו.\n\nשורות שלא עברו בדיקת תקינות:\n{{ErrorList}}\n\nרשימת השגיאות המפורטת מצורפת גם כקובץ Excel.\n\nבברכה,\nמערכת סייט אנד סאונד",
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             IsActive = true,
                             Subject = "שגיאות בקובץ דיווח מרוכז",
@@ -1218,6 +1223,46 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.ToTable("PasswordResetTokens", (string)null);
                 });
 
+            modelBuilder.Entity("AxiomaReporting.Core.Entities.PrivacyPolicyVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"), 1L, 1);
+
+                    b.Property<string>("BodyHtml")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<DateTime>("EffectiveFrom")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("PublishedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublishedByUserId");
+
+                    b.HasIndex("VersionNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PrivacyPolicyVersion_VersionNumber");
+
+                    b.ToTable("PrivacyPolicyVersions", (string)null);
+                });
+
             modelBuilder.Entity("AxiomaReporting.Core.Entities.Program", b =>
                 {
                     b.Property<int>("Id")
@@ -1342,6 +1387,9 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         .HasDefaultValueSql("GETUTCDATE()");
 
                     b.Property<bool>("ImportedFromExcel")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsArchived")
                         .HasColumnType("bit");
 
                     b.Property<DateTime?>("RejectedAt")
@@ -2219,6 +2267,11 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("AxiomaReporting.Core.Entities.ReportType", "ReportType")
+                        .WithMany()
+                        .HasForeignKey("ReportTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("AxiomaReporting.Core.Entities.User", "User")
                         .WithMany("Allocations")
                         .HasForeignKey("UserId")
@@ -2226,6 +2279,8 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Project");
+
+                    b.Navigation("ReportType");
 
                     b.Navigation("User");
                 });
@@ -2624,6 +2679,17 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AxiomaReporting.Core.Entities.PrivacyPolicyVersion", b =>
+                {
+                    b.HasOne("AxiomaReporting.Core.Entities.User", "PublishedByUser")
+                        .WithMany()
+                        .HasForeignKey("PublishedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PublishedByUser");
                 });
 
             modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgram", b =>

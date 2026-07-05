@@ -26,6 +26,30 @@
   --axioma-secondary: #7D3739;
 }
 
+.choices-subject-autocomplete {
+  min-width: 12rem;
+}
+
+.choices-subject-autocomplete.is-open {
+  overflow: visible;
+}
+
+.choices-subject-autocomplete .choices__list--dropdown,
+.choices-subject-autocomplete .choices__list[aria-expanded] {
+  min-width: min(92vw, 24rem);
+  width: max-content;
+  max-width: min(92vw, 34rem);
+  z-index: 1060;
+}
+
+.choices-subject-autocomplete .choices__list--dropdown .choices__item,
+.choices-subject-autocomplete .choices__list[aria-expanded] .choices__item {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
 /* Navbar — replace the cool-blue with the brand orange */
 .app-navbar,
 .navbar.app-navbar {

@@ -50,8 +50,7 @@ public class AllocationListFilterModel
     ProgramIds = ProgramIds?.Where(x => x > 0).Distinct().ToList() ?? new();
     DistrictIds = DistrictIds?.Where(x => x > 0).Distinct().ToList() ?? new();
     SectorIds = SectorIds?.Where(x => x > 0).Distinct().ToList() ?? new();
-    OutputDurations = OutputDurations?
-      .Where(s => !string.IsNullOrWhiteSpace(s))
+    OutputDurations = (OutputDurations?.Where(s => !string.IsNullOrWhiteSpace(s)))
       .Select(s => s.Trim())
       .Distinct()
       .ToList() ?? new();

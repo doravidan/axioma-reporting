@@ -8,6 +8,8 @@ public class Allocation : BaseEntity
   public User? User { get; set; }
   public int ProjectId { get; set; }
   public Project? Project { get; set; }
+  public int? ReportTypeId { get; set; }
+  public ReportType? ReportType { get; set; }
   public decimal? AnnualEmploymentScope { get; set; }
   public decimal? MonthlyEmploymentScope { get; set; }
   public decimal? DailyEmploymentScope { get; set; }

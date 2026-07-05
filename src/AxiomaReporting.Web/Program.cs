@@ -1,18 +1,26 @@
+using System.Text;
 using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Authorization;
+using AxiomaReporting.Web.Middleware;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
 
+// Windows-1255 (Hebrew) is needed by the mojibake-repair middleware below.
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
 // QuestPDF Community license (free for commercial use under 1M ARR)
 QuestPDF.Settings.License = LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
 
 // Register Hebrew font for QuestPDF once at startup
 var hebrewFontPath = Path.Combine(builder.Environment.WebRootPath ?? Path.Combine(AppContext.BaseDirectory, "wwwroot"),
@@ -39,6 +47,15 @@ builder.Services.AddControllersWithViews(options =>
   options.ModelBindingMessageProvider.SetMissingBindRequiredValueAccessor(field => $"חסר ערך חובה: {field}");
   options.ModelBindingMessageProvider.SetMissingKeyOrValueAccessor(() => "חסר ערך חובה");
   options.ModelBindingMessageProvider.SetValueIsInvalidAccessor(value => "הערך שנבחר אינו תקין");
+}).AddSessionStateTempDataProvider();
+
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddMemoryCache();
+builder.Services.AddSession(options =>
+{
+  options.IdleTimeout = TimeSpan.FromMinutes(30);
+  options.Cookie.HttpOnly = true;
+  options.Cookie.IsEssential = true;
 });
 
 var useDemoInMemory = string.Equals(
@@ -83,6 +100,10 @@ builder.Services.AddScoped<IDashboardFilterService, DashboardFilterService>();
 // Branding (AX-023 / Gap 8 — site logo from SystemConstants)
 builder.Services.AddScoped<IBrandingService, BrandingService>();
 
+// Sanitizes admin-authored rich-text HTML (privacy policy / terms of use / email
+// templates) before it is persisted, so @Html.Raw of stored content is safe.
+builder.Services.AddSingleton<IHtmlSanitizerService, HtmlSanitizerService>();
+
 // Cookie authentication
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
   .AddCookie(options =>
@@ -90,7 +111,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     options.LoginPath = "/Account/Login";
     options.LogoutPath = "/Account/Logout";
     options.AccessDeniedPath = "/Account/AccessDenied";
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
     options.SlidingExpiration = true;
   });
 
@@ -133,9 +154,65 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Authentication runs before static files so the /uploads gate below can see
+// context.User. This does not affect [Authorize]-attribute enforcement, which
+// happens in UseAuthorization after UseRouting has resolved the endpoint.
+app.UseAuthentication();
+
+// Uploaded HR documents, report attachments, and Excel error reports live under
+// wwwroot/uploads and would otherwise be served to anyone with the URL by the
+// static-file middleware with no authentication check at all. Require a signed-in
+// session for anything under /uploads; per-record authorization (e.g. an
+// inspector's district scope) is still enforced by the controller actions that
+// generate these links (DashboardController.DocumentAttachment, ReportController
+// attachment endpoints, etc.) — this gate only closes the fully-anonymous hole.
+app.Use(async (context, next) =>
+{
+  if (context.Request.Path.StartsWithSegments("/uploads", StringComparison.OrdinalIgnoreCase)
+      && context.User.Identity?.IsAuthenticated != true)
+  {
+    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+    return;
+  }
+  await next();
+});
+
 app.UseStaticFiles();
 app.UseRouting();
-app.UseAuthentication();
+
+// Repair Hebrew mojibake (UTF-8 bytes previously mis-decoded through Windows-1255)
+// in text/html responses before the page reaches the browser. Non-HTML responses
+// (file downloads, Excel/PDF exports, JSON) stream straight through unbuffered —
+// see ConditionalHtmlBufferStream.
+app.Use(async (context, next) =>
+{
+  var originalBody = context.Response.Body;
+  var conditionalBody = new ConditionalHtmlBufferStream(context, originalBody);
+  context.Response.Body = conditionalBody;
+  try
+  {
+    await next();
+  }
+  finally
+  {
+    context.Response.Body = originalBody;
+  }
+
+  var htmlBuffer = conditionalBody.HtmlBuffer;
+  if (htmlBuffer != null)
+  {
+    htmlBuffer.Position = 0;
+    using var reader = new StreamReader(htmlBuffer, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, -1, leaveOpen: true);
+    var repaired = RepairHebrewMojibake(await reader.ReadToEndAsync());
+    var bytes = Encoding.UTF8.GetBytes(repaired);
+    if (!context.Response.HasStarted)
+      context.Response.Headers.ContentLength = bytes.Length;
+    await originalBody.WriteAsync(bytes, 0, bytes.Length);
+  }
+});
+
+app.UseSession();
 app.UseAuthorization();
 
 app.MapControllerRoute(
@@ -143,6 +220,100 @@ app.MapControllerRoute(
   pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();
+
+// A span is repaired only when a run of suspicious characters contains at least one
+// marker typical of UTF-8 Hebrew mis-decoded as Windows-1255 (e.g. '×' pairs).
+static string RepairHebrewMojibake(string value)
+{
+  if (string.IsNullOrEmpty(value)) return value;
+
+  var output = new StringBuilder(value.Length);
+  var span = new StringBuilder();
+  var spanHasMojibake = false;
+
+  foreach (var ch in value)
+  {
+    if (IsMojibakeCandidateChar(ch) || (span.Length > 0 && IsMojibakeSpanGlue(ch)))
+    {
+      span.Append(ch);
+      spanHasMojibake = spanHasMojibake || IsMojibakeMarker(ch);
+    }
+    else
+    {
+      FlushMojibakeSpan(output, span, spanHasMojibake);
+      spanHasMojibake = false;
+      output.Append(ch);
+    }
+  }
+
+  FlushMojibakeSpan(output, span, spanHasMojibake);
+  return output.ToString();
+}
+
+static void FlushMojibakeSpan(StringBuilder output, StringBuilder span, bool spanHasMojibake)
+{
+  if (span.Length == 0) return;
+  var text = span.ToString();
+  output.Append(spanHasMojibake ? RepairHebrewMojibakeSpan(text) : text);
+  span.Clear();
+}
+
+// Re-encode through Windows-1255 up to 6 times and keep the roundtrip with the best
+// Hebrew score (repairs double/triple-encoded text without corrupting clean text).
+static string RepairHebrewMojibakeSpan(string value)
+{
+  var windows1255 = Encoding.GetEncoding(1255);
+  var best = value;
+  var bestScore = HebrewTextScore(value);
+  var candidate = value;
+
+  for (var i = 0; i < 6; i++)
+  {
+    candidate = Encoding.UTF8.GetString(windows1255.GetBytes(candidate));
+    var score = HebrewTextScore(candidate);
+    if (score > bestScore)
+    {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+static int HebrewTextScore(string value)
+{
+  var score = 0;
+  foreach (var ch in value)
+  {
+    if (ch >= 'א' && ch <= 'ת')
+      score += 4;
+    else if (ch == '\ufffd')
+      score -= 30;
+    else if (IsMojibakeMarker(ch))
+      score -= 6;
+    else if (char.IsControl(ch) && ch != '\r' && ch != '\n' && ch != '\t')
+      score -= 20;
+  }
+  return score;
+}
+
+static bool IsMojibakeCandidateChar(char ch)
+{
+  // Any non-ASCII char that is not a plain Hebrew letter (א..ת) is suspicious.
+  return ch >= '\u0080' && (ch < 'א' || ch > 'ת');
+}
+
+static bool IsMojibakeMarker(char ch)
+{
+  return ch is '׳' or '×' or 'Â' or '\u05b2' or 'ײ' or '€' or '™' or '“' or '”'
+    or '\u0090' or '\u009d' or '\u009e';
+}
+
+static bool IsMojibakeSpanGlue(char ch)
+{
+  return ch is ' ' or '-' or ':' or '/' or '(' or ')' or ',' or '.';
+}
 
 static void SeedDemoData(AppDbContext db)
 {

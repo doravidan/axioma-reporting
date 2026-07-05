@@ -1,68 +1,126 @@
+@using AxiomaReporting.Core.Entities
+@using AxiomaReporting.Core.Entities.Base
 @{
-  ViewData["Title"] = "ניהול תוכניות לפי פרויקט";
-  var projects = (List<AxiomaReporting.Core.Entities.Project>)ViewBag.Projects;
+  ViewData["Title"] = "ניהול תוכניות והיקפים לפי פרויקט";
+  var projects = (List<Project>)ViewBag.Projects;
   var programs = (List<AxiomaReporting.Core.Entities.Program>)ViewBag.Programs;
   var mapping = (Dictionary<int, HashSet<int>>)ViewBag.Mapping;
+  var scopeMapping = (Dictionary<string, HashSet<int>>)ViewBag.ScopeMapping;
+  var subjects = (List<Subject>)ViewBag.Subjects;
+  var domains = (List<Domain>)ViewBag.Domains;
+  var frameworks = (List<Framework>)ViewBag.Frameworks;
+  var educationalPrograms = (List<EducationalProgram>)ViewBag.EducationalPrograms;
+  var discussionCodes = (List<DiscussionCode>)ViewBag.DiscussionCodes;
+  var gradeLevels = (List<GradeLevel>)ViewBag.GradeLevels;
+  var classes = (List<SchoolClass>)ViewBag.Classes;
 }
-
 <div class="container py-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>ניהול תוכניות לפי פרויקט</h2>
-    <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה לניהול</a>
+    <h2>ניהול תוכניות והיקפים לפי פרויקט</h2>
+    <a class="btn btn-outline-secondary btn-sm" href="/Admin/DataMigration">חזרה</a>
   </div>
-
-  <div class="alert alert-info" role="alert">
-    בחרו עבור כל פרויקט את התוכניות הרלוונטיות. פרויקטים ללא שיוך יציגו את כלל התוכניות כברירת מחדל.
-  </div>
-
-  @if (TempData["Success"] != null)
-  {
-    <div class="alert alert-success" role="alert" aria-live="polite">@TempData["Success"]</div>
-  }
-  @if (TempData["Error"] != null)
-  {
-    <div class="alert alert-danger" role="alert" aria-live="assertive">@TempData["Error"]</div>
-  }
-
-  @if (programs.Count == 0)
-  {
-    <div class="alert alert-warning" role="alert">לא הוגדרו תוכניות פעילות במערכת.</div>
-  }
-
-  <div class="row g-3">
-    @foreach (var project in projects)
-    {
-      var selectedIds = mapping.TryGetValue(project.Id, out var set) ? set : new HashSet<int>();
-      <div class="col-md-6">
-        <form method="post" asp-action="SaveProjectPrograms" class="card shadow-sm">
-          @Html.AntiForgeryToken()
-          <input type="hidden" name="projectId" value="@project.Id" />
-          <div class="card-header fw-bold">
-            <span class="visually-hidden">פרויקט: </span>@project.Description
-          </div>
-          <div class="card-body">
-            <label class="form-label" for="programs_@project.Id">תוכניות קשורות</label>
-            <select id="programs_@project.Id" name="programIds" multiple class="form-select"
-                    size="@Math.Min(Math.Max(programs.Count, 3), 10)"
-                    aria-label="תוכניות קשורות לפרויקט @project.Description">
-              @foreach (var program in programs)
-              {
-                <option value="@program.Id" selected="@selectedIds.Contains(program.Id)">@program.Description</option>
-              }
-            </select>
-            <p class="form-text">לבחירה מרובה יש להחזיק את מקש הבחירה המרובה במקלדת וללחוץ על הפריטים.</p>
-          </div>
-          <div class="card-footer text-start">
-            <button type="submit" class="btn btn-primary">שמור</button>
-          </div>
-        </form>
-      </div>
+  <div class="alert alert-info" role="alert">בחרו תוכניות לכל פרויקט, ולאחר מכן הגבילו את ערכי הבחירה הזמינים לכל צמד פרויקט-תוכנית.</div>
+@if (TempData["Success"] != null)
+{
+  <div class="alert alert-success" role="alert">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+  <div class="alert alert-danger" role="alert">@TempData["Error"]</div>
+}
+@if (projects.Count == 0)
+{
+  <div class="alert alert-warning" role="alert">לא נמצאו פרויקטים פעילים.</div>
+}
+@foreach (var project in projects)
+{
+  var selectedProgramIds = mapping.TryGetValue(project.Id, out var set) ? set : new HashSet<int>();
+  <section class="border rounded-2 p-3 mb-3 bg-white project-program-card" data-project-id="@project.Id">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h3 class="h5 mb-0"><span class="text-muted">פרויקט:</span> @project.Description</h3>
+      <span class="badge bg-secondary">קוד פרויקט @project.Id</span>
+    </div>
+    <!form method="post" action="/Admin/ProjectPrograms/Save" class="mb-3">
+@Html.AntiForgeryToken()
+      <input type="hidden" name="projectId" value="@project.Id" />
+      <label class="form-label" for="programs_@project.Id">תוכניות</label>
+      <select id="programs_@project.Id" name="programIds" multiple class="form-select" size="@Math.Min(Math.Max(programs.Count, 3), 10)">
+        @{
+          foreach (var program in programs)
+          {
+            WriteOption(program.Id, program.Description, selectedProgramIds.Contains(program.Id));
+          }
+        }
+      </select>
+      <div class="mt-2"><button type="submit" class="btn btn-primary btn-sm">שמור תוכניות</button></div>
+    </!form>
+    @{
+      var assignedPrograms = programs.Where(p => selectedProgramIds.Contains(p.Id)).ToList();
     }
-    @if (projects.Count == 0)
+    @if (assignedPrograms.Count == 0)
     {
-      <div class="col-12">
-        <div class="alert alert-warning" role="alert">לא הוגדרו פרויקטים פעילים במערכת.</div>
-      </div>
+    <p class="text-muted mb-0">לא שויכו תוכניות לפרויקט זה.</p>
     }
-  </div>
+    @foreach (var program in assignedPrograms)
+    {
+    <details class="border-top pt-3 mt-3">
+      <summary class="fw-semibold">@program.Description</summary>
+      <!form method="post" action="/Admin/ProjectPrograms/SaveScope" class="mt-3">
+@Html.AntiForgeryToken()
+        <input type="hidden" name="projectId" value="@project.Id" />
+        <input type="hidden" name="programId" value="@program.Id" />
+        <div class="row g-3">
+          @{
+            WriteLookupSelect("נושאים", "subjectIds", subjects, Selected(scopeMapping, "subjects", project.Id, program.Id));
+            WriteLookupSelect("תחומים", "domainIds", domains, Selected(scopeMapping, "domains", project.Id, program.Id));
+            WriteLookupSelect("מסגרות", "frameworkIds", frameworks, Selected(scopeMapping, "frameworks", project.Id, program.Id));
+            WriteLookupSelect("תוכניות חינוכיות", "educationalProgramIds", educationalPrograms, Selected(scopeMapping, "educationalPrograms", project.Id, program.Id));
+            WriteLookupSelect("קיום דיון", "discussionCodeIds", discussionCodes, Selected(scopeMapping, "discussionCodes", project.Id, program.Id));
+            WriteLookupSelect("שכבות", "gradeLevelIds", gradeLevels, Selected(scopeMapping, "gradeLevels", project.Id, program.Id));
+            WriteLookupSelect("כיתות", "classIds", classes, Selected(scopeMapping, "classes", project.Id, program.Id));
+          }
+        </div>
+        <div class="mt-3"><button type="submit" class="btn btn-outline-primary btn-sm">שמור היקף</button></div>
+      </!form>
+    </details>
+    }
+  </section>
+}
 </div>
+@functions {
+  private void WriteLookupSelect<T>(string label, string name, IReadOnlyCollection<T> items, HashSet<int> selected) where T : LookupEntity
+  {
+    WriteLiteral("          <div class=\"col-md-6 col-xl-4\">\n");
+    WriteLiteral("            <label class=\"form-label\">");
+    Write(label);
+    WriteLiteral("</label>\n");
+    WriteLiteral("            <select name=\"");
+    Write(System.Text.Encodings.Web.HtmlEncoder.Default.Encode(name));
+    WriteLiteral("\" multiple class=\"form-select\" size=\"6\">\n");
+    foreach (var item in items)
+    {
+      WriteOption(item.Id, item.Description, selected.Contains(item.Id));
+    }
+    WriteLiteral("            </select>\n");
+    WriteLiteral("          </div>\n");
+  }
+
+  private void WriteOption(int id, string description, bool selected)
+  {
+    WriteLiteral("        <option value=\"");
+    Write(id);
+    WriteLiteral("\"");
+    if (selected)
+    {
+      WriteLiteral(" selected");
+    }
+    WriteLiteral(">");
+    Write(description);
+    WriteLiteral("</option>\n");
+  }
+
+  private static HashSet<int> Selected(Dictionary<string, HashSet<int>> mapping, string scope, int projectId, int programId)
+  {
+    return mapping.TryGetValue($"{scope}:{projectId}:{programId}", out var value) ? value : new HashSet<int>();
+  }
+}

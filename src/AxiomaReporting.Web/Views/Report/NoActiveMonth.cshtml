@@ -1,5 +1,8 @@
 @{ ViewData["Title"] = "אין חודש פעיל"; }
 <div class="container mt-4 text-center">
   <div class="alert alert-warning">@ViewBag.Error</div>
+  <div class="d-flex justify-content-center gap-2 flex-wrap">
+    <a class="btn btn-primary" href="/Report/Manual">הוספת דיווח ידני</a>
   <a asp-controller="Home" asp-action="Index" class="btn btn-primary">חזרה לדף הבית</a>
+  </div>
 </div>
