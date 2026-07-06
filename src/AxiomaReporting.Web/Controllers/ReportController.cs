@@ -1,3 +1,4 @@
+using AxiomaReporting.Core.DTOs;
 using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Core.Interfaces;
@@ -183,6 +184,21 @@ public class ReportController : Controller
     ViewBag.DeadlinePassed = deadlinePassed;
     ViewBag.DeadlineOverrideActive = deadlinePassed && isOverrideRole;
     ViewBag.DeadlineBlockMessage = deadlinePassed && !isOverrideRole ? DeadlinePassedMessage : null;
+
+    // דיווחים קודמים — כל הדוחות של העובד מחודשים אחרים, לצפייה (עריכה נחסמת
+    // ממילא לפי מועד הסגירה והסטטוס של אותו חודש).
+    ViewBag.PastReports = await _db.Reports
+      .Where(r => r.UserId == targetUserId && r.Id != report.Id)
+      .OrderByDescending(r => r.ReportingMonth!.Year)
+      .ThenByDescending(r => r.ReportingMonth!.Month)
+      .Select(r => new PastReportListItem(
+        r.Id,
+        r.ReportingMonth!.Description,
+        r.Status!.Name,
+        r.StatusId,
+        r.SubmittedAt,
+        _db.ReportRows.Count(row => row.ReportId == r.Id)))
+      .ToListAsync();
 
     return View("Index", rows);
   }

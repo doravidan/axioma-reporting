@@ -17,6 +17,8 @@
     : string.Empty;
   var reportAttachments = ViewBag.ReportAttachments as List<AxiomaReporting.Core.Entities.DocumentAttachment>
     ?? new List<AxiomaReporting.Core.Entities.DocumentAttachment>();
+  var pastReports = ViewBag.PastReports as List<AxiomaReporting.Core.DTOs.PastReportListItem>
+    ?? new List<AxiomaReporting.Core.DTOs.PastReportListItem>();
 
   var districts = allocation?.AllocationDistricts.Select(x => x.District).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.District>();
@@ -156,7 +158,14 @@
     </div>
   }
 
-  @if (!string.IsNullOrEmpty(deadlineBlockMessage))
+  @if (month != null && !month.IsActive)
+  {
+    <div class="alert alert-info" role="alert" aria-live="polite" aria-atomic="true">
+      מוצג דיווח של חודש קודם (@month.Description) — לצפייה בלבד.
+      <a asp-action="Index" asp-route-allocationId="@allocationId" class="alert-link">חזרה לחודש הפעיל</a>
+    </div>
+  }
+  @if (!string.IsNullOrEmpty(deadlineBlockMessage) && (month?.IsActive ?? true))
   {
     <div class="alert alert-warning" role="alert" aria-live="polite" aria-atomic="true">
       @deadlineBlockMessage
@@ -364,6 +373,48 @@
                   onclick="return confirm('העלאת אקסל תחליף את שורות ההקצאה הנוכחיות. להמשיך?')">ייבוא אקסל</button>
         </form>
       }
+    </div>
+  }
+
+  @if (pastReports.Count > 0)
+  {
+    <div class="card mt-4">
+      <div class="card-header">דיווחים קודמים</div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" aria-label="דיווחים מחודשים קודמים">
+          <thead>
+            <tr>
+              <th scope="col">חודש</th>
+              <th scope="col">סטטוס</th>
+              <th scope="col">שורות</th>
+              <th scope="col">תאריך הגשה</th>
+              <th scope="col"><span class="visually-hidden">פעולות</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @foreach (var pr in pastReports)
+            {
+              var badge = pr.StatusId switch
+              {
+                4 => "bg-success",
+                3 => "bg-warning text-dark",
+                5 => "bg-danger",
+                _ => "bg-secondary"
+              };
+              <tr>
+                <td>@pr.MonthDescription</td>
+                <td><span class="badge @badge">@StatusText(pr.StatusId, pr.StatusDescription)</span></td>
+                <td>@pr.RowCount</td>
+                <td>@(pr.SubmittedAt?.ToString("dd/MM/yyyy") ?? "—")</td>
+                <td>
+                  <a asp-action="Index" asp-route-reportId="@pr.ReportId" asp-route-allocationId="@allocationId"
+                     class="btn btn-sm btn-outline-primary" aria-label="צפייה בדיווח @pr.MonthDescription">צפייה</a>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
     </div>
   }
 </div>
