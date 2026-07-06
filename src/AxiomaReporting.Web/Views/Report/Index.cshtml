@@ -32,7 +32,9 @@
     ?? new List<AxiomaReporting.Core.Entities.Subject>();
   var discCodes = allocation?.AllocationDiscussionCodes.Select(x => x.DiscussionCode).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.DiscussionCode>();
-  var gradeLevels = allocation?.AllocationGradeLevels.Select(x => x.GradeLevel).Where(x => x != null).Select(x => x!).ToList()
+  // שכבה (grade level) is a universal list (חובה, א–יב, …), not employee-specific,
+  // so it is global like כיתה — supplied by the controller, not the allocation.
+  var gradeLevels = ViewBag.AllGradeLevels as List<AxiomaReporting.Core.Entities.GradeLevel>
     ?? new List<AxiomaReporting.Core.Entities.GradeLevel>();
   // כיתה and the three מסקנה (conclusion) lists are global lookups (same for every report),
   // supplied by the controller — not scoped to the allocation's junction rows.

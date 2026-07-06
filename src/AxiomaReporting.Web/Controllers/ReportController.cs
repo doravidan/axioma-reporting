@@ -156,6 +156,8 @@ public class ReportController : Controller
     // for every report — so they come from their own tables, not the allocation junctions.
     ViewBag.AllClasses = await _db.Classes.Where(c => c.IsActive)
       .OrderBy(c => c.Description.Length).ThenBy(c => c.Description).ToListAsync();
+    ViewBag.AllGradeLevels = await _db.GradeLevels.Where(g => g.IsActive)
+      .OrderBy(g => g.Description.Length).ThenBy(g => g.Description).ToListAsync();
     ViewBag.ClassConclusions = await _db.ClassConclusions.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
     ViewBag.FrameworkConclusions = await _db.FrameworkConclusions.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
     ViewBag.LocationConclusions = await _db.LocalityDistrictNationals.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
