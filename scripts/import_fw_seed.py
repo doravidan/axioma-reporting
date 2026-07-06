@@ -72,7 +72,10 @@ LOOKUP_TABLES = {
     "תחום": "Domains",
     "נושאים": "Subjects",
     "קיום דיון": "DiscussionCodes",
-    "מסקנות כיתה": "SchoolClasses",
+    # Conclusion (מסקנות) lists live in their own tables, separate from the base
+    # SchoolClasses / Frameworks lookups so the report dropdowns never mix.
+    "מסקנות כיתה": "ClassConclusions",
+    "מסקנות מסגרת חינוכית": "FrameworkConclusions",
     "יישוב-מחוז-ארצי": "LocalityDistrictNationals",
     "שכבה": "GradeLevels",
     "כיתה": "SchoolClasses",
@@ -254,25 +257,41 @@ class Importer:
         if not header:
             self.c.warn(f"{context}: לא נמצאה כותרת ערכי טבלאות קוד")
             return empty_code_values()
-        mapping = header_map(header[1])
+        header_row = header[1]
+        mapping = header_map(header_row)
+        # A sheet can carry two "כיתה" columns — the actual class number and the
+        # class-conclusion text. We split them by value (numeric vs text) below.
+        class_cols = all_header_indices(header_row, "כיתה")
         result = empty_code_values()
         for row in rows_after(ws, header[0]):
             if not any(clean(v) for v in row):
                 continue
+            # Allocation-scoped lookups — collected here and linked per allocation.
             add_lookup(result, "educational_programs", self.lookup_id("EducationalPrograms", value_by_header(row, mapping, "תוכנית")))
             add_lookup(result, "domains", self.lookup_id("Domains", value_by_header(row, mapping, "תחום")))
             add_lookup(result, "subjects", self.lookup_id("Subjects", value_by_header(row, mapping, "נושא 1")))
             add_lookup(result, "subjects", self.lookup_id("Subjects", value_by_header(row, mapping, "נושא 2")))
             add_lookup(result, "discussion_codes", self.lookup_id("DiscussionCodes", value_by_header(row, mapping, "קיום דיון")))
-            add_lookup(result, "classes", self.lookup_id("SchoolClasses", value_by_header(row, mapping, "כיתה")))
-            add_lookup(result, "classes", self.lookup_id("SchoolClasses", value_by_header(row, mapping, "מסקנות כיתה")))
             add_lookup(result, "grade_levels", self.lookup_id("GradeLevels", value_by_header(row, mapping, "שכבה")))
-            add_lookup(result, "locality_district_nationals", self.lookup_id("LocalityDistrictNationals", value_by_header(row, mapping, "יישוב/מחוז/ארצי")))
 
-            conclusion_framework = value_by_header(row, mapping, "מסגרת חינוכית")
-            if conclusion_framework:
-                fid = self.framework_id(symbol=None, name=conclusion_framework, stage_id=None)
-                add_lookup(result, "frameworks", fid)
+            # Global lookups (כיתה + the three מסקנה lists): ensure the rows exist in
+            # their own tables, but do NOT link them to allocations — they are shown
+            # to every report regardless of allocation.
+            for idx in class_cols:
+                val = clean(cell(row, idx))
+                if not val:
+                    continue
+                if re.fullmatch(r"\d+", val):
+                    self.lookup_id("SchoolClasses", val)        # actual class 1..15
+                else:
+                    self.lookup_id("ClassConclusions", val)     # class-conclusion text
+            # Aux sheet labels the class-conclusion column explicitly.
+            self.lookup_id("ClassConclusions", value_by_header(row, mapping, "מסקנות כיתה"))
+            # Framework conclusions: per-file "מסגרת חינוכית" / aux "מסקנות מסגרת חינוכית".
+            self.lookup_id("FrameworkConclusions", value_by_header(row, mapping, "מסגרת חינוכית"))
+            self.lookup_id("FrameworkConclusions", value_by_header(row, mapping, "מסקנות מסגרת חינוכית"))
+            # Location conclusions (יישוב/מחוז/ארצי is a conclusion category, not geography).
+            self.lookup_id("LocalityDistrictNationals", value_by_header(row, mapping, "יישוב/מחוז/ארצי"))
         return result
 
     def import_employees_sheet(self, ws, context: str) -> None:
@@ -492,15 +511,14 @@ class Importer:
         return allocation_id
 
     def link_code_values(self, allocation_id: int, values: dict[str, set[int]]) -> None:
+        # Only allocation-scoped lists are linked per allocation. כיתה and the three
+        # מסקנה lists are global lookups and are intentionally NOT linked here.
         mapping = {
             "educational_programs": ("AllocationEducationalPrograms", "EducationalProgramId"),
             "domains": ("AllocationDomains", "DomainId"),
             "subjects": ("AllocationSubjects", "SubjectId"),
             "discussion_codes": ("AllocationDiscussionCodes", "DiscussionCodeId"),
-            "classes": ("AllocationClasses", "ClassId"),
             "grade_levels": ("AllocationGradeLevels", "GradeLevelId"),
-            "locality_district_nationals": ("AllocationLocalityDistrictNationals", "LocalityDistrictNationalId"),
-            "frameworks": ("AllocationFrameworks", "FrameworkId"),
         }
         for key, (table, col) in mapping.items():
             for value_id in values[key]:
@@ -737,6 +755,14 @@ def header_map(header_row: tuple[Any, ...]) -> dict[str, int]:
         if key and key not in result:
             result[key] = idx
     return result
+
+
+def all_header_indices(header_row: tuple[Any, ...], name: str) -> list[int]:
+    # Some code sheets repeat a header (e.g. two "כיתה" columns: one holds the
+    # actual class number, the other holds class-conclusion text). Return every
+    # matching column index so the caller can disambiguate by value.
+    key = norm_header(name)
+    return [idx for idx, value in enumerate(header_row) if norm_header(value) == key]
 
 
 def rows_after(ws, header_row_num: int):

@@ -34,9 +34,15 @@
     ?? new List<AxiomaReporting.Core.Entities.DiscussionCode>();
   var gradeLevels = allocation?.AllocationGradeLevels.Select(x => x.GradeLevel).Where(x => x != null).Select(x => x!).ToList()
     ?? new List<AxiomaReporting.Core.Entities.GradeLevel>();
-  var classes = allocation?.AllocationClasses.Select(x => x.SchoolClass).Where(x => x != null).Select(x => x!).ToList()
+  // כיתה and the three מסקנה (conclusion) lists are global lookups (same for every report),
+  // supplied by the controller — not scoped to the allocation's junction rows.
+  var allClasses = ViewBag.AllClasses as List<AxiomaReporting.Core.Entities.SchoolClass>
     ?? new List<AxiomaReporting.Core.Entities.SchoolClass>();
-  var locDist = allocation?.AllocationLocalityDistrictNationals.Select(x => x.LocalityDistrictNational).Where(x => x != null).Select(x => x!).ToList()
+  var classConclusions = ViewBag.ClassConclusions as List<AxiomaReporting.Core.Entities.ClassConclusion>
+    ?? new List<AxiomaReporting.Core.Entities.ClassConclusion>();
+  var frameworkConclusions = ViewBag.FrameworkConclusions as List<AxiomaReporting.Core.Entities.FrameworkConclusion>
+    ?? new List<AxiomaReporting.Core.Entities.FrameworkConclusion>();
+  var locationConclusions = ViewBag.LocationConclusions as List<AxiomaReporting.Core.Entities.LocalityDistrictNational>
     ?? new List<AxiomaReporting.Core.Entities.LocalityDistrictNational>();
   var requiredFields = ViewBag.RequiredReportFields as HashSet<string> ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
   bool Req(string field) => requiredFields.Contains(field);
@@ -62,11 +68,11 @@
     ["Subject1Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
     ["Subject2Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
     ["DiscussionCodeId"] = discCodes.Select(x => new { id = x.Id, text = x.Description }),
-    ["ConclusionClassId"] = classes.Select(x => new { id = x.Id, text = x.Description }),
-    ["ConclusionFrameworkId"] = frameworks.Select(x => new { id = x.Id, text = x.Description }),
-    ["ConclusionLocationId"] = locDist.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionClassId"] = classConclusions.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionFrameworkId"] = frameworkConclusions.Select(x => new { id = x.Id, text = x.Description }),
+    ["ConclusionLocationId"] = locationConclusions.Select(x => new { id = x.Id, text = x.Description }),
     ["GradeLevelId"] = gradeLevels.Select(x => new { id = x.Id, text = x.Description }),
-    ["ClassId"] = classes.Select(x => new { id = x.Id, text = x.Description })
+    ["ClassId"] = allClasses.Select(x => new { id = x.Id, text = x.Description })
   };
 
   string FieldAttrs(string field, string type = "select", bool optional = false) =>
@@ -462,7 +468,7 @@
                 <select id="fieldConclusionClass" name="row.ConclusionClassId" class="form-select"
                         required="@Req("ConclusionClassId")" aria-required="@(Req("ConclusionClassId") ? "true" : "false")">
                   <option value="">---</option>
-                  @foreach (var item in classes) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in classConclusions) { <option value="@item.Id">@item.Description</option> }
                 </select>
               </div>
               <div class="col-md-2">
@@ -470,7 +476,7 @@
                 <select id="fieldConclusionFramework" name="row.ConclusionFrameworkId" class="form-select"
                         required="@Req("ConclusionFrameworkId")" aria-required="@(Req("ConclusionFrameworkId") ? "true" : "false")">
                   <option value="">---</option>
-                  @foreach (var item in frameworks) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in frameworkConclusions) { <option value="@item.Id">@item.Description</option> }
                 </select>
               </div>
               <div class="col-md-2">
@@ -478,7 +484,7 @@
                 <select id="fieldConclusionLocation" name="row.ConclusionLocationId" class="form-select"
                         required="@Req("ConclusionLocationId")" aria-required="@(Req("ConclusionLocationId") ? "true" : "false")">
                   <option value="">---</option>
-                  @foreach (var item in locDist) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in locationConclusions) { <option value="@item.Id">@item.Description</option> }
                 </select>
               </div>
               <div class="col-md-2">
@@ -494,7 +500,7 @@
                 <select id="fieldClass" name="row.ClassId" class="form-select"
                         required="@Req("ClassId")" aria-required="@(Req("ClassId") ? "true" : "false")">
                   <option value="">---</option>
-                  @foreach (var item in classes) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in allClasses) { <option value="@item.Id">@item.Description</option> }
                 </select>
               </div>
               <div class="col-12">

@@ -135,6 +135,7 @@ public class ReportController : Controller
       .ToListAsync();
 
     var allocationWithJunctions = await _db.Allocations
+      .AsSplitQuery()
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
       .Include(a => a.AllocationLocalities).ThenInclude(x => x.Locality)
       .Include(a => a.AllocationFrameworks).ThenInclude(x => x.Framework)
@@ -150,6 +151,14 @@ public class ReportController : Controller
     report.ReportingMonth ??= activeMonth;
     var deadlinePassed = IsDeadlinePassed(activeMonth);
     var isOverrideRole = _currentUser.UserRole == UserRoleEnum.SystemAdmin;
+
+    // Class (כיתה) and the three מסקנה (conclusion) lists are global lookups — the same
+    // for every report — so they come from their own tables, not the allocation junctions.
+    ViewBag.AllClasses = await _db.Classes.Where(c => c.IsActive)
+      .OrderBy(c => c.Description.Length).ThenBy(c => c.Description).ToListAsync();
+    ViewBag.ClassConclusions = await _db.ClassConclusions.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
+    ViewBag.FrameworkConclusions = await _db.FrameworkConclusions.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
+    ViewBag.LocationConclusions = await _db.LocalityDistrictNationals.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
 
     ViewBag.Employee = employee;
     ViewBag.ActiveMonth = activeMonth;

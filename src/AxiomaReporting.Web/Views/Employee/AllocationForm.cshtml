@@ -228,17 +228,6 @@
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">כיתות</label>
-            <select name="ClassIds" multiple class="form-select" size="5">
-              @foreach (var item in classes)
-              {
-                <option value="@item.Id"
-                        selected="@(Model.ClassIds.Contains(item.Id))">@item.Description</option>
-              }
-            </select>
-          </div>
-
-          <div class="col-md-6">
             <label class="form-label">שכבות</label>
             <select name="GradeLevelIds" multiple class="form-select" size="5">
               @foreach (var item in gradeLevels)
@@ -256,17 +245,6 @@
               {
                 <option value="@item.Id"
                         selected="@(Model.DiscussionCodeIds.Contains(item.Id))">@item.Description</option>
-              }
-            </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">ישוב/מחוז/ארצי</label>
-            <select name="LocalityDistrictNationalIds" multiple class="form-select" size="5">
-              @foreach (var item in localityDistrictNationals)
-              {
-                <option value="@item.Id"
-                        selected="@(Model.LocalityDistrictNationalIds.Contains(item.Id))">@item.Description</option>
               }
             </select>
           </div>

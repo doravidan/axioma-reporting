@@ -26,6 +26,8 @@ public class AppDbContext : DbContext
   public DbSet<EducationType> EducationTypes => Set<EducationType>();
   public DbSet<LocalityDistrictNational> LocalityDistrictNationals => Set<LocalityDistrictNational>();
   public DbSet<DiscussionCode> DiscussionCodes => Set<DiscussionCode>();
+  public DbSet<ClassConclusion> ClassConclusions => Set<ClassConclusion>();
+  public DbSet<FrameworkConclusion> FrameworkConclusions => Set<FrameworkConclusion>();
   public DbSet<Institution> Institutions => Set<Institution>();
   public DbSet<ReportType> ReportTypes => Set<ReportType>();
   public DbSet<ProjectProgram> ProjectPrograms => Set<ProjectProgram>();

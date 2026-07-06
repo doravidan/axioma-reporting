@@ -28,9 +28,9 @@ public class ReportRow : BaseEntity
   public int? DiscussionCodeId { get; set; }
   public DiscussionCode? DiscussionCode { get; set; }
   public int? ConclusionClassId { get; set; }
-  public SchoolClass? ConclusionClass { get; set; }
+  public ClassConclusion? ConclusionClass { get; set; }
   public int? ConclusionFrameworkId { get; set; }
-  public Framework? ConclusionFramework { get; set; }
+  public FrameworkConclusion? ConclusionFramework { get; set; }
   public int? ConclusionLocationId { get; set; }
   public LocalityDistrictNational? ConclusionLocation { get; set; }
   public int? GradeLevelId { get; set; }

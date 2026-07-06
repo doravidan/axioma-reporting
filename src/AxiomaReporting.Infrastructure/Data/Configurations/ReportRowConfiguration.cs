@@ -68,17 +68,18 @@ public class ReportRowConfiguration : IEntityTypeConfiguration<ReportRow>
       .HasForeignKey(e => e.DiscussionCodeId)
       .OnDelete(DeleteBehavior.NoAction);
 
-    // Two FKs to SchoolClasses table — must specify explicit FK names
+    // Conclusion lookups live in their own tables (מסקנות כיתה / מסקנות מסגרת),
+    // separate from the base SchoolClasses / Frameworks so the dropdowns don't mix.
     builder.HasOne(e => e.ConclusionClass)
       .WithMany()
       .HasForeignKey(e => e.ConclusionClassId)
-      .HasConstraintName("FK_ReportRows_SchoolClasses_ConclusionClassId")
+      .HasConstraintName("FK_ReportRows_ClassConclusions_ConclusionClassId")
       .OnDelete(DeleteBehavior.NoAction);
 
     builder.HasOne(e => e.ConclusionFramework)
       .WithMany()
       .HasForeignKey(e => e.ConclusionFrameworkId)
-      .HasConstraintName("FK_ReportRows_Frameworks_ConclusionFrameworkId")
+      .HasConstraintName("FK_ReportRows_FrameworkConclusions_ConclusionFrameworkId")
       .OnDelete(DeleteBehavior.NoAction);
 
     builder.HasOne(e => e.ConclusionLocation)
