@@ -27,7 +27,8 @@ Companion docs (Hebrew, more narrative): `docs/CLIENT_DELIVERY.md`, `docs/DEPLOY
 | Source code (build on dev machine or on server) | `https://github.com/doravidan/axioma-reporting.git`, branch `master` | yes |
 | Publish script | `deploy/publish.ps1` | yes |
 | Full schema, idempotent (structure only) | `database/schema.sql` (~2,100 lines, generated from EF migrations) | yes |
-| **Full database backup — structure + all client data** | `AxiomaReporting_delivery_2026-07-06.bak` (29.8 MB) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
+| **Full database backup — structure + all client data** | `AxiomaReporting_delivery_2026-07-06.bak` (30.7 MB, taken 2026-07-06 19:07) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
+| Password-normalization script (go-live step §2.2) | `scripts/reset_passwords_to_id.py` | yes |
 | This runbook | `deploy/CODEX_DEPLOY_RUNBOOK.md` | yes |
 
 The `.bak` contains the fully imported client dataset. Expected row counts (used in VERIFY steps):
@@ -39,7 +40,8 @@ The `.bak` contains the fully imported client dataset. Expected row counts (used
 | Frameworks | 3,193 |
 | Institutions | 4,268 |
 | Localities | 1,482 |
-| Reports / ReportRows | 15 / 451 |
+| Reports / ReportRows | 18 / 452 (incl. 3 July-2026 test reports — removed in §2.2) |
+| ReportingMonths | 3 (יולי 2026 is the active month) |
 | EmailTemplates | 10 |
 | SystemConstants | 9 |
 | ProjectProgramSubjects | 3,960 |
@@ -123,16 +125,31 @@ sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS (SELECT 1 FROM sys.server_principals
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -Q "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name='AxiomaWeb') CREATE USER [AxiomaWeb] FOR LOGIN [AxiomaWeb]; ALTER ROLE db_datareader ADD MEMBER [AxiomaWeb]; ALTER ROLE db_datawriter ADD MEMBER [AxiomaWeb]; GRANT EXECUTE ON SCHEMA::dbo TO [AxiomaWeb]"
 ```
 
-### 2.2 Post-restore security fixups (Option A only — REQUIRED)
+### 2.2 Post-restore go-live normalization (Option A only — REQUIRED)
 
-The backup comes from the development environment:
+The backup comes from the development environment and needs four fixups:
 
-- The application admin is **IdNumber `admin`, password `admin1234`** — a dev password.
-- All 445 employee users have their password set to **their own ID number** with
-  `MustChangePassword = 1`, so each employee is forced to choose a real password at first
-  login. That is the intended go-live state — leave it.
+**a) Remove the July-2026 test reports** (created during pre-delivery testing —
+the December/January pilot reports stay pending the client's purge decision):
 
-Force the admin to rotate immediately:
+```powershell
+sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -Q "SET QUOTED_IDENTIFIER ON; DECLARE @ids TABLE (Id int); INSERT INTO @ids SELECT r.Id FROM Reports r JOIN ReportingMonths m ON m.Id = r.ReportingMonthId WHERE m.Year = 2026 AND m.Month = 7; DELETE FROM DocumentAttachments WHERE ReportId IN (SELECT Id FROM @ids) OR ReportRowId IN (SELECT rr.Id FROM ReportRows rr WHERE rr.ReportId IN (SELECT Id FROM @ids)); DELETE FROM ReportRows WHERE ReportId IN (SELECT Id FROM @ids); DELETE FROM Reports WHERE Id IN (SELECT Id FROM @ids); SELECT @@ROWCOUNT AS deleted_reports"
+# Expect: deleted_reports = 3
+```
+
+**b) Normalize every employee password to their ID number with a forced change
+at first login** (the intended onboarding state; a few accounts were used for
+dev testing and have other passwords). Requires Python 3.8+ on the machine
+running it (can also be run from the dev machine against the server DB by
+editing CONN_STR in the script):
+
+```powershell
+pip install bcrypt pyodbc
+python C:\deploy\source\scripts\reset_passwords_to_id.py            # dry-run first, review the output
+python C:\deploy\source\scripts\reset_passwords_to_id.py --commit   # then write
+```
+
+**c) Force the admin to rotate immediately** (dev password is `admin1234`):
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -Q "UPDATE Users SET MustChangePassword = 1 WHERE IdNumber = 'admin'"
@@ -140,11 +157,15 @@ sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -Q "UPDATE Users SET MustChangePass
 
 (First login as `admin` / `admin1234` will then demand a new password — use `{{ADMIN_PASSWORD}}`.)
 
+**d) Confirm the active reporting month.** The backup ships with **יולי 2026**
+active (deadline 31/07/2026). If go-live happens in a later month, create and
+activate the correct month via `/Admin/ReportingMonths` after first login.
+
 **VERIFY (Option A):**
 
 ```powershell
-sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -W -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM Users) AS Users, (SELECT COUNT(*) FROM Allocations) AS Allocations, (SELECT COUNT(*) FROM Frameworks) AS Frameworks, (SELECT COUNT(*) FROM __EFMigrationsHistory) AS Migrations"
-# Expect: Users=446, Allocations=442, Frameworks=3193, Migrations=19
+sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -W -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM Users) AS Users, (SELECT COUNT(*) FROM Allocations) AS Allocations, (SELECT COUNT(*) FROM Frameworks) AS Frameworks, (SELECT COUNT(*) FROM __EFMigrationsHistory) AS Migrations, (SELECT COUNT(*) FROM Users WHERE MustChangePassword = 1) AS ForcedChanges"
+# Expect: Users=446, Allocations=442, Frameworks=3193, Migrations=19, ForcedChanges=446
 ```
 
 ---
