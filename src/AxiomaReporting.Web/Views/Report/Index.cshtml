@@ -165,6 +165,19 @@
       <a asp-action="Index" asp-route-allocationId="@allocationId" class="alert-link">חזרה לחודש הפעיל</a>
     </div>
   }
+  @if (report?.StatusId == 4 && (User.IsInRole("1") || User.IsInRole("2")))
+  {
+    <div class="alert alert-info d-flex flex-wrap align-items-center gap-3" role="alert" aria-live="polite" aria-atomic="true">
+      <span>הדיווח מאושר ונעול לעריכה. כדי לאפשר לעובד להוסיף שורות נוספות לחודש זה — החזר את הדיווח לעריכה.</span>
+      <form asp-action="Reopen" method="post" class="m-0">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="reportId" value="@report.Id" />
+        <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+        <button type="submit" class="btn btn-sm btn-outline-primary"
+                onclick="return confirm('להחזיר את הדיווח לעריכה? העובד יוכל להוסיף שורות ולהגיש מחדש')">החזר לעריכה</button>
+      </form>
+    </div>
+  }
   @if (!string.IsNullOrEmpty(deadlineBlockMessage) && (month?.IsActive ?? true))
   {
     <div class="alert alert-warning" role="alert" aria-live="polite" aria-atomic="true">

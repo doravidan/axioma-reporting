@@ -529,6 +529,23 @@ public class ReportController : Controller
 
   [HttpPost]
   [ValidateAntiForgeryToken]
+  public async Task<IActionResult> Reopen(int reportId, string? returnUrl = null)
+  {
+    // Status override is reserved for SystemAdmin / ProjectManager (role spec:
+    // "PM overrides report status") — not the wider approve policy.
+    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager))
+      return Forbid();
+
+    if (await _statusService.ReopenReportAsync(reportId, _currentUser.UserId))
+      TempData["Success"] = "הדיווח הוחזר לעריכה — ניתן להוסיף שורות ולהגיש מחדש";
+    else
+      TempData["Error"] = "לא ניתן להחזיר לעריכה — רק דיווח מאושר ניתן לפתיחה מחדש";
+
+    return RedirectBackToDashboard(returnUrl);
+  }
+
+  [HttpPost]
+  [ValidateAntiForgeryToken]
   [Authorize(Policy = PolicyNames.CanApproveReports)]
   public async Task<IActionResult> Reject(int reportId, string rejectionReason, string? returnUrl = null)
   {

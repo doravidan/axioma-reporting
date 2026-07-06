@@ -11,6 +11,7 @@ public interface IReportStatusService
   Task<bool> SubmitReportAsync(int reportId, int submittedByUserId);
   Task<bool> ApproveReportAsync(int reportId, int approvedByUserId);
   Task<bool> RejectReportAsync(int reportId, int rejectedByUserId, string rejectionReason);
+  Task<bool> ReopenReportAsync(int reportId, int reopenedByUserId);
   Task<bool> SaveDraftAsync(int reportId);
 }
 
@@ -178,6 +179,51 @@ public class ReportStatusService : IReportStatusService
           ["Month"] = month?.Month.ToString() ?? string.Empty,
           ["Year"] = month?.Year.ToString() ?? string.Empty,
           ["RejectionReason"] = rejectionReason
+        });
+    }
+    return true;
+  }
+
+  /// <summary>
+  /// Returns an APPROVED report to the editable הוחזר-לתיקון state so the
+  /// employee can keep reporting within the same month (status-override
+  /// capability of SystemAdmin/ProjectManager per the role spec).
+  /// </summary>
+  public async Task<bool> ReopenReportAsync(int reportId, int reopenedByUserId)
+  {
+    var report = await _db.Reports
+      .Include(r => r.User)
+      .FirstOrDefaultAsync(r => r.Id == reportId);
+    if (report == null || report.StatusId != 4) return false;
+
+    const string reason = "הדיווח נפתח מחדש לעריכה והוספת שורות";
+    report.StatusId = 5; // Returned for Correction — editable by the owner
+    report.RejectionReason = reason;
+    report.ApprovedAt = null;
+    report.ApprovedBy = null;
+    report.UpdatedAt = DateTime.UtcNow;
+    await _db.SaveChangesAsync();
+
+    if (_auditLog != null)
+      await _auditLog.LogAsync("Report.StatusChange", nameof(Report), report.Id.ToString(),
+        before: new { StatusId = 4 },
+        after: new { StatusId = report.StatusId },
+        notes: $"reopened for editing by user {reopenedByUserId}");
+
+    if (report.User?.Email != null)
+    {
+      var month = await _db.ReportingMonths.FindAsync(report.ReportingMonthId);
+      await _emailService.SendAsync(
+        report.User.Email,
+        $"{report.User.FirstName} {report.User.LastName}",
+        "ReportRejected",
+        new Dictionary<string, string>
+        {
+          ["EmployeeName"] = $"{report.User.FirstName} {report.User.LastName}",
+          ["MonthName"] = month?.Description ?? string.Empty,
+          ["Month"] = month?.Month.ToString() ?? string.Empty,
+          ["Year"] = month?.Year.ToString() ?? string.Empty,
+          ["RejectionReason"] = reason
         });
     }
     return true;

@@ -7,6 +7,8 @@
     var reportingMonths = ViewBag.ReportingMonths as List<ReportingMonth> ?? new List<ReportingMonth>();
     var districts = ViewBag.Districts as List<District> ?? new List<District>();
     bool canApprove = ViewBag.CanApprove ?? false;
+    // Status override (reopen approved reports) — SystemAdmin / ProjectManager only
+    bool canReopen = User.IsInRole("1") || User.IsInRole("2");
     int total = ViewBag.TotalCount ?? 0;
     var pendingCount = rows.Count(r => r.StatusId == 3);
     var currentUrl = Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString;
@@ -240,6 +242,12 @@
                                                 formaction="@Url.Action("Approve", "Report", new { reportId = r.ReportId })">אשר</button>
                                         <button type="button" class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
                                     }
+                                    else if (r.StatusId == 4 && canReopen)
+                                    {
+                                        <button type="submit" class="btn btn-sm btn-outline-primary"
+                                                formaction="@Url.Action("Reopen", "Report", new { reportId = r.ReportId })"
+                                                onclick="return confirm('להחזיר את הדיווח לעריכה? העובד יוכל להוסיף שורות ולהגיש מחדש')">החזר לעריכה</button>
+                                    }
                                     else
                                     {
                                         <span class="text-muted">—</span>
@@ -269,13 +277,17 @@
                         <th>יתרת שורות</th>
                         <th>מסמכים</th>
                         <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
+                        @if (canReopen)
+                        {
+                            <th>פעולות</th>
+                        }
                     </tr>
                 </thead>
                 <tbody>
                     @if (!rows.Any())
                     {
                         <tr>
-                            <td colspan="10" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                            <td colspan="@(canReopen ? 11 : 10)" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                         </tr>
                     }
                     @foreach (var r in rows)
@@ -314,6 +326,25 @@
                                 }
                             </td>
                             <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
+                            @if (canReopen)
+                            {
+                                <td>
+                                    @if (r.StatusId == 4)
+                                    {
+                                        <form asp-controller="Report" asp-action="Reopen" method="post" class="m-0 d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="reportId" value="@r.ReportId" />
+                                            <input type="hidden" name="returnUrl" value="@currentUrl" />
+                                            <button type="submit" class="btn btn-sm btn-outline-primary"
+                                                    onclick="return confirm('להחזיר את הדיווח לעריכה? העובד יוכל להוסיף שורות ולהגיש מחדש')">החזר לעריכה</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                            }
                         </tr>
                     }
                 </tbody>

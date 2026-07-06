@@ -81,6 +81,19 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
         (await GetPageTextAsync()).Should().Contain("דיווחים אושרו בהצלחה");
         (await SummaryRow("990002").Locator(".badge:has-text('מאושר')").CountAsync()).Should().BeGreaterThan(0);
 
+        // ── Phase 2b: reopen an approved report (status override) ───────────
+        // An approved report is locked for the employee; admin/PM can return it
+        // to editing so more rows can be reported within the same month.
+        await SummaryRow("990002").Locator("button:has-text('החזר לעריכה'), form button:has-text('החזר לעריכה')").First.ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        Page.Url.Should().Contain("/Dashboard/Summary");
+        (await GetPageTextAsync()).Should().Contain("הדיווח הוחזר לעריכה");
+        (await SummaryRow("990002").Locator(".badge:has-text('הוחזר לתיקון')").CountAsync())
+            .Should().BeGreaterThan(0, because: "reopening must return the report to the editable returned-for-correction state");
+
+        // The reopened report accepts a new row and can be resubmitted.
+        await AddRowAndSubmitAsync($"/Report?userId={emp2}");
+
         // ── Phase 3: employee self-service flow on the demo employee ────────
         // Ends with reject + row deletion so the demo report stays editable for
         // the other Playwright suites.

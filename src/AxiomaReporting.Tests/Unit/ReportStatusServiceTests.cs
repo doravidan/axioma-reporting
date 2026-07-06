@@ -77,6 +77,41 @@ public class ReportStatusServiceTests : IDisposable
     (await _sut.SubmitReportAsync(999, 1)).Should().BeFalse();
     (await _sut.ApproveReportAsync(999, 1)).Should().BeFalse();
     (await _sut.RejectReportAsync(999, 1, "x")).Should().BeFalse();
+    (await _sut.ReopenReportAsync(999, 1)).Should().BeFalse();
+  }
+
+  [Fact]
+  public async Task ReopenReportAsync_ReturnsApprovedReportToEditingAndNotifies()
+  {
+    var approved = AddReport(statusId: 4);
+    approved.ApprovedAt = DateTime.UtcNow;
+    approved.ApprovedBy = 2;
+    await _db.SaveChangesAsync();
+
+    (await _sut.ReopenReportAsync(approved.Id, 2)).Should().BeTrue();
+
+    approved.StatusId.Should().Be(5, because: "reopened reports return to הוחזר-לתיקון so the owner can edit");
+    approved.ApprovedAt.Should().BeNull();
+    approved.ApprovedBy.Should().BeNull();
+    approved.RejectionReason.Should().NotBeNullOrEmpty();
+    _email.Sent.Should().ContainSingle(e => e.TemplateType == "ReportRejected");
+  }
+
+  [Fact]
+  public async Task ReopenReportAsync_OnlyAppliesToApprovedReports()
+  {
+    var draft = AddReport(statusId: 1);
+    var pending = AddReport(statusId: 3, id: 2);
+    var returned = AddReport(statusId: 5, id: 3);
+    await _db.SaveChangesAsync();
+
+    (await _sut.ReopenReportAsync(draft.Id, 2)).Should().BeFalse();
+    (await _sut.ReopenReportAsync(pending.Id, 2)).Should().BeFalse();
+    (await _sut.ReopenReportAsync(returned.Id, 2)).Should().BeFalse();
+
+    draft.StatusId.Should().Be(1);
+    pending.StatusId.Should().Be(3);
+    returned.StatusId.Should().Be(5);
   }
 
   private Report AddReport(int statusId, int id = 1)
