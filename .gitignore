@@ -79,3 +79,6 @@ desktop.ini
 # Local SQL Server backups (large binaries containing real employee PII)
 database/backups/
 *.bak
+
+# Runtime user uploads (attachments, logos) — never commit user data
+src/AxiomaReporting.Web/wwwroot/uploads/
