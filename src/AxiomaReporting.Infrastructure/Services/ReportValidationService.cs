@@ -256,11 +256,13 @@ public class ReportValidationService : IReportValidationService
   private static void ValidateDuplicateRows(
     ValidationResult result, ReportRow row, DateTime meetingDate, List<ReportRow> allRowsInReport)
   {
+    // NOTE: MeetingDuration is deliberately EXCLUDED from the duplicate key —
+    // client feedback (משוב בטא B26): a row differing only in the hours amount
+    // must still be flagged as a duplicate.
     var duplicates = allRowsInReport.Where(r =>
       r != row &&
       r.AllocationId == row.AllocationId &&
       r.MeetingDate.Date == meetingDate &&
-      r.MeetingDuration == row.MeetingDuration &&
       r.DistrictId == row.DistrictId &&
       r.LocalityId == row.LocalityId &&
       r.FrameworkId == row.FrameworkId &&

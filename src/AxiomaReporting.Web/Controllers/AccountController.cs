@@ -366,7 +366,9 @@ public class AccountController : Controller
 
     await _authService.AddPasswordToHistoryAsync(user.Id, user.PasswordHash);
     user.PasswordHash = _passwordService.HashPassword(newPassword);
-    user.MustChangePassword = true;
+    // The user just chose a brand-new password via the emailed link — do NOT force
+    // another change at next login (client QA: "אחרי החלפת הסיסמא שוב נדרש להחליף סיסמא").
+    user.MustChangePassword = false;
     user.LastPasswordChange = DateTime.UtcNow;
     user.UpdatedAt = DateTime.UtcNow;
     reset.UsedAt = DateTime.UtcNow;

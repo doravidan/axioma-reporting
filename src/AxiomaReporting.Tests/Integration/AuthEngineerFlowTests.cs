@@ -241,10 +241,11 @@ public class AuthEngineerFlowTests
   }
 
   [Fact]
-  public async Task SelfServiceResetPassword_ForcesChangeOnNextLogin()
+  public async Task SelfServiceResetPassword_DoesNotForceAnotherChange()
   {
-    // Client rule: every reset path should force a password-change screen on
-    // next login, including a self-service email reset.
+    // Client QA (בדיקת פרויקט Sheet7 #8): after choosing a NEW password via the
+    // emailed reset link, the user must NOT be forced to change it again on the
+    // next login. (Admin-initiated resets to ת.ז DO force a change — separate path.)
     await using var factory = new CustomWebApplicationFactory();
     var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
 
@@ -278,10 +279,51 @@ public class AuthEngineerFlowTests
     using var checkScope = factory.Services.CreateScope();
     var db2 = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
     var user = await db2.Users.AsNoTracking().SingleAsync(u => u.Id == 1);
-    user.MustChangePassword.Should().BeTrue();
+    user.MustChangePassword.Should().BeFalse();
 
     var pwd = new PasswordService();
     pwd.VerifyPassword("ResetA1!", user.PasswordHash).Should().BeTrue();
+  }
+
+  [Fact]
+  public async Task PendingForcedPasswordChange_CannotBeBypassedViaMenuNavigation()
+  {
+    // Client QA (בדיקת פרויקט Sheet6 #1): a user parked on the forced change-password
+    // screen must not be able to reach any other page by clicking menu links.
+    await using var factory = new CustomWebApplicationFactory();
+    var client = factory.CreateClient(new()
+    {
+      BaseAddress = new Uri("https://localhost"),
+      AllowAutoRedirect = false
+    });
+
+    // Sign in normally first (MustChangePassword=false at login time).
+    var loginHtml = await client.GetStringAsync("/Account/Login");
+    var login = await client.PostAsync("/Account/Login", new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+      ["__RequestVerificationToken"] = HtmlForm.AntiForgeryToken(loginHtml),
+      ["IdNumber"] = TestData.EmployeeIdNumber,
+      ["Password"] = TestData.EmployeePassword
+    }));
+    login.StatusCode.Should().Be(HttpStatusCode.Redirect);
+
+    // Simulate an admin reset landing mid-session: the flag flips on the server.
+    using (var scope = factory.Services.CreateScope())
+    {
+      var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+      var user = await db.Users.SingleAsync(u => u.Id == 1);
+      user.MustChangePassword = true;
+      await db.SaveChangesAsync();
+    }
+
+    // Any app page must now bounce to ChangePassword — no menu escape.
+    var protectedPage = await client.GetAsync("/MyAllocations");
+    protectedPage.StatusCode.Should().Be(HttpStatusCode.Redirect);
+    protectedPage.Headers.Location!.ToString().Should().Contain("/Account/ChangePassword");
+
+    // The change-password screen itself must stay reachable.
+    var changePage = await client.GetAsync("/Account/ChangePassword");
+    changePage.StatusCode.Should().Be(HttpStatusCode.OK);
   }
 
   private static string HashSha256(string value)

@@ -355,6 +355,20 @@ public class BatchReportImportService : IBatchReportImportService
       var report = await _db.Reports
         .FirstOrDefaultAsync(rep => rep.UserId == userId && rep.ReportingMonthId == reportingMonthId, ct);
 
+      // Business rule #11: Excel upload may overwrite ONLY unapproved reports.
+      // A report pending approval (3) or approved (4) must not be touched —
+      // mirror the single-report import guard (ReportExcelImportService).
+      if (report != null && report.StatusId is 3 or 4)
+      {
+        foreach (var pending in rows)
+        {
+          AddRowResult(result, pending.FileRow, pending.EmployeeCode, pending.ReporterName,
+            BatchImportRowOutcome.Rejected,
+            $"שורה {pending.FileRow}: לא ניתן לייבא לדיווח שממתין לאישור או אושר");
+        }
+        continue;
+      }
+
       if (report == null)
       {
         report = new Report

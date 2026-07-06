@@ -30,10 +30,13 @@ else
 }
 
 builder.Services.AddScoped<AxiomaReporting.Web.Authorization.RequireTermsAcceptedFilter>();
+builder.Services.AddScoped<AxiomaReporting.Web.Authorization.RequirePasswordChangedFilter>();
 
 builder.Services.AddControllersWithViews(options =>
 {
   options.Filters.AddService<AxiomaReporting.Web.Authorization.RequireTermsAcceptedFilter>();
+  // Blocks menu-navigation escape from a pending forced password change (client QA).
+  options.Filters.AddService<AxiomaReporting.Web.Authorization.RequirePasswordChangedFilter>();
   options.ModelBindingMessageProvider.SetValueMustNotBeNullAccessor(_ => "יש לבחור ערך");
   options.ModelBindingMessageProvider.SetAttemptedValueIsInvalidAccessor((value, field) => "הערך שנבחר אינו תקין");
   options.ModelBindingMessageProvider.SetMissingBindRequiredValueAccessor(field => $"חסר ערך חובה: {field}");
@@ -83,14 +86,17 @@ builder.Services.AddScoped<IDashboardFilterService, DashboardFilterService>();
 // Branding (AX-023 / Gap 8 — site logo from SystemConstants)
 builder.Services.AddScoped<IBrandingService, BrandingService>();
 
-// Cookie authentication
+// Cookie authentication.
+// Inactivity timeout is configurable (client requirement: 30-minute auto-logout,
+// with the value itself a parameter) — override via "Session:TimeoutMinutes".
+var sessionTimeoutMinutes = builder.Configuration.GetValue<int?>("Session:TimeoutMinutes") ?? 30;
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
   .AddCookie(options =>
   {
     options.LoginPath = "/Account/Login";
     options.LogoutPath = "/Account/Logout";
     options.AccessDeniedPath = "/Account/AccessDenied";
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(sessionTimeoutMinutes);
     options.SlidingExpiration = true;
   });
 
