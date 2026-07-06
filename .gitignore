@@ -75,3 +75,7 @@ desktop.ini
 
 # Azure artifacts
 **/azureauth.json
+
+# Local SQL Server backups (large binaries containing real employee PII)
+database/backups/
+*.bak

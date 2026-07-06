@@ -185,6 +185,7 @@ public class EmployeeService : IEmployeeService
 
   public async Task<List<Allocation>> GetAllocationsAsync(int userId) =>
     await _db.Allocations
+      .AsSplitQuery()
       .Include(a => a.Project)
       .Include(a => a.AllocationDistricts).ThenInclude(ad => ad.District)
       .Include(a => a.AllocationPrograms).ThenInclude(ap => ap.Program)
@@ -203,6 +204,7 @@ public class EmployeeService : IEmployeeService
 
   public async Task<Allocation?> GetAllocationByIdAsync(int allocationId) =>
     await _db.Allocations
+      .AsSplitQuery()
       .Include(a => a.Project)
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
       .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)

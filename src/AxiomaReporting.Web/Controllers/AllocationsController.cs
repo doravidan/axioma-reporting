@@ -47,7 +47,7 @@ public class AllocationsController : Controller
   [HttpGet("{allocationId:int}")]
   public async Task<IActionResult> Details(int allocationId)
   {
-    var allocation = await (await BuildScopedAllocationQueryAsync(_db, _currentUser.UserId, _currentUser.UserRole))
+    var allocation = await (await BuildScopedAllocationQueryAsync(_db, _currentUser.UserId, _currentUser.UserRole, includeFullDetails: true))
       .FirstOrDefaultAsync(a => a.Id == allocationId);
     if (allocation == null) return NotFound();
 
@@ -118,9 +118,10 @@ public class AllocationsController : Controller
   internal static async Task<IQueryable<Allocation>> BuildScopedAllocationQueryAsync(
     AppDbContext db,
     int currentUserId,
-    UserRoleEnum role)
+    UserRoleEnum role,
+    bool includeFullDetails = false)
   {
-    var query = BaseAllocationQuery(db);
+    var query = includeFullDetails ? FullAllocationQuery(db) : BaseAllocationQuery(db);
 
     if (role == UserRoleEnum.SystemAdmin)
       return query;
@@ -273,6 +274,17 @@ public class AllocationsController : Controller
 
   private static IQueryable<Allocation> BaseAllocationQuery(AppDbContext db) =>
     db.Allocations
+      .AsSplitQuery()
+      .Include(a => a.User)
+      .Include(a => a.Project)
+      .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
+      .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)
+      .Include(a => a.AllocationSectors).ThenInclude(x => x.Sector)
+      .Where(a => a.IsActive);
+
+  private static IQueryable<Allocation> FullAllocationQuery(AppDbContext db) =>
+    db.Allocations
+      .AsSplitQuery()
       .Include(a => a.User)
       .Include(a => a.Project)
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
