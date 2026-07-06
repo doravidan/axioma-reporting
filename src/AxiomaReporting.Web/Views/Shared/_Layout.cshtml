@@ -162,22 +162,45 @@
   <script src="~/js/site.js" asp-append-version="true"></script>
   @await RenderSectionAsync("Scripts", required: false)
   <script>
-    // Choices.js global init (UI/UX polish — AX-023, client-feedback #18).
-    // Attaches to every <select multiple> on the page so multi-selects render
-    // as tag chips with type-to-search, regardless of which view rendered them.
+    // Choices.js global init (UI/UX polish — AX-023, client-feedback #18 + QA #7).
+    // Multi-selects render as tag chips; single selects with a long option list
+    // (8+) gain type-to-search ("בכל תיבות הקומבו לאפשר חיפוש לפי הקלדה").
+    // Instances are registered on window._axChoices so page scripts can set
+    // values programmatically (Choices does not react to el.value assignment).
     // Defensive: no-op if Choices.js asset hasn't loaded.
     (function () {
       if (typeof window.Choices === 'undefined') { return; }
+      window._axChoices = window._axChoices || new WeakMap();
+
+      function baseOptions() {
+        return {
+          searchPlaceholderValue: 'חיפוש…',
+          noResultsText: 'לא נמצאו תוצאות',
+          shouldSort: false,
+          itemSelectText: ''
+        };
+      }
+
       document.querySelectorAll('select[multiple]').forEach(function (el) {
         if (el.dataset.choicesInit) { return; }
         try {
-          new window.Choices(el, {
-            removeItemButton: true,
-            searchPlaceholderValue: 'חיפוש…',
-            noResultsText: 'לא נמצאו תוצאות',
-            shouldSort: false,
-            itemSelectText: ''
-          });
+          var inst = new window.Choices(el, Object.assign(baseOptions(), { removeItemButton: true }));
+          window._axChoices.set(el, inst);
+          el.dataset.choicesInit = '1';
+        } catch (e) { /* swallow — fallback to native widget */ }
+      });
+
+      document.querySelectorAll('select:not([multiple])').forEach(function (el) {
+        if (el.dataset.choicesInit || el.dataset.noChoices) { return; }
+        // live-filter selects rebuild their options via innerHTML (Summary screen) —
+        // Choices would detach from them, so leave them native. The allocation-picker
+        // screen manages its own selects with custom JS — leave those native too.
+        if (el.dataset.liveFilter) { return; }
+        if (el.className.indexOf('allocation-') !== -1) { return; }
+        if (el.options.length < 8) { return; }  // small lists stay native
+        try {
+          var inst = new window.Choices(el, Object.assign(baseOptions(), { searchResultLimit: 50 }));
+          window._axChoices.set(el, inst);
           el.dataset.choicesInit = '1';
         } catch (e) { /* swallow — fallback to native widget */ }
       });

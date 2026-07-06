@@ -189,11 +189,14 @@
 
           <div class="col-md-6">
             <label class="form-label">מסגרות</label>
+            @{
+              var fwLabels = ViewBag.FrameworkLabels as Dictionary<int, string> ?? new Dictionary<int, string>();
+            }
             <select name="FrameworkIds" multiple class="form-select" size="5">
               @foreach (var item in frameworks)
               {
                 <option value="@item.Id"
-                        selected="@(Model.FrameworkIds.Contains(item.Id))">@item.Description</option>
+                        selected="@(Model.FrameworkIds.Contains(item.Id))">@(fwLabels.TryGetValue(item.Id, out var fl) ? fl : item.Description)</option>
               }
             </select>
           </div>

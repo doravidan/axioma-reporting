@@ -162,6 +162,14 @@ public class ReportController : Controller
     ViewBag.FrameworkConclusions = await _db.FrameworkConclusions.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
     ViewBag.LocationConclusions = await _db.LocalityDistrictNationals.Where(c => c.IsActive).OrderBy(c => c.Description).ToListAsync();
 
+    // Composite framework labels — יישוב, סמל ושם מסגרת (משוב בטא B35/B39).
+    var frameworkIds = allocationWithJunctions?.AllocationFrameworks.Select(x => x.FrameworkId).ToList() ?? new List<int>();
+    foreach (var r in rows)
+    {
+      if (!frameworkIds.Contains(r.FrameworkId)) frameworkIds.Add(r.FrameworkId);
+    }
+    ViewBag.FrameworkLabels = await FrameworkLabelService.BuildLabelsAsync(_db, frameworkIds);
+
     ViewBag.Employee = employee;
     ViewBag.ActiveMonth = activeMonth;
     ViewBag.Report = report;

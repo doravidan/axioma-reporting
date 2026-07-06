@@ -49,6 +49,9 @@
   var requiredFields = ViewBag.RequiredReportFields as HashSet<string> ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
   bool Req(string field) => requiredFields.Contains(field);
   string Star(string field) => Req(field) ? " *" : "";
+  // תווית מסגרת משולבת: יישוב — סמל — שם (משוב בטא B35/B39)
+  var frameworkLabels = ViewBag.FrameworkLabels as Dictionary<int, string> ?? new Dictionary<int, string>();
+  string FrameworkLabel(int id, string? fallback) => frameworkLabels.TryGetValue(id, out var l) ? l : (fallback ?? "");
   var durationTokens = (allocation?.OutputDuration ?? "")
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
   var durationOptions = durationTokens
@@ -64,7 +67,7 @@
   {
     ["DistrictId"] = districts.Select(x => new { id = x.Id, text = x.Description }),
     ["LocalityId"] = localities.Select(x => new { id = x.Id, text = x.Description }),
-    ["FrameworkId"] = frameworks.Select(x => new { id = x.Id, text = x.Description }),
+    ["FrameworkId"] = frameworks.Select(x => new { id = x.Id, text = FrameworkLabel(x.Id, x.Description) }),
     ["EducationalProgramId"] = edPrograms.Select(x => new { id = x.Id, text = x.Description }),
     ["DomainId"] = domains.Select(x => new { id = x.Id, text = x.Description }),
     ["Subject1Id"] = subjects.Select(x => new { id = x.Id, text = x.Description }),
@@ -308,7 +311,7 @@
                 <td @Html.Raw(FieldAttrs("MeetingDuration", "duration"))>@row.MeetingDuration</td>
                 <td @Html.Raw(FieldAttrs("DistrictId"))>@row.District?.Description</td>
                 <td @Html.Raw(FieldAttrs("LocalityId"))>@row.Locality?.Description</td>
-                <td @Html.Raw(FieldAttrs("FrameworkId"))>@row.Framework?.Description</td>
+                <td @Html.Raw(FieldAttrs("FrameworkId"))>@FrameworkLabel(row.FrameworkId, row.Framework?.Description)</td>
                 <td @Html.Raw(FieldAttrs("EducationalProgramId"))>@row.EducationalProgram?.Description</td>
                 <td @Html.Raw(FieldAttrs("DomainId"))>@row.Domain?.Description</td>
                 <td @Html.Raw(FieldAttrs("Subject1Id"))>@row.Subject1?.Description</td>
@@ -423,7 +426,7 @@
                 <select id="fieldFramework" name="row.FrameworkId" class="form-select"
                         required="@Req("FrameworkId")" aria-required="@(Req("FrameworkId") ? "true" : "false")">
                   <option value="">בחר...</option>
-                  @foreach (var item in frameworks) { <option value="@item.Id">@item.Description</option> }
+                  @foreach (var item in frameworks) { <option value="@item.Id">@FrameworkLabel(item.Id, item.Description)</option> }
                 </select>
               </div>
               <div class="col-md-2">
@@ -894,11 +897,27 @@
     }
 
     function setSelect(id, value) {
-      document.getElementById(id).value = value || '';
+      const el = document.getElementById(id);
+      if (!el) return;
+      const inst = window._axChoices && window._axChoices.get ? window._axChoices.get(el) : null;
+      if (inst) {
+        // Choices.js wraps the select — setting el.value directly does not update
+        // its UI, so drive the instance API instead.
+        if (value === null || value === undefined || value === '') {
+          inst.removeActiveItems();
+          inst.setChoiceByValue('');
+        } else {
+          inst.setChoiceByValue(String(value));
+        }
+      } else {
+        el.value = value || '';
+      }
     }
 
     function addRow() {
       document.getElementById('rowForm').reset();
+      // form.reset() does not refresh Choices.js widgets — clear them explicitly.
+      document.querySelectorAll('#rowForm select').forEach(el => setSelect(el.id, ''));
       document.getElementById('rowId').value = '0';
       document.getElementById('rowRowVersion').value = '';
       document.getElementById('rowErrors').style.display = 'none';

@@ -836,6 +836,8 @@ public class EmployeeController : Controller
     ViewBag.Sectors = await _db.Sectors.Where(s => s.IsActive).ToListAsync();
     ViewBag.Localities = await _db.Localities.Where(l => l.IsActive).ToListAsync();
     ViewBag.Frameworks = await _db.Frameworks.Where(f => f.IsActive).ToListAsync();
+    // תווית מסגרת משולבת: יישוב — סמל — שם (משוב בטא B38).
+    ViewBag.FrameworkLabels = await FrameworkLabelService.BuildAllActiveLabelsAsync(_db);
     ViewBag.Subjects = await _db.Subjects.Where(s => s.IsActive).ToListAsync();
     ViewBag.Domains = await _db.Domains.Where(d => d.IsActive).ToListAsync();
     ViewBag.EducationalPrograms = await _db.EducationalPrograms.Where(e => e.IsActive).ToListAsync();
