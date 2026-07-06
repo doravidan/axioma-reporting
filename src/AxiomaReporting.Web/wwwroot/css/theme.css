@@ -456,12 +456,39 @@ main#main-content { min-height: 55vh; }
   border: 1px solid var(--ax-border);
   border-radius: var(--ax-radius-sm);
   box-shadow: var(--ax-shadow-md);
+  /* Let the open list outgrow a narrow field so long Hebrew labels stay
+     readable; anchored to the inline-start edge so it expands correctly in RTL */
+  min-width: 100%;
+  width: max-content;
+  max-width: min(420px, 85vw);
+  inset-inline-end: 0;
+  z-index: 1060; /* above Bootstrap modals (1055) */
+}
+
+/* Choices ships word-break:break-all on dropdown items, which shreds Hebrew
+   words mid-word in narrow columns — wrap on word boundaries instead */
+.choices__list--dropdown .choices__item,
+.choices__list[aria-expanded] .choices__item {
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .choices__list--dropdown .choices__item--selectable.is-highlighted,
 .choices__list[aria-expanded] .choices__item--selectable.is-highlighted {
   background: var(--ax-primary-softer);
   color: var(--ax-primary-stronger);
+}
+
+/* Closed single-select: long labels truncate with ellipsis, never overflow */
+.choices__list--single {
+  overflow: hidden;
+}
+
+.choices__list--single .choices__item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .choices__list--multiple .choices__item {
