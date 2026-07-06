@@ -21,6 +21,9 @@
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Servers ship the .NET 8 Hosting Bundle only; let the net6.0 app roll
+         forward instead of requiring the EOL .NET 6 runtime on the box. -->
+    <RollForward>Major</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
