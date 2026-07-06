@@ -146,7 +146,12 @@ public class ReportValidationService : IReportValidationService
   {
     if (!row.AllocationId.HasValue) return;
 
+    // Only the allocation-scoped fields are validated against the allocation's
+    // junctions. כיתה, שכבה and the three מסקנה lists are global lookups (shown to
+    // every report), so they are NOT scope-checked here. AsSplitQuery avoids a
+    // cartesian blow-up across the remaining collection includes.
     var allocation = await _db.Allocations
+      .AsSplitQuery()
       .Include(a => a.AllocationDistricts)
       .Include(a => a.AllocationLocalities)
       .Include(a => a.AllocationFrameworks)
@@ -154,9 +159,6 @@ public class ReportValidationService : IReportValidationService
       .Include(a => a.AllocationDomains)
       .Include(a => a.AllocationSubjects)
       .Include(a => a.AllocationDiscussionCodes)
-      .Include(a => a.AllocationClasses)
-      .Include(a => a.AllocationGradeLevels)
-      .Include(a => a.AllocationLocalityDistrictNationals)
       .FirstOrDefaultAsync(a => a.Id == row.AllocationId.Value);
 
     if (allocation == null)
@@ -181,16 +183,8 @@ public class ReportValidationService : IReportValidationService
       result.AddError("נושא 2 אינו תואם להקצאת העובד");
     if (row.DiscussionCodeId.HasValue && allocation.AllocationDiscussionCodes.Any() && !allocation.AllocationDiscussionCodes.Any(x => x.DiscussionCodeId == row.DiscussionCodeId.Value))
       result.AddError("קוד הדיון אינו תואם להקצאת העובד");
-    if (row.ClassId.HasValue && allocation.AllocationClasses.Any() && !allocation.AllocationClasses.Any(x => x.ClassId == row.ClassId.Value))
-      result.AddError("הכיתה אינה תואמת להקצאת העובד");
-    if (row.GradeLevelId.HasValue && allocation.AllocationGradeLevels.Any() && !allocation.AllocationGradeLevels.Any(x => x.GradeLevelId == row.GradeLevelId.Value))
-      result.AddError("השכבה אינה תואמת להקצאת העובד");
-    if (row.ConclusionClassId.HasValue && allocation.AllocationClasses.Any() && !allocation.AllocationClasses.Any(x => x.ClassId == row.ConclusionClassId.Value))
-      result.AddError("מסקנה - כיתה אינה תואמת להקצאת העובד");
-    if (row.ConclusionFrameworkId.HasValue && allocation.AllocationFrameworks.Any() && !allocation.AllocationFrameworks.Any(x => x.FrameworkId == row.ConclusionFrameworkId.Value))
-      result.AddError("מסקנה - מסגרת אינה תואמת להקצאת העובד");
-    if (row.ConclusionLocationId.HasValue && allocation.AllocationLocalityDistrictNationals.Any() && !allocation.AllocationLocalityDistrictNationals.Any(x => x.LocalityDistrictNationalId == row.ConclusionLocationId.Value))
-      result.AddError("מסקנה - מיקום אינה תואמת להקצאת העובד");
+    // כיתה, שכבה, מסקנה-כיתה, מסקנה-מסגרת and מסקנה-מיקום are global lookups —
+    // not scoped to the allocation — so they are intentionally not checked here.
   }
 
   private async Task ValidateDailyLimitAsync(
