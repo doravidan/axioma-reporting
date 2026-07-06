@@ -44,6 +44,10 @@ public class AllocationDto
   [Display(Name = "אפשר העלאת אקסל")]
   public bool AllowExcelUpload { get; set; }
 
+  // סוג דיווח (משוב בטא B32) — לא חובה; מוצג בדיווח ובפלט.
+  [Display(Name = "סוג דיווח")]
+  public int? ReportTypeId { get; set; }
+
   [StringLength(2000, ErrorMessage = "הערות ארוכות מדי (מקסימום 2000 תווים)")]
   [Display(Name = "הערות")]
   public string? Notes { get; set; }

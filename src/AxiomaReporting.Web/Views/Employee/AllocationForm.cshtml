@@ -67,6 +67,21 @@
           </div>
 
           <div class="col-md-3">
+            @{
+              var reportTypes = ViewBag.ReportTypes as List<AxiomaReporting.Core.Entities.ReportType>
+                ?? new List<AxiomaReporting.Core.Entities.ReportType>();
+            }
+            <label asp-for="ReportTypeId" class="form-label">סוג דיווח</label>
+            <select asp-for="ReportTypeId" class="form-select" data-no-choices="1">
+              <option value="">ללא</option>
+              @foreach (var rt in reportTypes)
+              {
+                <option value="@rt.Id" selected="@(Model.ReportTypeId == rt.Id)">@rt.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-3">
             <label asp-for="AnnualEmploymentScope" class="form-label">היקף פעילות שנתי</label>
             <input asp-for="AnnualEmploymentScope" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
                    class="form-control whole-number-field"
@@ -318,6 +333,8 @@
           shouldSort: false,
           itemSelectText: ''
         });
+        window._axChoices = window._axChoices || new WeakMap();
+        window._axChoices.set(programsSelect, programsChoices);
       } catch (e) { /* fall back to native <select> */ }
     }
 
@@ -376,6 +393,54 @@
       const initialSelected = (programsSelect?.dataset.initialSelected || '')
         .split(',').map(s => s.trim()).filter(Boolean);
       reloadPrograms(projectSelect.value, initialSelected);
+    }
+
+    // --- שיוך אוטומטי של ערכי טבלאות קוד לפי התוכנית שנבחרה (משוב בטא B21) ---
+    // בחירת תוכנית מוסיפה את הערכים המשויכים לה (נושאים, תחומים, תוכניות חינוכיות,
+    // קיום דיון) לבחירות בכרטיס השיוכים; ניתן לערוך/להסיר לאחר מכן (B6).
+    // מסגרות מוחרגות בכוונה — נקבעות רק לפי הקצאת העובד (QA #4).
+    const valuesUrl = '@Url.Action("ValuesForProgram", "Employee")';
+    const scopeTargets = {
+      subjectIds: 'select[name="SubjectIds"]',
+      domainIds: 'select[name="DomainIds"]',
+      educationalProgramIds: 'select[name="EducationalProgramIds"]',
+      discussionCodeIds: 'select[name="DiscussionCodeIds"]'
+    };
+
+    function addSelections(selector, ids) {
+      const el = document.querySelector(selector);
+      if (!el || !ids || !ids.length) return;
+      const inst = window._axChoices && window._axChoices.get ? window._axChoices.get(el) : null;
+      ids.forEach(id => {
+        if (inst) inst.setChoiceByValue(String(id));
+        else {
+          const opt = Array.from(el.options).find(o => o.value === String(id));
+          if (opt) opt.selected = true;
+        }
+      });
+    }
+
+    async function applyProgramValues(programId) {
+      const projectId = projectSelect ? projectSelect.value : '';
+      if (!projectId || !programId) return;
+      try {
+        const resp = await fetch(`${valuesUrl}?projectId=${encodeURIComponent(projectId)}&programId=${encodeURIComponent(programId)}`,
+          { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        Object.entries(scopeTargets).forEach(([key, sel]) => addSelections(sel, data[key]));
+      } catch (err) {
+        console.warn('ValuesForProgram fetch failed:', err);
+      }
+    }
+
+    if (programsSelect) {
+      let prevPrograms = new Set(currentProgramSelection());
+      programsSelect.addEventListener('change', () => {
+        const now = currentProgramSelection();
+        now.filter(id => !prevPrograms.has(id)).forEach(applyProgramValues);
+        prevPrograms = new Set(now);
+      });
     }
   </script>
 }

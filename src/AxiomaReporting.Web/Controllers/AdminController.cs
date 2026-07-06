@@ -189,14 +189,110 @@ public class AdminController : Controller
   // --- Frameworks ---
 
   [Authorize(Policy = PolicyNames.AdminOnly)]
-  public async Task<IActionResult> Frameworks()
+  public async Task<IActionResult> Frameworks(string? name = null, string? symbol = null,
+    int? stageId = null, string? locality = null, int page = 1, int pageSize = 50)
   {
-    var items = await _db.Frameworks
+    // חיפוש לפי שם מסגרת / סמל / שלב חינוך / יישוב (משוב בטא B29, B34).
+    var query = BuildFrameworksQuery(name, symbol, stageId, locality);
+
+    var total = await query.CountAsync();
+    pageSize = pageSize is < 1 or > 500 ? 50 : pageSize;
+    page = Math.Max(page, 1);
+    var items = await query
+      .Include(f => f.EducationalStage)
+      .OrderBy(f => f.Description)
+      .Skip((page - 1) * pageSize)
+      .Take(pageSize)
+      .ToListAsync();
+
+    ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).ToListAsync();
+    ViewBag.FilterName = name;
+    ViewBag.FilterSymbol = symbol;
+    ViewBag.FilterStageId = stageId;
+    ViewBag.FilterLocality = locality;
+    ViewBag.Page = page;
+    ViewBag.PageSize = pageSize;
+    ViewBag.TotalCount = total;
+    return View(items);
+  }
+
+  private IQueryable<Framework> BuildFrameworksQuery(string? name, string? symbol, int? stageId, string? locality)
+  {
+    var query = _db.Frameworks.AsQueryable();
+    if (!string.IsNullOrWhiteSpace(name))
+      query = query.Where(f => EF.Functions.Like(f.Description, $"%{name.Trim()}%"));
+    if (!string.IsNullOrWhiteSpace(symbol))
+      query = query.Where(f => EF.Functions.Like(f.InstitutionSymbol, $"%{symbol.Trim()}%"));
+    if (stageId.HasValue)
+      query = query.Where(f => f.EducationalStageId == stageId.Value);
+    if (!string.IsNullOrWhiteSpace(locality))
+    {
+      // Locality is resolved via the Institution sharing the framework's symbol.
+      var loc = locality.Trim();
+      var symbols = _db.Institutions
+        .Where(i => i.Locality != null && EF.Functions.Like(i.Locality.Description, $"%{loc}%"))
+        .Select(i => i.InstitutionSymbol.ToString());
+      query = query.Where(f => symbols.Contains(f.InstitutionSymbol));
+    }
+    return query;
+  }
+
+  // ייצוא רשימת המסגרות לאקסל לפי הסינון הפעיל (משוב בטא B16).
+  [HttpGet]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> ExportFrameworksExcel(string? name = null, string? symbol = null,
+    int? stageId = null, string? locality = null)
+  {
+    var items = await BuildFrameworksQuery(name, symbol, stageId, locality)
       .Include(f => f.EducationalStage)
       .OrderBy(f => f.Description)
       .ToListAsync();
-    ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).ToListAsync();
-    return View(items);
+    var labels = await AxiomaReporting.Infrastructure.Services.FrameworkLabelService
+      .BuildLabelsAsync(_db, items.Select(i => i.Id).ToList());
+
+    using var wb = new ClosedXML.Excel.XLWorkbook();
+    var ws = wb.Worksheets.Add("מסגרות");
+    ws.RightToLeft = true;
+    var headers = new[] { "קוד", "שם מסגרת", "סמל מוסד", "שלב חינוך", "תצוגה מלאה", "פעיל" };
+    for (var i = 0; i < headers.Length; i++)
+    {
+      ws.Cell(1, i + 1).Value = headers[i];
+      ws.Cell(1, i + 1).Style.Font.Bold = true;
+    }
+    var row = 2;
+    foreach (var f in items)
+    {
+      ws.Cell(row, 1).Value = f.Id;
+      ws.Cell(row, 2).Value = f.Description;
+      ws.Cell(row, 3).Value = f.InstitutionSymbol;
+      ws.Cell(row, 4).Value = f.EducationalStage?.Description;
+      ws.Cell(row, 5).Value = labels.TryGetValue(f.Id, out var l) ? l : f.Description;
+      ws.Cell(row, 6).Value = f.IsActive ? "כן" : "לא";
+      row++;
+    }
+    ws.Columns().AdjustToContents();
+    using var ms = new MemoryStream();
+    wb.SaveAs(ms);
+    return File(ms.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"frameworks_{DateTime.Now:yyyyMMdd}.xlsx");
+  }
+
+  // הפיכת כלל המסגרות בסינון הנוכחי לפעיל/לא פעיל באופן גורף (משוב בטא B30).
+  [HttpPost, ValidateAntiForgeryToken]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> BulkSetFrameworksActive(bool isActive, string? name = null,
+    string? symbol = null, int? stageId = null, string? locality = null)
+  {
+    var items = await BuildFrameworksQuery(name, symbol, stageId, locality).ToListAsync();
+    foreach (var f in items)
+    {
+      f.IsActive = isActive;
+      f.UpdatedAt = DateTime.UtcNow;
+    }
+    await _db.SaveChangesAsync();
+    TempData["Success"] = $"עודכנו {items.Count} מסגרות לסטטוס {(isActive ? "פעיל" : "לא פעיל")}";
+    return RedirectToAction(nameof(Frameworks), new { name, symbol, stageId, locality });
   }
 
   [HttpPost, ValidateAntiForgeryToken]

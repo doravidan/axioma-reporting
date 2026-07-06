@@ -110,21 +110,21 @@
                     </div>
                     <div class="col-md-1">
                         <label class="form-label form-label-sm">מחודש</label>
-                        <select name="FromMonthId" class="form-select form-select-sm">
+                        <select name="FromMonthId" class="form-select form-select-sm" data-live-filter="months">
                             <option value="">הכל</option>
                             @foreach (var m in reportingMonths) { <option value="@m.Id" selected="@(filter.FromMonthId == m.Id ? "selected" : null)">@m.Description</option> }
                         </select>
                     </div>
                     <div class="col-md-1">
                         <label class="form-label form-label-sm">עד חודש</label>
-                        <select name="ToMonthId" class="form-select form-select-sm">
+                        <select name="ToMonthId" class="form-select form-select-sm" data-live-filter="months">
                             <option value="">הכל</option>
                             @foreach (var m in reportingMonths) { <option value="@m.Id" selected="@(filter.ToMonthId == m.Id ? "selected" : null)">@m.Description</option> }
                         </select>
                     </div>
                     <div class="col-md-1">
                         <label class="form-label form-label-sm">סטטוס</label>
-                        <select name="StatusId" class="form-select form-select-sm">
+                        <select name="StatusId" class="form-select form-select-sm" data-live-filter="statuses" data-preserve-options="1">
                             <option value="">הכל</option>
                             <option value="0" selected="@(filter.StatusId == 0 ? "selected" : null)">טרם דווח</option>
                             <option value="1" selected="@(filter.StatusId == 1 ? "selected" : null)">טיוטה</option>
@@ -147,9 +147,9 @@
                         <input name="MeetingDuration" type="number" step="0.5" min="0" class="form-control form-control-sm" value="@filter.MeetingDuration" />
                     </div>
 
-                    <div class="col-md-1"><label class="form-label form-label-sm">מחוז</label><select name="DistrictId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in districts) { <option value="@x.Id" selected="@(filter.DistrictId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-1"><label class="form-label form-label-sm">מגזר</label><select name="SectorId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in sectors) { <option value="@x.Id" selected="@(filter.SectorId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-1"><label class="form-label form-label-sm">תוכנית</label><select name="ProgramId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in programs) { <option value="@x.Id" selected="@(filter.ProgramId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-1"><label class="form-label form-label-sm">מחוז</label><select name="DistrictId" class="form-select form-select-sm" data-live-filter="districts"><option value="">הכל</option>@foreach (var x in districts) { <option value="@x.Id" selected="@(filter.DistrictId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-1"><label class="form-label form-label-sm">מגזר</label><select name="SectorId" class="form-select form-select-sm" data-live-filter="sectors"><option value="">הכל</option>@foreach (var x in sectors) { <option value="@x.Id" selected="@(filter.SectorId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-1"><label class="form-label form-label-sm">תוכנית</label><select name="ProgramId" class="form-select form-select-sm" data-live-filter="programs"><option value="">הכל</option>@foreach (var x in programs) { <option value="@x.Id" selected="@(filter.ProgramId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">יישוב</label><select name="LocalityId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in localities) { <option value="@x.Id" selected="@(filter.LocalityId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-2"><label class="form-label form-label-sm">מסגרת חינוכית</label><select name="FrameworkId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in frameworks) { <option value="@x.Id" selected="@(filter.FrameworkId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-2"><label class="form-label form-label-sm">תוכנית חינוכית</label><select name="EducationalProgramId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in educationalPrograms) { <option value="@x.Id" selected="@(filter.EducationalProgramId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
@@ -163,8 +163,8 @@
                     <div class="col-md-1"><label class="form-label form-label-sm">מסקנה - כיתה</label><select name="ConclusionClassId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in classConclusions) { <option value="@x.Id" selected="@(filter.ConclusionClassId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-2"><label class="form-label form-label-sm">מסקנה - מסגרת</label><select name="ConclusionFrameworkId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in frameworkConclusions) { <option value="@x.Id" selected="@(filter.ConclusionFrameworkId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-2"><label class="form-label form-label-sm">מסקנה - יישוב/מחוז/ארצי</label><select name="ConclusionLocationId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in conclusionLocations) { <option value="@x.Id" selected="@(filter.ConclusionLocationId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    @* שורות בעמוד — מוצמד לצד שמאל של המסך לפי משוב הלקוח *@
-                    <div class="col-md-1 ms-md-auto"><label class="form-label form-label-sm">שורות בעמוד</label><select name="PageSize" class="form-select form-select-sm">@foreach (var s in new[] { 10, 25, 50, 100 }) { <option value="@s" selected="@(filter.PageSize == s ? "selected" : null)">@s</option> }</select></div>
+                    @* שורות בעמוד — מיקום וכותרת אחידים בכל המסכים (משוב Sheet4 #2) *@
+                    <div class="col-md-1"><label class="form-label form-label-sm">שורות בעמוד</label><select name="PageSize" class="form-select form-select-sm">@foreach (var s in new[] { 10, 25, 50, 100 }) { <option value="@s" selected="@(filter.PageSize == s ? "selected" : null)">@s</option> }</select></div>
 
                     <div class="col-auto d-flex align-items-end gap-2">
                         <button type="submit" class="btn btn-primary btn-sm">הצג</button>
@@ -290,7 +290,19 @@
                         <td>@TextOrDash(r.ConclusionClassName)</td>
                         <td>@TextOrDash(r.ConclusionFrameworkName)</td>
                         <td>@TextOrDash(r.ConclusionLocationName)</td>
-                        <td class="text-center">@(r.HasAttachments ? "כן" : "לא")</td>
+                        <td class="text-center">
+                            @* כמות מסמכים + גישה אליהם (משוב בטא B40) *@
+                            @if (r.AttachmentCount > 0)
+                            {
+                                <a asp-controller="Report" asp-action="Index"
+                                   asp-route-userId="@r.UserId" asp-route-allocationId="@r.AllocationId" asp-route-reportId="@r.ReportId"
+                                   title="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</a>
+                            }
+                            else
+                            {
+                                <span class="text-muted">0</span>
+                            }
+                        </td>
                         <td class="text-wrap" style="min-width: 220px">@TextOrDash(r.Notes)</td>
                     </tr>
                 }
@@ -303,3 +315,84 @@
         <span>סה"כ שעות בעמוד: <strong>@rows.Where(r => r.StatusId != 0).Sum(r => r.MeetingDuration)</strong></span>
     </div>
 </div>
+
+@section Scripts {
+  <script>
+    // סינון מדורג (אפיון: "במידה ונבחר מחוז יופיעו כל הערכים בכל השדות") —
+    // שינוי מחוז/מגזר/תוכנית/סטטוס/חודש מרענן את האפשרויות התואמות בשאר השדות
+    // דרך Dashboard/FilterOptions (אותו מנגנון כמו מסך הסיכום).
+    (function () {
+      var optionsUrl = '@Url.Action("FilterOptions", "Dashboard")';
+      var selects = Array.prototype.slice.call(document.querySelectorAll('#filterForm select[data-live-filter]'));
+      if (!selects.length) return;
+
+      var dimToProperty = {
+        districts: 'Districts',
+        sectors: 'Sectors',
+        programs: 'Programs',
+        statuses: 'Statuses',
+        months: 'Months'
+      };
+
+      function currentSelection() {
+        var sel = {};
+        ['DistrictId', 'SectorId', 'ProgramId', 'StatusId', 'FromMonthId', 'ToMonthId'].forEach(function (name) {
+          var el = document.querySelector('#filterForm [name="' + name + '"]');
+          if (!el || el.value === '') return;
+          var n = parseInt(el.value, 10);
+          if (!isNaN(n)) sel[name] = n;
+        });
+        return sel;
+      }
+
+      function repopulate(selectEl, options) {
+        var currentValue = selectEl.value;
+        if (selectEl.getAttribute('data-preserve-options') === '1') {
+          var valid = {};
+          options.forEach(function (o) { valid[String(o.id)] = true; });
+          Array.prototype.forEach.call(selectEl.options, function (opt) {
+            if (opt.value === '') { opt.disabled = false; return; }
+            opt.disabled = !valid[opt.value];
+          });
+          return;
+        }
+        var placeholder = selectEl.options[0] && selectEl.options[0].value === '' ? selectEl.options[0] : null;
+        selectEl.innerHTML = '';
+        if (placeholder) selectEl.appendChild(placeholder);
+        options.forEach(function (o) {
+          var opt = document.createElement('option');
+          opt.value = String(o.id);
+          opt.textContent = o.name;
+          selectEl.appendChild(opt);
+        });
+        if (currentValue && Array.prototype.some.call(selectEl.options, function (o) { return o.value === currentValue; }))
+          selectEl.value = currentValue;
+      }
+
+      var refreshing = false;
+      function refreshOptions(changedEl) {
+        if (refreshing) return;
+        refreshing = true;
+        fetch(optionsUrl + '?selected=' + encodeURIComponent(JSON.stringify(currentSelection())), {
+          headers: { 'Accept': 'application/json' }
+        })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data) return;
+            selects.forEach(function (el) {
+              if (el === changedEl) return;
+              var prop = dimToProperty[el.getAttribute('data-live-filter')];
+              var options = data[prop] || data[prop && (prop.charAt(0).toLowerCase() + prop.slice(1))];
+              if (options) repopulate(el, options);
+            });
+          })
+          .catch(function () { /* leave options as-is */ })
+          .finally(function () { refreshing = false; });
+      }
+
+      selects.forEach(function (el) {
+        el.addEventListener('change', function () { refreshOptions(el); });
+      });
+    })();
+  </script>
+}

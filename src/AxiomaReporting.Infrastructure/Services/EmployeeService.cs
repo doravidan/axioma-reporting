@@ -232,6 +232,7 @@ public class EmployeeService : IEmployeeService
       MonthlyRowAllocation = dto.MonthlyRowAllocation,
       AnnualRowAllocation = dto.AnnualRowAllocation,
       OutputDuration = ComposeOutputDuration(dto),
+      ReportTypeId = dto.ReportTypeId,
       AllowExcelUpload = dto.AllowExcelUpload,
       Notes = dto.Notes,
       IsActive = true,
@@ -279,6 +280,7 @@ public class EmployeeService : IEmployeeService
     allocation.MonthlyRowAllocation = dto.MonthlyRowAllocation;
     allocation.AnnualRowAllocation = dto.AnnualRowAllocation;
     allocation.OutputDuration = ComposeOutputDuration(dto);
+    allocation.ReportTypeId = dto.ReportTypeId;
     allocation.AllowExcelUpload = dto.AllowExcelUpload;
     allocation.Notes = dto.Notes;
     allocation.UpdatedAt = DateTime.UtcNow;

@@ -556,6 +556,7 @@ public class EmployeeController : Controller
       OutputDuration = allocation.OutputDuration,
       OutputDurationValues = existingDurations,
       OutputDurationUnlimited = durationUnlimited,
+      ReportTypeId = allocation.ReportTypeId,
       AllowExcelUpload = allocation.AllowExcelUpload,
       Notes = allocation.Notes,
       IsActive = allocation.IsActive,
@@ -838,6 +839,7 @@ public class EmployeeController : Controller
     ViewBag.Frameworks = await _db.Frameworks.Where(f => f.IsActive).ToListAsync();
     // תווית מסגרת משולבת: יישוב — סמל — שם (משוב בטא B38).
     ViewBag.FrameworkLabels = await FrameworkLabelService.BuildAllActiveLabelsAsync(_db);
+    ViewBag.ReportTypes = await _db.ReportTypes.Where(r => r.IsActive).OrderBy(r => r.Description).ToListAsync();
     ViewBag.Subjects = await _db.Subjects.Where(s => s.IsActive).ToListAsync();
     ViewBag.Domains = await _db.Domains.Where(d => d.IsActive).ToListAsync();
     ViewBag.EducationalPrograms = await _db.EducationalPrograms.Where(e => e.IsActive).ToListAsync();
@@ -1137,6 +1139,34 @@ public class EmployeeController : Controller
     if (projectId <= 0) return Json(Array.Empty<object>());
     var result = await GetProgramsForProjectAsync(_db, projectId);
     return Json(result.Select(p => new { id = p.Id, description = p.Description }));
+  }
+
+  // GET /Employee/ValuesForProgram?projectId=N&programId=M — the code-table values
+  // associated with a (project, program) pair (K10 / משוב בטא B21): selecting a
+  // program in the allocation form auto-populates the שיוכים selections from these.
+  // Frameworks are intentionally NOT included — per QA #4 they are scoped only by
+  // the employee's allocation, never by program.
+  [HttpGet]
+  [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
+  public async Task<IActionResult> ValuesForProgram(int projectId, int programId)
+  {
+    if (projectId <= 0 || programId <= 0)
+      return Json(new { subjectIds = Array.Empty<int>(), domainIds = Array.Empty<int>(), educationalProgramIds = Array.Empty<int>(), discussionCodeIds = Array.Empty<int>() });
+
+    var subjectIds = await _db.ProjectProgramSubjects
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.SubjectId).ToListAsync();
+    var domainIds = await _db.ProjectProgramDomains
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.DomainId).ToListAsync();
+    var educationalProgramIds = await _db.ProjectProgramEducationalPrograms
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.EducationalProgramId).ToListAsync();
+    var discussionCodeIds = await _db.ProjectProgramDiscussionCodes
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.DiscussionCodeId).ToListAsync();
+
+    return Json(new { subjectIds, domainIds, educationalProgramIds, discussionCodeIds });
   }
 
   internal static IOrderedQueryable<Allocation> ApplyAllocationSort(

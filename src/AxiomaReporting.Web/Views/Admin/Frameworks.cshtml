@@ -2,14 +2,90 @@
 @{
   ViewData["Title"] = "ניהול מסגרות";
   var educationalStages = ViewBag.EducationalStages as List<AxiomaReporting.Core.Entities.EducationalStage> ?? new();
+  string? fName = ViewBag.FilterName as string;
+  string? fSymbol = ViewBag.FilterSymbol as string;
+  int? fStageId = ViewBag.FilterStageId as int?;
+  string? fLocality = ViewBag.FilterLocality as string;
+  int page = ViewBag.Page ?? 1;
+  int pageSize = ViewBag.PageSize ?? 50;
+  int totalCount = ViewBag.TotalCount ?? Model.Count;
+  int totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+  object FilterRoute(int p) => new { name = fName, symbol = fSymbol, stageId = fStageId, locality = fLocality, page = p, pageSize };
 }
 <div class="container-fluid mt-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h3>מסגרות</h3>
     <div class="d-flex gap-2">
       <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+      <a asp-action="ExportFrameworksExcel" asp-route-name="@fName" asp-route-symbol="@fSymbol"
+         asp-route-stageId="@fStageId" asp-route-locality="@fLocality"
+         class="btn btn-success btn-sm">ייצוא לאקסל</a>
+      <a asp-action="DataMigration" class="btn btn-outline-primary btn-sm" title="ייבוא מסגרות מקובץ אקסל">ייבוא אקסל</a>
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">הוסף מסגרת</button>
     </div>
+  </div>
+
+  @* הבהרה למשוב הלקוח B28: ההבדל בין מוסדות למסגרות *@
+  <p class="text-muted small">
+    <strong>מסגרות</strong> = הרשימה המשמשת לדיווח (רשומה אחת לכל צירוף סמל מוסד + שלב חינוך).
+    <strong>מוסדות</strong> = מאגר המוסדות המלא שממנו נגזרות המסגרות, כולל יישוב, מחוז ומגזר.
+  </p>
+
+  @* סרגל חיפוש (משוב בטא B29/B34): שם מסגרת, סמל, שלב חינוך, יישוב *@
+  <form method="get" class="card card-body mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="fw-name">שם מסגרת</label>
+        <input id="fw-name" name="name" value="@fName" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="fw-symbol">סמל מוסד</label>
+        <input id="fw-symbol" name="symbol" value="@fSymbol" class="form-control form-control-sm" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="fw-stage">שלב חינוך</label>
+        <select id="fw-stage" name="stageId" class="form-select form-select-sm" data-no-choices="1">
+          <option value="">-- הכל --</option>
+          @foreach (var s in educationalStages)
+          {
+            <option value="@s.Id" selected="@(fStageId == s.Id)">@s.Description</option>
+          }
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="fw-locality">יישוב</label>
+        <input id="fw-locality" name="locality" value="@fLocality" class="form-control form-control-sm" />
+      </div>
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">חפש</button>
+        <a asp-action="Frameworks" class="btn btn-outline-secondary btn-sm">נקה</a>
+      </div>
+    </div>
+  </form>
+
+  @* פעולה גורפת: הפיכת כל המסגרות בסינון לפעיל / לא פעיל (משוב בטא B30) *@
+  <div class="d-flex gap-2 mb-3 align-items-center">
+    <span class="text-muted small">נמצאו @totalCount מסגרות בסינון —</span>
+    <form asp-action="BulkSetFrameworksActive" method="post" class="d-inline"
+          onsubmit="return confirm('להפוך את כל המסגרות בסינון הנוכחי לפעילות?')">
+      @Html.AntiForgeryToken()
+      <input type="hidden" name="isActive" value="true" />
+      <input type="hidden" name="name" value="@fName" />
+      <input type="hidden" name="symbol" value="@fSymbol" />
+      <input type="hidden" name="stageId" value="@fStageId" />
+      <input type="hidden" name="locality" value="@fLocality" />
+      <button type="submit" class="btn btn-outline-success btn-sm">הפוך הכל לפעיל</button>
+    </form>
+    <form asp-action="BulkSetFrameworksActive" method="post" class="d-inline"
+          onsubmit="return confirm('להפוך את כל המסגרות בסינון הנוכחי ללא פעילות?')">
+      @Html.AntiForgeryToken()
+      <input type="hidden" name="isActive" value="false" />
+      <input type="hidden" name="name" value="@fName" />
+      <input type="hidden" name="symbol" value="@fSymbol" />
+      <input type="hidden" name="stageId" value="@fStageId" />
+      <input type="hidden" name="locality" value="@fLocality" />
+      <button type="submit" class="btn btn-outline-danger btn-sm">הפוך הכל ללא פעיל</button>
+    </form>
   </div>
 
   @if (TempData["Success"] != null)
@@ -76,6 +152,20 @@
       </table>
     </div>
   </div>
+
+  @if (totalPages > 1)
+  {
+    <nav aria-label="ניווט עמודים" class="mt-3">
+      <ul class="pagination pagination-sm justify-content-center">
+        @for (var p = 1; p <= totalPages; p++)
+        {
+          <li class="page-item @(p == page ? "active" : "")">
+            <a class="page-link" asp-action="Frameworks" asp-all-route-data="@(new Dictionary<string,string>{["name"]=fName??"",["symbol"]=fSymbol??"",["stageId"]=fStageId?.ToString()??"",["locality"]=fLocality??"",["page"]=p.ToString(),["pageSize"]=pageSize.ToString()})">@p</a>
+          </li>
+        }
+      </ul>
+    </nav>
+  }
 </div>
 
 <!-- Add Modal -->

@@ -30,5 +30,10 @@ public class AllocationConfiguration : IEntityTypeConfiguration<Allocation>
       .WithMany()
       .HasForeignKey(e => e.ProjectId)
       .OnDelete(DeleteBehavior.Restrict);
+
+    builder.HasOne(e => e.ReportType)
+      .WithMany()
+      .HasForeignKey(e => e.ReportTypeId)
+      .OnDelete(DeleteBehavior.SetNull);
   }
 }

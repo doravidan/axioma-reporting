@@ -88,11 +88,12 @@ public class DashboardController : Controller
     var ws = wb.Worksheets.Add("דיווחים");
     ws.RightToLeft = true;
 
+    // סוג דיווח בעמודה B מימין ל-ת.ז (משוב בטא B32).
     var headers = new[]
     {
-      "מס\"ד", "ת.ז", "קוד עובד", "שם מדווח", "חודש דיווח", "פרויקט", "מחוז", "ישוב",
+      "מס\"ד", "סוג דיווח", "ת.ז", "קוד עובד", "שם מדווח", "חודש דיווח", "פרויקט", "מחוז", "ישוב",
       "מסגרת חינוכית", "תאריך מפגש", "משך מפגש", "תוכנית חינוכית", "תחום", "נושא 1", "נושא 2",
-      "קיום דיון", "כיתה", "שכבה", "סוג דיווח", "מסקנות כיתה", "מסקנות מסגרת", "מסקנות ישוב/מחוז/ארצי",
+      "קיום דיון", "כיתה", "שכבה", "מסקנות כיתה", "מסקנות מסגרת", "מסקנות ישוב/מחוז/ארצי",
       "מסמכים", "הערות"
     };
     for (var i = 0; i < headers.Length; i++)
@@ -102,24 +103,24 @@ public class DashboardController : Controller
     foreach (var r in rows)
     {
       ws.Cell(row, 1).Value = r.SequenceNumber;
-      ws.Cell(row, 2).Value = r.IdNumber;
-      ws.Cell(row, 3).Value = r.EmployeeCode;
-      ws.Cell(row, 4).Value = r.FullName;
-      ws.Cell(row, 5).Value = r.MonthDescription;
-      ws.Cell(row, 6).Value = r.ProjectName;
-      ws.Cell(row, 7).Value = r.DistrictName;
-      ws.Cell(row, 8).Value = r.LocalityName;
-      ws.Cell(row, 9).Value = r.FrameworkName;
-      ws.Cell(row, 10).Value = r.MeetingDate.ToString("dd/MM/yyyy");
-      ws.Cell(row, 11).Value = (double)r.MeetingDuration;
-      ws.Cell(row, 12).Value = r.EducationalProgramName;
-      ws.Cell(row, 13).Value = r.DomainName;
-      ws.Cell(row, 14).Value = r.Subject1Name;
-      ws.Cell(row, 15).Value = r.Subject2Name;
-      ws.Cell(row, 16).Value = r.DiscussionCodeName;
-      ws.Cell(row, 17).Value = r.ClassName;
-      ws.Cell(row, 18).Value = r.GradeLevelName;
-      ws.Cell(row, 19).Value = r.ReportTypeName;
+      ws.Cell(row, 2).Value = r.ReportTypeName;
+      ws.Cell(row, 3).Value = r.IdNumber;
+      ws.Cell(row, 4).Value = r.EmployeeCode;
+      ws.Cell(row, 5).Value = r.FullName;
+      ws.Cell(row, 6).Value = r.MonthDescription;
+      ws.Cell(row, 7).Value = r.ProjectName;
+      ws.Cell(row, 8).Value = r.DistrictName;
+      ws.Cell(row, 9).Value = r.LocalityName;
+      ws.Cell(row, 10).Value = r.FrameworkName;
+      ws.Cell(row, 11).Value = r.MeetingDate.ToString("dd/MM/yyyy");
+      ws.Cell(row, 12).Value = (double)r.MeetingDuration;
+      ws.Cell(row, 13).Value = r.EducationalProgramName;
+      ws.Cell(row, 14).Value = r.DomainName;
+      ws.Cell(row, 15).Value = r.Subject1Name;
+      ws.Cell(row, 16).Value = r.Subject2Name;
+      ws.Cell(row, 17).Value = r.DiscussionCodeName;
+      ws.Cell(row, 18).Value = r.ClassName;
+      ws.Cell(row, 19).Value = r.GradeLevelName;
       ws.Cell(row, 20).Value = r.ConclusionClassName;
       ws.Cell(row, 21).Value = r.ConclusionFrameworkName;
       ws.Cell(row, 22).Value = r.ConclusionLocationName;

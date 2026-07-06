@@ -373,6 +373,8 @@ public class ReportController : Controller
 
     row.AllocationId = allocationId;
     row.ReportId = reportId;
+    // סוג דיווח יורש אוטומטית מההקצאה כשלא נבחר בשורה (משוב בטא B32).
+    row.ReportTypeId ??= allocation.ReportTypeId;
 
     var allRows = existingRows.Concat(new[] { row }).ToList();
     var validation = await _validator.ValidateRowAsync(row, report.User!, report.ReportingMonth!, allRows);

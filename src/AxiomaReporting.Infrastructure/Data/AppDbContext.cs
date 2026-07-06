@@ -31,6 +31,10 @@ public class AppDbContext : DbContext
   public DbSet<Institution> Institutions => Set<Institution>();
   public DbSet<ReportType> ReportTypes => Set<ReportType>();
   public DbSet<ProjectProgram> ProjectPrograms => Set<ProjectProgram>();
+  public DbSet<ProjectProgramSubject> ProjectProgramSubjects => Set<ProjectProgramSubject>();
+  public DbSet<ProjectProgramDomain> ProjectProgramDomains => Set<ProjectProgramDomain>();
+  public DbSet<ProjectProgramEducationalProgram> ProjectProgramEducationalPrograms => Set<ProjectProgramEducationalProgram>();
+  public DbSet<ProjectProgramDiscussionCode> ProjectProgramDiscussionCodes => Set<ProjectProgramDiscussionCode>();
 
   // System tables
   public DbSet<ReportStatus> ReportStatuses => Set<ReportStatus>();

@@ -110,8 +110,11 @@ public class FullApplicationQaPlaywrightTests : PlaywrightTestBase
         (await Page.Locator("nav a[href*='/Dashboard']").CountAsync()).Should().Be(0);
         (await Page.Locator("nav a[href*='/Employee']").CountAsync()).Should().Be(0);
         (await Page.Locator("nav a[href*='/Admin']").CountAsync()).Should().Be(0);
+        // Employees no longer see the admin הקצאות list (client role-gating feedback);
+        // their allocations live under פעילות חודשית (MyAllocations).
+        (await Page.Locator("nav a[href='/allocations']").CountAsync()).Should().Be(0);
 
-        foreach (var href in new[] { "/", "/MyAllocations", "/allocations" })
+        foreach (var href in new[] { "/", "/MyAllocations" })
         {
             await Page.GotoAsync("/");
             var link = Page.Locator($"nav a[href='{href}'], nav a[href^='{href}/']").First;

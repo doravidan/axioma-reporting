@@ -74,6 +74,7 @@ public class DashboardReportRow
   public int? MonthlyRowAllocation { get; set; }
   public int RemainingRows => MonthlyRowAllocation.HasValue ? MonthlyRowAllocation.Value - RowCount : 0;
   public bool HasAttachments { get; set; }
+  public int AttachmentCount { get; set; }
   public DateTime? SubmittedAt { get; set; }
 }
 
@@ -112,6 +113,7 @@ public class DashboardReportDetailRow
   public decimal MeetingDuration { get; set; }
   public string Notes { get; set; } = string.Empty;
   public bool HasAttachments { get; set; }
+  public int AttachmentCount { get; set; }
 }
 
 public interface IDashboardFilterService
@@ -349,7 +351,9 @@ public class DashboardFilterService : IDashboardFilterService
         MeetingDate = rr.MeetingDate,
         MeetingDuration = rr.MeetingDuration,
         Notes = rr.Notes ?? string.Empty,
-        HasAttachments = _db.DocumentAttachments.Any(da => da.ReportId == rr.ReportId || da.ReportRowId == rr.Id)
+        HasAttachments = _db.DocumentAttachments.Any(da => da.ReportId == rr.ReportId || da.ReportRowId == rr.Id),
+        // כמות מסמכים + גישה אליהם (משוב בטא B40)
+        AttachmentCount = _db.DocumentAttachments.Count(da => da.ReportId == rr.ReportId || da.ReportRowId == rr.Id)
       })
       .ToListAsync();
 
@@ -715,13 +719,31 @@ public class DashboardFilterService : IDashboardFilterService
       .Distinct()
       .ToListAsync();
 
+    // כמות מסמכים כוללת לכל דיווח (משוב בטא B40): מסמכים ברמת הדיווח + ברמת השורות.
+    // SQL cannot GROUP BY a coalesced-subquery expression, so resolve the owning
+    // report id in the projection and aggregate client-side (the page is small).
+    var attachmentOwners = await _db.DocumentAttachments
+      .Where(da => (da.ReportId != null && reportIds.Contains(da.ReportId.Value)) ||
+                   (da.ReportRowId != null && _db.ReportRows.Any(rr => rr.Id == da.ReportRowId && reportIds.Contains(rr.ReportId))))
+      .Select(da => new
+      {
+        ReportId = da.ReportId ?? _db.ReportRows.Where(rr => rr.Id == da.ReportRowId).Select(rr => rr.ReportId).FirstOrDefault()
+      })
+      .ToListAsync();
+    var countsByReport = attachmentOwners
+      .GroupBy(x => x.ReportId)
+      .ToDictionary(g => g.Key, g => g.Count());
+
     var set = rowKeysWithAttachments
       .Select(x => (x.ReportId, x.AllocationId))
       .ToHashSet();
     foreach (var row in rows)
+    {
       row.HasAttachments = row.AllocationId.HasValue
         ? set.Contains((row.ReportId, row.AllocationId))
         : set.Any(x => x.ReportId == row.ReportId);
+      row.AttachmentCount = countsByReport.TryGetValue(row.ReportId, out var c) ? c : 0;
+    }
   }
 
   private IEnumerable<DashboardReportRow> ToDashboardRows(

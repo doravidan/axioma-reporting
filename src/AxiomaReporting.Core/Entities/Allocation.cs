@@ -15,6 +15,9 @@ public class Allocation : BaseEntity
   public int? AnnualRowAllocation { get; set; }
   public string? OutputDuration { get; set; }
   public bool AllowExcelUpload { get; set; } = false;
+  // סוג דיווח (משוב בטא B32) — לא חובה; שורות דיווח יורשות אותו כברירת מחדל.
+  public int? ReportTypeId { get; set; }
+  public ReportType? ReportType { get; set; }
   public string? Notes { get; set; }
   public bool IsActive { get; set; } = true;
   public byte[] RowVersion { get; set; } = Array.Empty<byte>();

@@ -173,6 +173,7 @@
                             <th>שורות</th>
                             <th>משך תפוקה</th>
                             <th>יתרת שורות</th>
+                            <th>מסמכים</th>
                             <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
                             <th>פעולות</th>
                         </tr>
@@ -181,7 +182,7 @@
                         @if (!rows.Any())
                         {
                             <tr>
-                                <td colspan="11" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                                <td colspan="12" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                             </tr>
                         }
                         @foreach (var r in rows)
@@ -213,6 +214,18 @@
                                     else
                                     {
                                         <span class="text-muted">—</span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    @* כמות מסמכים וגישה אליהם ברמת העובד (משוב בטא B40) *@
+                                    @if (r.AttachmentCount > 0)
+                                    {
+                                        <a asp-controller="Report" asp-action="Index" asp-route-reportId="@r.ReportId"
+                                           title="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">0</span>
                                     }
                                 </td>
                                 <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
@@ -254,6 +267,7 @@
                         <th>שורות</th>
                         <th>משך תפוקה</th>
                         <th>יתרת שורות</th>
+                        <th>מסמכים</th>
                         <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
                     </tr>
                 </thead>
@@ -261,7 +275,7 @@
                     @if (!rows.Any())
                     {
                         <tr>
-                            <td colspan="9" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                            <td colspan="10" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                         </tr>
                     }
                     @foreach (var r in rows)
@@ -286,6 +300,17 @@
                                 else
                                 {
                                     <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-center">
+                                @if (r.AttachmentCount > 0)
+                                {
+                                    <a asp-controller="Report" asp-action="Index" asp-route-reportId="@r.ReportId"
+                                       title="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</a>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">0</span>
                                 }
                             </td>
                             <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
