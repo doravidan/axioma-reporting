@@ -27,7 +27,8 @@ Companion docs (Hebrew, more narrative): `docs/CLIENT_DELIVERY.md`, `docs/DEPLOY
 | Source code (build on dev machine or on server) | `https://github.com/doravidan/axioma-reporting.git`, branch `master` | yes |
 | Publish script | `deploy/publish.ps1` | yes |
 | Full schema, idempotent (structure only) | `database/schema.sql` (~2,100 lines, generated from EF migrations) | yes |
-| **Full database backup — structure + all client data** | `AxiomaReporting_delivery_2026-07-06.bak` (30.7 MB, taken 2026-07-06 19:07) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
+| **Full database backup — structure + all client data** (SQL 2022+ only) | `AxiomaReporting_delivery_2026-07-06.bak` (30.7 MB, taken 2026-07-06 19:07) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
+| **Version-independent data export — same content, works on SQL 2019** | `AxiomaReporting_delivery_2026-07-06.bacpac` (0.6 MB, round-trip verified) | **NO — same PII rule; delivered separately.** |
 | Password-normalization script (go-live step §2.2) | `scripts/reset_passwords_to_id.py` | yes |
 | This runbook | `deploy/CODEX_DEPLOY_RUNBOOK.md` | yes |
 
@@ -67,10 +68,11 @@ iisreset /restart
 # The app targets net6.0 but is published with RollForward=Major, so the
 # .NET 8 runtime is sufficient. Do NOT install the EOL .NET 6 runtime.
 
-# 1.3 SQL Server 2022 Express (or newer / higher edition).
-# IMPORTANT: the delivery .bak was produced by SQL Server 2022 (16.0) —
-# it CANNOT be restored on SQL 2019 or older. If the server must run an
-# older SQL, use the schema.sql path (§2 Option B) instead of the restore.
+# 1.3 SQL Server Express — 2022 preferred, 2019 supported.
+# The delivery .bak was produced by SQL Server 2022 (16.0) and CANNOT be
+# restored on SQL 2019 or older (native backups never downgrade). On a
+# SQL 2019 server use §2 Option A2 — import the delivered .bacpac instead
+# (identical data, version-independent).
 # Install with the "Basic" preset; also install SSMS if a human will manage it.
 
 # 1.4 App folders
@@ -105,7 +107,39 @@ sqlcmd -S .\SQLEXPRESS -E -Q "ALTER DATABASE AxiomaReporting SET RECOVERY SIMPLE
 > If `MOVE` fails with a logical-name error, list the names first:
 > `sqlcmd -S .\SQLEXPRESS -E -Q "RESTORE FILELISTONLY FROM DISK = N'{{BAK_PATH}}'"`
 
-### Option B — fresh schema, no data (only if SQL < 2022 or an empty start is wanted)
+### Option A2 — SQL Server 2019: import the .bacpac (same data, version-independent)
+
+A native `.bak` can never be restored onto an older SQL Server. If the server runs
+SQL 2019 (or anything older than 2022), import the delivered
+`AxiomaReporting_delivery_2026-07-06.bacpac` instead — identical content,
+round-trip verified against the same row counts.
+
+```powershell
+# 1) Get sqlpackage (self-contained zip — no .NET SDK needed; do NOT use the
+#    "dotnet tool" variant, it may demand a newer .NET patch than installed)
+Invoke-WebRequest -Uri "https://aka.ms/sqlpackage-windows" -OutFile "C:\deploy\sqlpackage.zip" -UseBasicParsing
+Expand-Archive -Path "C:\deploy\sqlpackage.zip" -DestinationPath "C:\deploy\sqlpackage" -Force
+
+# 2) Pre-create the EMPTY database with the Hebrew collation — importing into a
+#    nonexistent DB would silently create it with the server default collation
+sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE AxiomaReporting COLLATE Hebrew_CI_AS; ALTER DATABASE AxiomaReporting SET RECOVERY SIMPLE"
+
+# 3) Import (replace the path with wherever the .bacpac was copied)
+& "C:\deploy\sqlpackage\sqlpackage.exe" /Action:Import `
+  /SourceFile:"C:\deploy\AxiomaReporting_delivery_2026-07-06.bacpac" `
+  /TargetServerName:.\SQLEXPRESS /TargetDatabaseName:AxiomaReporting /TargetTrustServerCertificate:True
+```
+
+**VERIFY (A2):**
+
+```powershell
+sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -W -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM Users) Users, (SELECT COUNT(*) FROM Frameworks) Frameworks, (SELECT CONVERT(varchar(50), DATABASEPROPERTYEX(DB_NAME(),'Collation'))) Collation"
+# Expect: Users=446, Frameworks=3193, Collation=Hebrew_CI_AS
+```
+
+Then continue with §2.1 and §2.2 exactly as for Option A.
+
+### Option B — fresh schema, no data (only if an empty start is wanted)
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE AxiomaReporting COLLATE Hebrew_CI_AS; ALTER DATABASE AxiomaReporting SET RECOVERY SIMPLE"
@@ -343,7 +377,7 @@ Configure an off-server copy (NAS / cloud) of `D:\backups\AxiomaReporting\`.
 |---|---|
 | HTTP 500.30 / app won't start | Event Log → `IIS AspNetCore Module V2`; usually bad `appsettings.Production.json` connection string, or Hosting Bundle missing |
 | Login page loads but login fails with DB error | `AxiomaWeb` login/user missing or wrong password — rerun §2.1 |
-| `.bak` restore fails "database version" | Server SQL is older than 2022 → upgrade SQL, or use §2 Option B |
+| `.bak` restore fails "database version" | Server SQL is older than 2022 → import the `.bacpac` instead (§2 Option A2) |
 | Admin locked out | `UPDATE Users SET StatusId=1, FailedLoginAttempts=0 WHERE IdNumber='admin'` |
 | Emails not sending | `/Admin/EmailServerSettings` → test button; `/Admin/NotificationLogs` for the error |
 | Rollback a release | Stop app pool → restore previous publish folder → start app pool (DB schema is idempotent/backward-safe) |
