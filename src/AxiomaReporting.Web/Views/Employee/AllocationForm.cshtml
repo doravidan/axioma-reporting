@@ -50,6 +50,22 @@
             <span asp-validation-for="ProjectId" class="text-danger small"></span>
           </div>
 
+          <div class="col-md-6">
+            <label class="form-label" for="programIdsSelect">תוכניות</label>
+            <select name="ProgramIds" id="programIdsSelect" multiple class="form-select" size="5"
+                    data-initial-selected="@string.Join(",", Model.ProgramIds)"
+                    aria-describedby="programsHelp">
+              @foreach (var item in programs)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.ProgramIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+            <small id="programsHelp" class="form-text text-muted">
+              התוכניות יסוננו לפי הפרויקט הנבחר. אם לא הוגדרה מפה, יוצגו כל התוכניות.
+            </small>
+          </div>
+
           <div class="col-md-3">
             <label asp-for="AnnualEmploymentScope" class="form-label">היקף פעילות שנתי</label>
             <input asp-for="AnnualEmploymentScope" type="number" step="1" min="0" inputmode="numeric" pattern="\d*"
@@ -143,22 +159,6 @@
                         selected="@(Model.DistrictIds.Contains(item.Id))">@item.Description</option>
               }
             </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label" for="programIdsSelect">תוכניות</label>
-            <select name="ProgramIds" id="programIdsSelect" multiple class="form-select" size="5"
-                    data-initial-selected="@string.Join(",", Model.ProgramIds)"
-                    aria-describedby="programsHelp">
-              @foreach (var item in programs)
-              {
-                <option value="@item.Id"
-                        selected="@(Model.ProgramIds.Contains(item.Id))">@item.Description</option>
-              }
-            </select>
-            <small id="programsHelp" class="form-text text-muted">
-              התוכניות יסוננו לפי הפרויקט הנבחר. אם לא הוגדרה מפה, יוצגו כל התוכניות.
-            </small>
           </div>
 
           <div class="col-md-6">
@@ -314,17 +314,41 @@
       input.addEventListener('wheel', () => input.blur());
     });
 
-    // --- Cascading Project -> Programs ---
+    // --- Cascading Project -> Programs (list is filtered to the selected project) ---
     const projectSelect = document.getElementById('projectIdSelect');
     const programsSelect = document.getElementById('programIdsSelect');
     const programsUrl = '@Url.Action("ProgramsForProject", "Employee")';
 
-    async function reloadPrograms(projectId) {
-      if (!projectSelect || !programsSelect) return;
-      const previouslySelected = new Set(Array.from(programsSelect.selectedOptions).map(o => o.value));
+    // Own the Choices.js instance here so the global initializer in _Layout skips it
+    // (it bails when data-choices-init is already set). Rebuilding the native <select>'s
+    // options directly would NOT update the Choices widget, so we must go through its API.
+    let programsChoices = null;
+    if (programsSelect && typeof window.Choices !== 'undefined') {
+      programsSelect.dataset.choicesInit = '1';
+      try {
+        programsChoices = new window.Choices(programsSelect, {
+          removeItemButton: true,
+          searchPlaceholderValue: 'חיפוש…',
+          noResultsText: 'לא נמצאו תוצאות',
+          shouldSort: false,
+          itemSelectText: ''
+        });
+      } catch (e) { /* fall back to native <select> */ }
+    }
+
+    function currentProgramSelection() {
+      if (programsChoices) return programsChoices.getValue(true).map(String);
+      return Array.from(programsSelect.selectedOptions).map(o => o.value);
+    }
+
+    async function reloadPrograms(projectId, preserve) {
+      if (!programsSelect) return;
+      const keep = new Set((preserve !== undefined ? preserve : currentProgramSelection()).map(String));
 
       if (!projectId) {
-        // no project: keep current options — server already rendered the default set
+        // No project chosen → no related programs to show.
+        if (programsChoices) programsChoices.clearStore();
+        else programsSelect.innerHTML = '';
         return;
       }
 
@@ -334,14 +358,23 @@
         });
         if (!resp.ok) throw new Error('network');
         const data = await resp.json();
+        const choices = data.map(item => ({
+          value: String(item.id),
+          label: item.description,
+          selected: keep.has(String(item.id))
+        }));
 
-        programsSelect.innerHTML = '';
-        for (const item of data) {
-          const opt = document.createElement('option');
-          opt.value = item.id;
-          opt.textContent = item.description;
-          if (previouslySelected.has(String(item.id))) opt.selected = true;
-          programsSelect.appendChild(opt);
+        if (programsChoices) {
+          programsChoices.setChoices(choices, 'value', 'label', true);
+        } else {
+          programsSelect.innerHTML = '';
+          for (const c of choices) {
+            const opt = document.createElement('option');
+            opt.value = c.value;
+            opt.textContent = c.label;
+            opt.selected = c.selected;
+            programsSelect.appendChild(opt);
+          }
         }
       } catch (err) {
         // Graceful failure: leave current options in place so the user isn't stuck.
@@ -350,7 +383,14 @@
     }
 
     if (projectSelect) {
-      projectSelect.addEventListener('change', (e) => reloadPrograms(e.target.value));
+      // Changing the project resets the program selection to that project's list.
+      projectSelect.addEventListener('change', (e) => reloadPrograms(e.target.value, []));
+
+      // On first load, filter to the already-selected project (preserving any saved
+      // selections when editing an existing allocation).
+      const initialSelected = (programsSelect?.dataset.initialSelected || '')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      reloadPrograms(projectSelect.value, initialSelected);
     }
   </script>
 }
