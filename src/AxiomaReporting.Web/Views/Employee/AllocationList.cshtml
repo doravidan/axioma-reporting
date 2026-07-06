@@ -128,6 +128,11 @@
         <a asp-controller="Employee" asp-action="CreateAllocation" asp-route-id="@employeeContext.Id" class="btn btn-primary">הוסף הקצאה</a>
         <a asp-controller="Employee" asp-action="Edit" asp-route-id="@employeeContext.Id" class="btn btn-outline-secondary">חזרה לכרטיס עובד</a>
       }
+      else
+      {
+        @* הוסף הקצאה ללא הקשר עובד: מעבר לרשימת העובדים לחיפוש ובחירת עובד (משוב בטא B8, QA #1) *@
+        <a asp-controller="Employee" asp-action="Index" asp-route-forAllocation="true" class="btn btn-primary">הוסף הקצאה</a>
+      }
       <a href="@ExportLink()" class="btn btn-success">יצא לאקסל</a>
     </div>
   </div>

@@ -264,6 +264,8 @@
         <table class="table table-bordered table-sm mb-0" id="reportTable" aria-labelledby="reportTableCaption">
           <thead class="table-light">
             <tr>
+              @* עמודת הפעולות ראשונה מימין (משוב לקוח Sheet4 #1) *@
+              @if (canEdit) { <th scope="col">פעולות</th> }
               <th scope="col" class="sortable" aria-sort="none">מס"ד</th>
               <th scope="col" class="sortable" aria-sort="none">תאריך</th>
               <th scope="col" class="sortable" aria-sort="none">משך</th>
@@ -281,7 +283,6 @@
               <th scope="col" class="sortable" aria-sort="none">שכבה</th>
               <th scope="col" class="sortable" aria-sort="none">כיתה</th>
               <th scope="col">הערות</th>
-              @if (canEdit) { <th scope="col">פעולות</th> }
             </tr>
           </thead>
           <tbody>
@@ -289,6 +290,19 @@
             {
               var rowVersionB64 = row.RowVersion != null ? Convert.ToBase64String(row.RowVersion) : "";
               <tr data-row-id="@row.Id" data-row-version="@rowVersionB64">
+                @if (canEdit)
+                {
+                  <td>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editRow(@row.Id)"
+                            aria-label="ערוך שורה @row.SequenceNumber">ערוך</button>
+                    <button class="btn btn-sm btn-outline-dark" onclick="inlineEditRow(@row.Id)"
+                            aria-label="ערוך שורה @row.SequenceNumber בטבלה">עריכה בשורה</button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="duplicateRow(@row.Id)"
+                            aria-label="שכפל שורה @row.SequenceNumber">שכפל</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRow(@row.Id)"
+                            aria-label="מחק שורה @row.SequenceNumber">מחק</button>
+                  </td>
+                }
                 <td>@row.SequenceNumber</td>
                 <td @Html.Raw(FieldAttrs("MeetingDate", "date"))>@row.MeetingDate.ToString("dd/MM/yyyy")</td>
                 <td @Html.Raw(FieldAttrs("MeetingDuration", "duration"))>@row.MeetingDuration</td>
@@ -306,19 +320,6 @@
                 <td @Html.Raw(FieldAttrs("GradeLevelId", optional: true))>@row.GradeLevel?.Description</td>
                 <td @Html.Raw(FieldAttrs("ClassId", optional: true))>@row.Class?.Description</td>
                 <td @Html.Raw(FieldAttrs("Notes", "textarea", true))>@row.Notes</td>
-                @if (canEdit)
-                {
-                  <td>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="editRow(@row.Id)"
-                            aria-label="ערוך שורה @row.SequenceNumber">ערוך</button>
-                    <button class="btn btn-sm btn-outline-dark" onclick="inlineEditRow(@row.Id)"
-                            aria-label="ערוך שורה @row.SequenceNumber בטבלה">עריכה בשורה</button>
-                    <button class="btn btn-sm btn-outline-primary" onclick="duplicateRow(@row.Id)"
-                            aria-label="שכפל שורה @row.SequenceNumber">שכפל</button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRow(@row.Id)"
-                            aria-label="מחק שורה @row.SequenceNumber">מחק</button>
-                  </td>
-                }
               </tr>
             }
           </tbody>
@@ -341,7 +342,7 @@
       @if (allocation?.AllowExcelUpload == true)
       {
         <a asp-action="DownloadExcelTemplate" class="btn btn-outline-secondary btn-sm">הורד תבנית אקסל</a>
-        <form asp-action="UploadExcel" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+        <form asp-action="UploadExcel" method="post" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
           @Html.AntiForgeryToken()
           <input type="hidden" name="reportId" value="@report?.Id" />
           <input type="hidden" name="allocationId" value="@allocationId" />
@@ -850,7 +851,10 @@
       }
     }
 
-    document.querySelectorAll('#reportTable th.sortable').forEach((header, index) => {
+    document.querySelectorAll('#reportTable th.sortable').forEach((header) => {
+      // cellIndex = the header's true column position — stays correct regardless of
+      // non-sortable columns (e.g. the actions column that is now first-from-right).
+      const index = header.cellIndex;
       header.style.cursor = 'pointer';
       header.setAttribute('tabindex', '0');
       header.setAttribute('title', 'לחץ למיון לפי עמודה זו');

@@ -20,6 +20,8 @@ public class HomeController : Controller
     return View();
   }
 
+  // מדיניות פרטיות נגישה לכל המשתמשים — כולל לפני התחברות (משוב בטא B4/B9).
+  [AllowAnonymous]
   public IActionResult Privacy()
   {
     return View();

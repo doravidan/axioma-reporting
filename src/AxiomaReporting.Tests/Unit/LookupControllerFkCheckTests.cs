@@ -103,14 +103,15 @@ public class LookupControllerFkCheckTests : IDisposable
   }
 
   [Fact]
-  public async Task CanDelete_Frameworks_BlockedWhenReferencedByConclusionFramework()
+  public async Task CanDelete_Frameworks_NotBlockedByConclusionFrameworkId()
   {
+    // After the conclusion-lookup split, ConclusionFrameworkId references the
+    // separate FrameworkConclusions table — it must NOT block deleting a Framework.
     SeedReportRowWithFramework(frameworkId: 1, conclusionFrameworkId: 200);
 
-    var (can, reason) = await _sut.CanDeleteItemAsync("frameworks", 200);
+    var (can, _) = await _sut.CanDeleteItemAsync("frameworks", 200);
 
-    can.Should().BeFalse();
-    reason.Should().Contain("סיכום");
+    can.Should().BeTrue();
   }
 
   [Fact]

@@ -110,12 +110,21 @@ public class EmployeeController : Controller
     if (!string.IsNullOrWhiteSpace(filter.Notes))
       q = q.Where(u => !string.IsNullOrWhiteSpace(u.Notes) &&
                         u.Notes!.Contains(filter.Notes, StringComparison.OrdinalIgnoreCase));
+    if (!string.IsNullOrWhiteSpace(filter.Email))
+      q = q.Where(u => !string.IsNullOrWhiteSpace(u.Email) &&
+                        u.Email!.Contains(filter.Email, StringComparison.OrdinalIgnoreCase));
+    if (!string.IsNullOrWhiteSpace(filter.Phone))
+      q = q.Where(u => !string.IsNullOrWhiteSpace(u.Phone) &&
+                        u.Phone!.Contains(filter.Phone, StringComparison.OrdinalIgnoreCase));
 
     if (filter.RestDay.HasValue)
       q = q.Where(u => u.RestDay == filter.RestDay.Value);
 
     if (filter.AllowFutureReporting.HasValue)
       q = q.Where(u => u.AllowFutureReporting == filter.AllowFutureReporting.Value);
+
+    if (filter.IsReportingEmployee.HasValue)
+      q = q.Where(u => u.IsReportingEmployee == filter.IsReportingEmployee.Value);
 
     if (filter.LockedOnly)
       q = q.Where(u => u.StatusId == (int)UserStatusEnum.Locked || u.FailedLoginAttempts >= 3);
@@ -523,12 +532,16 @@ public class EmployeeController : Controller
     var allocation = await _employeeService.GetAllocationByIdAsync(allocationId);
     if (allocation == null || allocation.UserId != id) return NotFound();
 
-    var existingDurations = (allocation.OutputDuration ?? string.Empty)
-      .Split(',', StringSplitOptions.RemoveEmptyEntries)
+    var durationTokens = (allocation.OutputDuration ?? string.Empty)
+      .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    var existingDurations = durationTokens
       .Select(s => decimal.TryParse(s, out var v) ? v : (decimal?)null)
       .Where(v => v.HasValue)
       .Select(v => v!.Value)
       .ToList();
+    var durationUnlimited = durationTokens.Any(t =>
+      t.Equals("ללא הגבלה", StringComparison.OrdinalIgnoreCase) ||
+      t.Equals("Unlimited", StringComparison.OrdinalIgnoreCase));
 
     var dto = new AllocationDto
     {
@@ -542,6 +555,7 @@ public class EmployeeController : Controller
       AnnualRowAllocation = allocation.AnnualRowAllocation,
       OutputDuration = allocation.OutputDuration,
       OutputDurationValues = existingDurations,
+      OutputDurationUnlimited = durationUnlimited,
       AllowExcelUpload = allocation.AllowExcelUpload,
       Notes = allocation.Notes,
       IsActive = allocation.IsActive,

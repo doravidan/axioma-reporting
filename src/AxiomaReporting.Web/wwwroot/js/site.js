@@ -40,3 +40,43 @@
     jQuery.validator.unobtrusive.adapters.addBool('wholenumber');
   }
 })();
+
+// ── הצגת סיסמה (עין) — משוב לקוח: "להוסיף אפשרות לראות את הסיסמא שהקלדתי" ──
+// עוטף אוטומטית כל שדה סיסמה בכפתור הצגה/הסתרה, בכל מסכי המערכת.
+(function () {
+  function attachToggle(input) {
+    if (input.dataset.pwToggle) return;
+    input.dataset.pwToggle = '1';
+
+    var wrapper = document.createElement('div');
+    wrapper.className = 'position-relative';
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-link p-0 position-absolute top-50 translate-middle-y';
+    btn.style.left = '0.6rem';
+    btn.style.lineHeight = '1';
+    btn.style.textDecoration = 'none';
+    btn.setAttribute('aria-label', 'הצג סיסמה');
+    btn.setAttribute('title', 'הצג/הסתר סיסמה');
+    btn.textContent = '👁';
+    btn.addEventListener('click', function () {
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-label', show ? 'הסתר סיסמה' : 'הצג סיסמה');
+      btn.style.opacity = show ? '1' : '0.55';
+    });
+    btn.style.opacity = '0.55';
+    // מרווח פנימי כדי שהטקסט לא יוסתר ע"י הכפתור (RTL: הכפתור בצד שמאל)
+    input.style.paddingLeft = '2.2rem';
+    wrapper.appendChild(btn);
+  }
+
+  function init() {
+    document.querySelectorAll('input[type="password"]').forEach(attachToggle);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

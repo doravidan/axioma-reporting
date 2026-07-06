@@ -28,12 +28,14 @@ public class DashboardController : Controller
   }
 
   [HttpGet]
-  public async Task<IActionResult> Index(DashboardFilter? filter = null)
+  public async Task<IActionResult> Index(DashboardFilter? filter = null, int show = 0)
   {
     filter ??= new DashboardFilter();
     await PopulateFilterDataAsync(filter);
 
-    var showData = true;
+    // אפיון: "כשנכנסים למסך הטבלה ריקה כל עוד לא לוחצים על הצג" —
+    // data loads only after the user presses הצג (show=1).
+    var showData = show == 1;
     ViewBag.ShowData = showData;
 
     var rows = new List<DashboardReportDetailRow>();

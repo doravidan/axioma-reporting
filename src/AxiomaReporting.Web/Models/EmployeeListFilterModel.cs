@@ -15,6 +15,8 @@ public class EmployeeListFilterModel
   public string? FirstName { get; set; }
   public string? LastName { get; set; }
   public string? Notes { get; set; }
+  public string? Email { get; set; }
+  public string? Phone { get; set; }
 
   // Lookup filters.
   public int? StatusId { get; set; }
@@ -24,6 +26,7 @@ public class EmployeeListFilterModel
   // Tri-state booleans (null = "all").
   public bool? AllowFutureReporting { get; set; }
   public bool? HasAllocations { get; set; }
+  public bool? IsReportingEmployee { get; set; }
 
   // Pure boolean toggles.
   public bool LockedOnly { get; set; }
@@ -52,6 +55,8 @@ public class EmployeeListFilterModel
     FirstName = string.IsNullOrWhiteSpace(FirstName) ? null : FirstName.Trim();
     LastName = string.IsNullOrWhiteSpace(LastName) ? null : LastName.Trim();
     Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim();
+    Email = string.IsNullOrWhiteSpace(Email) ? null : Email.Trim();
+    Phone = string.IsNullOrWhiteSpace(Phone) ? null : Phone.Trim();
 
     DistrictIds = DistrictIds?.Where(x => x > 0).Distinct().ToList() ?? new();
     ProgramIds = ProgramIds?.Where(x => x > 0).Distinct().ToList() ?? new();
@@ -74,11 +79,14 @@ public class EmployeeListFilterModel
     if (!string.IsNullOrEmpty(FirstName)) rv["firstName"] = FirstName;
     if (!string.IsNullOrEmpty(LastName)) rv["lastName"] = LastName;
     if (!string.IsNullOrEmpty(Notes)) rv["notes"] = Notes;
+    if (!string.IsNullOrEmpty(Email)) rv["email"] = Email;
+    if (!string.IsNullOrEmpty(Phone)) rv["phone"] = Phone;
     if (StatusId.HasValue) rv["statusId"] = StatusId;
     if (RoleId.HasValue) rv["roleId"] = RoleId;
     if (RestDay.HasValue) rv["restDay"] = RestDay;
     if (AllowFutureReporting.HasValue) rv["allowFutureReporting"] = AllowFutureReporting;
     if (HasAllocations.HasValue) rv["hasAllocations"] = HasAllocations;
+    if (IsReportingEmployee.HasValue) rv["isReportingEmployee"] = IsReportingEmployee;
     if (LockedOnly) rv["lockedOnly"] = true;
     if (ProjectId.HasValue) rv["projectId"] = ProjectId;
     if (!string.IsNullOrEmpty(SortBy)) rv["sortBy"] = SortBy;

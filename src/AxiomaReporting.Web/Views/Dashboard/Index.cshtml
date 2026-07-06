@@ -175,7 +175,16 @@
         </div>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center mb-2">
+    @{
+        var showData = (bool)(ViewBag.ShowData ?? false);
+    }
+    @if (!showData)
+    {
+        <div class="alert alert-light border text-center" role="status" aria-live="polite">
+            בחר מסננים ולחץ על <strong>הצג</strong> כדי לטעון את שורות הדיווח.
+        </div>
+    }
+    <div class="d-flex justify-content-between align-items-center mb-2" style="@(showData ? "" : "display:none !important")">
         <p class="text-muted mb-0">נמצאו <strong>@total</strong> שורות דיווח</p>
         @if (total > filter.PageSize)
         {

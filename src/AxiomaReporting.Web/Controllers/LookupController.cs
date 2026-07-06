@@ -39,6 +39,9 @@ public class LookupController : Controller
     ["educationtypes"] = "סוגי חינוך",
     ["localitydistrictnational"] = "ישוב/מחוז/ארצי",
     ["discussioncodes"] = "קיום דיון",
+    ["roles"] = "תפקידים",
+    ["classconclusions"] = "מסקנות כיתה",
+    ["frameworkconclusions"] = "מסקנות מסגרת חינוכית",
   };
 
   [HttpGet]
@@ -193,6 +196,9 @@ public class LookupController : Controller
       "educationtypes" => (await FilterAndSearch(_db.EducationTypes, search)).Cast<LookupEntity>().ToList(),
       "localitydistrictnational" => (await FilterAndSearch(_db.LocalityDistrictNationals, search)).Cast<LookupEntity>().ToList(),
       "discussioncodes" => (await FilterAndSearch(_db.DiscussionCodes, search)).Cast<LookupEntity>().ToList(),
+      "roles" => (await FilterAndSearch(_db.Roles, search)).Cast<LookupEntity>().ToList(),
+      "classconclusions" => (await FilterAndSearch(_db.ClassConclusions, search)).Cast<LookupEntity>().ToList(),
+      "frameworkconclusions" => (await FilterAndSearch(_db.FrameworkConclusions, search)).Cast<LookupEntity>().ToList(),
       _ => new List<LookupEntity>()
     };
   }
@@ -228,6 +234,9 @@ public class LookupController : Controller
       case "educationtypes": created = new EducationType { Description = description, IsActive = true, CreatedAt = now }; _db.EducationTypes.Add((EducationType)created); break;
       case "localitydistrictnational": created = new LocalityDistrictNational { Description = description, IsActive = true, CreatedAt = now }; _db.LocalityDistrictNationals.Add((LocalityDistrictNational)created); break;
       case "discussioncodes": created = new DiscussionCode { Description = description, IsActive = true, CreatedAt = now }; _db.DiscussionCodes.Add((DiscussionCode)created); break;
+      case "roles": created = new EmployeeRole { Description = description, IsActive = true, CreatedAt = now }; _db.Roles.Add((EmployeeRole)created); break;
+      case "classconclusions": created = new ClassConclusion { Description = description, IsActive = true, CreatedAt = now }; _db.ClassConclusions.Add((ClassConclusion)created); break;
+      case "frameworkconclusions": created = new FrameworkConclusion { Description = description, IsActive = true, CreatedAt = now }; _db.FrameworkConclusions.Add((FrameworkConclusion)created); break;
     }
     await _db.SaveChangesAsync();
     return created?.Id;
@@ -252,6 +261,9 @@ public class LookupController : Controller
       "educationtypes" => await _db.EducationTypes.AnyAsync(x => x.Description == description),
       "localitydistrictnational" => await _db.LocalityDistrictNationals.AnyAsync(x => x.Description == description),
       "discussioncodes" => await _db.DiscussionCodes.AnyAsync(x => x.Description == description),
+      "roles" => await _db.Roles.AnyAsync(x => x.Description == description),
+      "classconclusions" => await _db.ClassConclusions.AnyAsync(x => x.Description == description),
+      "frameworkconclusions" => await _db.FrameworkConclusions.AnyAsync(x => x.Description == description),
       _ => true
     };
   }
@@ -275,6 +287,9 @@ public class LookupController : Controller
       "educationtypes" => await _db.EducationTypes.FindAsync(id),
       "localitydistrictnational" => await _db.LocalityDistrictNationals.FindAsync(id),
       "discussioncodes" => await _db.DiscussionCodes.FindAsync(id),
+      "roles" => await _db.Roles.FindAsync(id),
+      "classconclusions" => await _db.ClassConclusions.FindAsync(id),
+      "frameworkconclusions" => await _db.FrameworkConclusions.FindAsync(id),
       _ => null
     };
     if (entity == null) return;
@@ -321,7 +336,8 @@ public class LookupController : Controller
       "educationalprograms" => await _db.ReportRows.AnyAsync(r => r.EducationalProgramId == id) ? "דיווחים"
                                : await _db.Set<AllocationEducationalProgram>().AnyAsync(a => a.EducationalProgramId == id) ? "הקצאות"
                                : null,
-      "classes" => await _db.ReportRows.AnyAsync(r => r.ClassId == id || r.ConclusionClassId == id) ? "דיווחים"
+      // ConclusionClassId FKs the separate ClassConclusions table, not SchoolClasses.
+      "classes" => await _db.ReportRows.AnyAsync(r => r.ClassId == id) ? "דיווחים"
                    : await _db.Set<AllocationClass>().AnyAsync(a => a.ClassId == id) ? "הקצאות"
                    : null,
       "gradelevels" => await _db.ReportRows.AnyAsync(r => r.GradeLevelId == id) ? "דיווחים"
@@ -330,8 +346,8 @@ public class LookupController : Controller
       "discussioncodes" => await _db.ReportRows.AnyAsync(r => r.DiscussionCodeId == id) ? "דיווחים"
                            : await _db.Set<AllocationDiscussionCode>().AnyAsync(a => a.DiscussionCodeId == id) ? "הקצאות"
                            : null,
+      // ConclusionFrameworkId FKs the separate FrameworkConclusions table, not Frameworks.
       "frameworks" => await _db.ReportRows.AnyAsync(r => r.FrameworkId == id) ? "דיווחים"
-                      : await _db.ReportRows.AnyAsync(r => r.ConclusionFrameworkId == id) ? "דיווחי סיכום"
                       : await _db.Set<AllocationFramework>().AnyAsync(a => a.FrameworkId == id) ? "הקצאות"
                       : null,
       "educationalstages" => await _db.Frameworks.AnyAsync(f => f.EducationalStageId == id) ? "מסגרות"
@@ -343,6 +359,9 @@ public class LookupController : Controller
                                     : null,
       "institutions" => await InstitutionInUseAsync(id),
       "authorities" => null,
+      "roles" => await _db.Users.AnyAsync(u => u.RoleId == id) ? "עובדים" : null,
+      "classconclusions" => await _db.ReportRows.AnyAsync(r => r.ConclusionClassId == id) ? "דיווחים" : null,
+      "frameworkconclusions" => await _db.ReportRows.AnyAsync(r => r.ConclusionFrameworkId == id) ? "דיווחים" : null,
       _ => null
     };
     return context == null ? (true, null) : (false, $"לא ניתן למחוק — הערך בשימוש במערכת: {context}");

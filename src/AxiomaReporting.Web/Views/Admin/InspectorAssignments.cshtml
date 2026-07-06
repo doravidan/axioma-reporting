@@ -25,7 +25,7 @@
           <option value="">בחר...</option>
           @foreach (var inspector in inspectors)
           {
-            <option value="@inspector.Id">@inspector.FirstName @inspector.LastName (@inspector.EmployeeCode)</option>
+            <option value="@inspector.Id">@inspector.FirstName @inspector.LastName — ת.ז @inspector.IdNumber (@inspector.EmployeeCode)</option>
           }
         </select>
       </div>
@@ -60,7 +60,9 @@
     <table class="table table-bordered table-sm align-middle">
       <thead class="table-light">
         <tr>
-          <th>מפקח</th>
+          <th>ת.ז</th>
+          <th>שם פרטי</th>
+          <th>שם משפחה</th>
           <th>תוכנית</th>
           <th>מחוז</th>
           <th>מגזר</th>
@@ -71,7 +73,9 @@
         @foreach (var item in assignments)
         {
           <tr>
-            <td>@item.Inspector?.FirstName @item.Inspector?.LastName</td>
+            <td>@item.Inspector?.IdNumber</td>
+            <td>@item.Inspector?.FirstName</td>
+            <td>@item.Inspector?.LastName</td>
             <td>@(item.Program?.Description ?? "הכל")</td>
             <td>@(item.District?.Description ?? "הכל")</td>
             <td>@(item.Sector?.Description ?? "הכל")</td>
@@ -86,7 +90,7 @@
         }
         @if (!assignments.Any())
         {
-          <tr><td colspan="5" class="text-center text-muted">אין שיוכים</td></tr>
+          <tr><td colspan="7" class="text-center text-muted">אין שיוכים</td></tr>
         }
       </tbody>
     </table>

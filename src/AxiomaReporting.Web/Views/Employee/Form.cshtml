@@ -33,6 +33,16 @@
       <div class="card-body">
         <div class="row g-3">
 
+          @if (isEdit)
+          {
+            @* מספר משתמש פנימי — אפור וקריא-בלבד (אפיון: "שיהיה אפור... מספר של המערכת") *@
+            <div class="col-md-2">
+              <label class="form-label text-muted" for="internalUserId">מספר משתמש</label>
+              <input id="internalUserId" class="form-control bg-light text-muted" value="@Model.Id"
+                     readonly disabled aria-readonly="true" title="מספר פנימי שנוצר אוטומטית ע''י המערכת" />
+            </div>
+          }
+
           <div class="col-md-4">
             <label asp-for="EmployeeCode" class="form-label">קוד עובד <span class="text-danger">*</span></label>
             <input asp-for="EmployeeCode" class="form-control" required inputmode="numeric" pattern="\d*" />

@@ -65,4 +65,8 @@ public class AllocationDto
   public List<int> DiscussionCodeIds { get; set; } = new();
   public List<int> LocalityDistrictNationalIds { get; set; } = new();
   public List<decimal> OutputDurationValues { get; set; } = new();
+
+  // משך תפוקה "ללא הגבלה" — when set, the report validator skips the allowed-values check.
+  [Display(Name = "ללא הגבלה")]
+  public bool OutputDurationUnlimited { get; set; }
 }

@@ -29,11 +29,14 @@
     ["firstName"] = filter.FirstName,
     ["lastName"] = filter.LastName,
     ["notes"] = filter.Notes,
+    ["email"] = filter.Email,
+    ["phone"] = filter.Phone,
     ["statusId"] = filter.StatusId,
     ["roleId"] = filter.RoleId,
     ["restDay"] = filter.RestDay,
     ["allowFutureReporting"] = filter.AllowFutureReporting,
     ["hasAllocations"] = filter.HasAllocations,
+    ["isReportingEmployee"] = filter.IsReportingEmployee,
     ["lockedOnly"] = filter.LockedOnly ? "true" : null,
     ["projectId"] = filter.ProjectId,
     ["pageSize"] = pageSize
@@ -98,6 +101,13 @@
       <a href="@ExportLink()" class="btn btn-success">ייצוא אקסל</a>
     </div>
   </div>
+
+  @if (Context.Request.Query["forAllocation"] == "true")
+  {
+    <div class="alert alert-info" role="alert" aria-live="polite">
+      להוספת הקצאה: אתר את העובד ברשימה (ניתן לחפש לפי שם / ת.ז / קוד עובד) ולחץ על כפתור "הקצאות" בשורת העובד.
+    </div>
+  }
 
   @if (TempData["Success"] != null)
   {
@@ -191,6 +201,25 @@
           <option value="" selected="@(!filter.HasAllocations.HasValue)">-- הכל --</option>
           <option value="true" selected="@(filter.HasAllocations == true)">כן</option>
           <option value="false" selected="@(filter.HasAllocations == false)">לא</option>
+        </select>
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label" for="f-email">מייל</label>
+        <input id="f-email" type="text" name="email" value="@filter.Email" class="form-control" />
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label" for="f-phone">טלפון</label>
+        <input id="f-phone" type="text" name="phone" value="@filter.Phone" class="form-control" />
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label" for="f-reporting">עובד מדווח</label>
+        <select id="f-reporting" name="isReportingEmployee" class="form-select">
+          <option value="" selected="@(!filter.IsReportingEmployee.HasValue)">-- הכל --</option>
+          <option value="true" selected="@(filter.IsReportingEmployee == true)">כן</option>
+          <option value="false" selected="@(filter.IsReportingEmployee == false)">לא</option>
         </select>
       </div>
 

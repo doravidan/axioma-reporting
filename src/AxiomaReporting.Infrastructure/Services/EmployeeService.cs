@@ -231,9 +231,7 @@ public class EmployeeService : IEmployeeService
       DailyEmploymentScope = dto.DailyEmploymentScope,
       MonthlyRowAllocation = dto.MonthlyRowAllocation,
       AnnualRowAllocation = dto.AnnualRowAllocation,
-      OutputDuration = dto.OutputDurationValues.Count > 0
-        ? string.Join(",", dto.OutputDurationValues)
-        : dto.OutputDuration,
+      OutputDuration = ComposeOutputDuration(dto),
       AllowExcelUpload = dto.AllowExcelUpload,
       Notes = dto.Notes,
       IsActive = true,
@@ -255,6 +253,15 @@ public class EmployeeService : IEmployeeService
     return allocation;
   }
 
+  // משך תפוקה is stored as a comma-separated token list; "ללא הגבלה" is the token
+  // the report validator recognizes as "no restriction on the allowed values".
+  private static string? ComposeOutputDuration(AllocationDto dto)
+  {
+    var tokens = dto.OutputDurationValues.Select(v => v.ToString()).ToList();
+    if (dto.OutputDurationUnlimited) tokens.Add("ללא הגבלה");
+    return tokens.Count > 0 ? string.Join(",", tokens) : dto.OutputDuration;
+  }
+
   public async Task<bool> UpdateAllocationAsync(int allocationId, AllocationDto dto)
   {
     var allocation = await _db.Allocations.FindAsync(allocationId);
@@ -271,9 +278,7 @@ public class EmployeeService : IEmployeeService
     allocation.DailyEmploymentScope = dto.DailyEmploymentScope;
     allocation.MonthlyRowAllocation = dto.MonthlyRowAllocation;
     allocation.AnnualRowAllocation = dto.AnnualRowAllocation;
-    allocation.OutputDuration = dto.OutputDurationValues.Count > 0
-      ? string.Join(",", dto.OutputDurationValues)
-      : dto.OutputDuration;
+    allocation.OutputDuration = ComposeOutputDuration(dto);
     allocation.AllowExcelUpload = dto.AllowExcelUpload;
     allocation.Notes = dto.Notes;
     allocation.UpdatedAt = DateTime.UtcNow;
