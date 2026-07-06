@@ -118,6 +118,11 @@ public class MyAllocationsController : Controller
   {
     return _db.Allocations
       .AsNoTracking()
+      // AsSplitQuery is essential here: without it the 13 collection Includes below
+      // form one huge cartesian join (subjects × frameworks × localities × …) that
+      // hangs the employee's monthly-activity screen for allocations with large
+      // junction sets.
+      .AsSplitQuery()
       .Include(a => a.User)
       .Include(a => a.Project)
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
