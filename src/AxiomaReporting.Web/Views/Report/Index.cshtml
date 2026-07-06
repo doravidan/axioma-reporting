@@ -235,7 +235,7 @@
                   {
                     <td>
                       <button type="button" class="btn btn-sm btn-outline-danger"
-                              onclick="deleteAttachment(@file.Id)">מחק</button>
+                              onclick="deleteAttachment(@file.Id)" aria-label="מחק" title="מחק">🗑</button>
                     </td>
                   }
                 </tr>
@@ -269,12 +269,12 @@
               <th scope="col" class="sortable" aria-sort="none">משך</th>
               <th scope="col" class="sortable" aria-sort="none">מחוז</th>
               <th scope="col" class="sortable" aria-sort="none">ישוב</th>
-              <th scope="col" class="sortable" aria-sort="none">מסגרת</th>
+              <th scope="col" class="sortable" aria-sort="none">מסגרת חינוכית</th>
               <th scope="col" class="sortable" aria-sort="none">תוכנית</th>
               <th scope="col" class="sortable" aria-sort="none">תחום</th>
               <th scope="col" class="sortable" aria-sort="none">נושא 1</th>
               <th scope="col" class="sortable" aria-sort="none">נושא 2</th>
-              <th scope="col" class="sortable" aria-sort="none">קוד דיון</th>
+              <th scope="col" class="sortable" aria-sort="none">קיום דיון</th>
               <th scope="col" class="sortable" aria-sort="none">מסקנה-כיתה</th>
               <th scope="col" class="sortable" aria-sort="none">מסקנה-מסגרת</th>
               <th scope="col" class="sortable" aria-sort="none">מסקנה-מיקום</th>
@@ -418,7 +418,7 @@
                 </select>
               </div>
               <div class="col-md-2">
-                <label class="form-label" for="fieldFramework">מסגרת@(Star("FrameworkId"))</label>
+                <label class="form-label" for="fieldFramework">מסגרת חינוכית@(Star("FrameworkId"))</label>
                 <select id="fieldFramework" name="row.FrameworkId" class="form-select"
                         required="@Req("FrameworkId")" aria-required="@(Req("FrameworkId") ? "true" : "false")">
                   <option value="">בחר...</option>
@@ -458,7 +458,7 @@
                 </select>
               </div>
               <div class="col-md-2">
-                <label class="form-label" for="fieldDiscussion">קוד דיון@(Star("DiscussionCodeId"))</label>
+                <label class="form-label" for="fieldDiscussion">קיום דיון@(Star("DiscussionCodeId"))</label>
                 <select id="fieldDiscussion" name="row.DiscussionCodeId" class="form-select"
                         required="@Req("DiscussionCodeId")" aria-required="@(Req("DiscussionCodeId") ? "true" : "false")">
                   <option value="">---</option>
@@ -791,12 +791,12 @@
             <div class="col-md-2"><label class="form-label">משך</label>${durationHtml(row.meetingDuration)}</div>
             <div class="col-md-2"><label class="form-label">מחוז</label>${selectHtml('DistrictId', row.districtId, false)}</div>
             <div class="col-md-2"><label class="form-label">ישוב</label>${selectHtml('LocalityId', row.localityId, false)}</div>
-            <div class="col-md-2"><label class="form-label">מסגרת</label>${selectHtml('FrameworkId', row.frameworkId, false)}</div>
+            <div class="col-md-2"><label class="form-label">מסגרת חינוכית</label>${selectHtml('FrameworkId', row.frameworkId, false)}</div>
             <div class="col-md-2"><label class="form-label">תוכנית</label>${selectHtml('EducationalProgramId', row.educationalProgramId, false)}</div>
             <div class="col-md-2"><label class="form-label">תחום</label>${selectHtml('DomainId', row.domainId, false)}</div>
             <div class="col-md-2"><label class="form-label">נושא 1</label>${selectHtml('Subject1Id', row.subject1Id, false)}</div>
             <div class="col-md-2"><label class="form-label">נושא 2</label>${selectHtml('Subject2Id', row.subject2Id, true)}</div>
-            <div class="col-md-2"><label class="form-label">קוד דיון</label>${selectHtml('DiscussionCodeId', row.discussionCodeId, true)}</div>
+            <div class="col-md-2"><label class="form-label">קיום דיון</label>${selectHtml('DiscussionCodeId', row.discussionCodeId, true)}</div>
             <div class="col-md-2"><label class="form-label">מסקנה - כיתה</label>${selectHtml('ConclusionClassId', row.conclusionClassId, true)}</div>
             <div class="col-md-2"><label class="form-label">מסקנה - מסגרת</label>${selectHtml('ConclusionFrameworkId', row.conclusionFrameworkId, true)}</div>
             <div class="col-md-2"><label class="form-label">מסקנה - מיקום</label>${selectHtml('ConclusionLocationId', row.conclusionLocationId, true)}</div>

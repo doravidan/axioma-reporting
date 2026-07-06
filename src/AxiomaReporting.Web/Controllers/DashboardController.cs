@@ -246,5 +246,9 @@ public class DashboardController : Controller
     ViewBag.GradeLevels = await db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ConclusionLocations = await db.LocalityDistrictNationals.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ReportTypes = await db.ReportTypes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    // Conclusion lookups live in their own tables (see SeparateConclusionLookups migration) —
+    // the filter dropdowns must offer the ids that ReportRow conclusion FKs actually store.
+    ViewBag.ClassConclusions = await db.ClassConclusions.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.FrameworkConclusions = await db.FrameworkConclusions.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
   }
 }

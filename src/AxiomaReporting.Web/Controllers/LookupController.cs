@@ -38,7 +38,7 @@ public class LookupController : Controller
     ["educationalstages"] = "שלבי חינוך",
     ["educationtypes"] = "סוגי חינוך",
     ["localitydistrictnational"] = "ישוב/מחוז/ארצי",
-    ["discussioncodes"] = "קוד דיון",
+    ["discussioncodes"] = "קיום דיון",
   };
 
   [HttpGet]

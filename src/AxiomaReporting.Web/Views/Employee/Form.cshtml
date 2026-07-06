@@ -205,7 +205,7 @@
                             onsubmit="return confirm('למחוק את המסמך?')" style="display:inline">
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="attachmentId" value="@file.Id" />
-                        <button type="submit" class="btn btn-sm btn-outline-danger">מחק</button>
+                        <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="מחק" title="מחק">🗑</button>
                       </form>
                     </td>
                   </tr>

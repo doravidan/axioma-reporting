@@ -184,9 +184,12 @@ public class AuditLogFlowTests
 
     var page = await client.GetAsync("/Admin/AuditLog");
     page.StatusCode.Should().Be(HttpStatusCode.OK);
-    var body = await page.Content.ReadAsStringAsync();
+    // Razor HTML-encodes Hebrew emitted from C# expressions into numeric entities,
+    // so decode before asserting. The view shows Hebrew labels for actions
+    // (client requirement: all-Hebrew UI); Auth.LoginSucceeded => "כניסה הצליחה".
+    var body = System.Net.WebUtility.HtmlDecode(await page.Content.ReadAsStringAsync());
     body.Should().Contain("יומן ביקורת");
-    body.Should().Contain("Auth.LoginSucceeded");
+    body.Should().Contain("כניסה הצליחה");
   }
 
   private static async Task<HttpClient> SignInAsync(CustomWebApplicationFactory factory, string idNumber, string password)

@@ -18,6 +18,8 @@
     var gradeLevels = ViewBag.GradeLevels as List<GradeLevel> ?? new List<GradeLevel>();
     var conclusionLocations = ViewBag.ConclusionLocations as List<LocalityDistrictNational> ?? new List<LocalityDistrictNational>();
     var reportTypes = ViewBag.ReportTypes as List<ReportType> ?? new List<ReportType>();
+    var classConclusions = ViewBag.ClassConclusions as List<ClassConclusion> ?? new List<ClassConclusion>();
+    var frameworkConclusions = ViewBag.FrameworkConclusions as List<FrameworkConclusion> ?? new List<FrameworkConclusion>();
     int total = ViewBag.TotalCount ?? 0;
 
     Dictionary<string, object?> RouteValues(int page, string? sortBy = null) => new()
@@ -154,14 +156,15 @@
                     <div class="col-md-1"><label class="form-label form-label-sm">תחום</label><select name="DomainId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in domains) { <option value="@x.Id" selected="@(filter.DomainId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">נושא 1</label><select name="Subject1Id" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in subjects) { <option value="@x.Id" selected="@(filter.Subject1Id == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">נושא 2</label><select name="Subject2Id" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in subjects) { <option value="@x.Id" selected="@(filter.Subject2Id == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-1"><label class="form-label form-label-sm">קוד דיון</label><select name="DiscussionCodeId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in discussionCodes) { <option value="@x.Id" selected="@(filter.DiscussionCodeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-1"><label class="form-label form-label-sm">קיום דיון</label><select name="DiscussionCodeId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in discussionCodes) { <option value="@x.Id" selected="@(filter.DiscussionCodeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">כיתה</label><select name="ClassId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in classes) { <option value="@x.Id" selected="@(filter.ClassId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">שכבה</label><select name="GradeLevelId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in gradeLevels) { <option value="@x.Id" selected="@(filter.GradeLevelId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-1"><label class="form-label form-label-sm">סוג דיווח</label><select name="ReportTypeId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in reportTypes) { <option value="@x.Id" selected="@(filter.ReportTypeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-1"><label class="form-label form-label-sm">מסקנה - כיתה</label><select name="ConclusionClassId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in classes) { <option value="@x.Id" selected="@(filter.ConclusionClassId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-2"><label class="form-label form-label-sm">מסקנה - מסגרת</label><select name="ConclusionFrameworkId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in frameworks) { <option value="@x.Id" selected="@(filter.ConclusionFrameworkId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-1"><label class="form-label form-label-sm">מסקנה - כיתה</label><select name="ConclusionClassId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in classConclusions) { <option value="@x.Id" selected="@(filter.ConclusionClassId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+                    <div class="col-md-2"><label class="form-label form-label-sm">מסקנה - מסגרת</label><select name="ConclusionFrameworkId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in frameworkConclusions) { <option value="@x.Id" selected="@(filter.ConclusionFrameworkId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
                     <div class="col-md-2"><label class="form-label form-label-sm">מסקנה - יישוב/מחוז/ארצי</label><select name="ConclusionLocationId" class="form-select form-select-sm"><option value="">הכל</option>@foreach (var x in conclusionLocations) { <option value="@x.Id" selected="@(filter.ConclusionLocationId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
-                    <div class="col-md-1"><label class="form-label form-label-sm">שורות בעמוד</label><select name="PageSize" class="form-select form-select-sm">@foreach (var s in new[] { 10, 25, 50, 100 }) { <option value="@s" selected="@(filter.PageSize == s ? "selected" : null)">@s</option> }</select></div>
+                    @* שורות בעמוד — מוצמד לצד שמאל של המסך לפי משוב הלקוח *@
+                    <div class="col-md-1 ms-md-auto"><label class="form-label form-label-sm">שורות בעמוד</label><select name="PageSize" class="form-select form-select-sm">@foreach (var s in new[] { 10, 25, 50, 100 }) { <option value="@s" selected="@(filter.PageSize == s ? "selected" : null)">@s</option> }</select></div>
 
                     <div class="col-auto d-flex align-items-end gap-2">
                         <button type="submit" class="btn btn-primary btn-sm">הצג</button>
@@ -213,7 +216,7 @@
                     <th>תחום</th>
                     <th>נושא 1</th>
                     <th>נושא 2</th>
-                    <th>קוד דיון</th>
+                    <th>קיום דיון</th>
                     <th>כיתה</th>
                     <th>שכבה</th>
                     <th>סוג דיווח</th>

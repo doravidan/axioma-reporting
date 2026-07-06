@@ -52,13 +52,31 @@ public class ReportControllerGapsTests : IDisposable
   }
 
   [Fact]
-  public async Task SaveRow_WhenDeadlinePassedAndUserIsPM_AllowsSave()
+  public async Task SaveRow_WhenDeadlinePassedAndUserIsPM_IsBlocked()
   {
+    // Client QA (בדיקת פרויקט Sheet4 #3): "טעות שלי — רק אדמין יכול לתקן דיווח".
+    // Only SystemAdmin may override the reporting deadline; a PM is blocked.
     var month = await _db.ReportingMonths.FindAsync(1);
     month!.LastReportingDate = DateTime.Today.AddDays(-1);
     await _db.SaveChangesAsync();
 
     var controller = BuildController(UserRoleEnum.ProjectManager, userId: 99);
+    var row = NewRow();
+
+    var result = await controller.SaveRow(row, reportId: 1, allocationId: 1);
+
+    var json = (JsonResult)result;
+    json.Value.Should().BeEquivalentTo(new { success = false, error = ReportController.DeadlinePassedMessage });
+  }
+
+  [Fact]
+  public async Task SaveRow_WhenDeadlinePassedAndUserIsAdmin_AllowsSave()
+  {
+    var month = await _db.ReportingMonths.FindAsync(1);
+    month!.LastReportingDate = DateTime.Today.AddDays(-1);
+    await _db.SaveChangesAsync();
+
+    var controller = BuildController(UserRoleEnum.SystemAdmin, userId: 99);
     var row = NewRow();
 
     var result = await controller.SaveRow(row, reportId: 1, allocationId: 1);

@@ -64,7 +64,7 @@ public class PdfReportService : IPdfReportService
         {
           row.RelativeItem().AlignRight().Column(col =>
           {
-            col.Item().Text("מערכת דיווח עובדים אקסיומא")
+            col.Item().Text("מערכת דיווח פעילות חודשית - סייט&סאונד חינוך")
               .SemiBold().FontSize(13);
             col.Item().Text($"הופק: {generatedAt}").FontSize(9).FontColor(Colors.Grey.Darken1);
           });

@@ -418,7 +418,7 @@ public class EmployeeController : Controller
       before: new { StatusId = previousStatusId },
       after: new { StatusId = (int)UserStatusEnum.Inactive });
 
-    TempData["Success"] = $"העובד {user.FirstName} {user.LastName} הושבת";
+    TempData["Success"] = $"העובד {user.FirstName} {user.LastName} הועבר לסטטוס לא פעיל";
     return RedirectToFilteredIndex();
   }
 

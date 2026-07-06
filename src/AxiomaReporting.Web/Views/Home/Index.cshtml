@@ -1,7 +1,82 @@
 @{
     ViewData["Title"] = "ראשי";
+    var isEmployee = User.IsInRole("6");
+    var isAdmin = User.IsInRole("1");
+    var isPmOrAbove = User.IsInRole("1") || User.IsInRole("2");
+    var isCoordinatorOrAbove = isPmOrAbove || User.IsInRole("3");
+    var isInspector = User.IsInRole("4") || User.IsInRole("5");
 }
-<div class="text-center">
-    <h1 class="display-4">ברוכים הבאים למערכת דיווח אקסיומא</h1>
-    <p>מערכת דיווח פעילות חודשית לעובדים</p>
+<div class="text-center mb-4">
+    <h1 class="display-5">ברוכים הבאים למערכת דיווח פעילות חודשית</h1>
+    <p class="text-muted">סייט&amp;סאונד חינוך</p>
+</div>
+
+@* תפריט גרפי לפי הרשאת המשתמש (אפיון: "התפריט שיופיע עם כניסה למערכת משתנה בהתאם לרמת המשתמש") *@
+<div class="row g-4 justify-content-center">
+  @if (isEmployee)
+  {
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="MyAllocations" asp-action="Index" aria-label="פעילות חודשית">
+        <span class="myalloc-tile-icon" aria-hidden="true">📋</span>
+        <span>פעילות חודשית</span>
+      </a>
+    </div>
+  }
+  else
+  {
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Report" asp-action="Index" aria-label="פעילות חודשית">
+        <span class="myalloc-tile-icon" aria-hidden="true">📋</span>
+        <span>פעילות חודשית</span>
+      </a>
+    </div>
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Dashboard" asp-action="Index" aria-label="דשבורד דיווחים">
+        <span class="myalloc-tile-icon" aria-hidden="true">📊</span>
+        <span>דשבורד דיווחים</span>
+      </a>
+    </div>
+  }
+  @if (isCoordinatorOrAbove)
+  {
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Employee" asp-action="Index" aria-label="ניהול עובדים">
+        <span class="myalloc-tile-icon" aria-hidden="true">👥</span>
+        <span>עובדים</span>
+      </a>
+    </div>
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Allocations" asp-action="Index" aria-label="הקצאות">
+        <span class="myalloc-tile-icon" aria-hidden="true">🗂️</span>
+        <span>הקצאות</span>
+      </a>
+    </div>
+  }
+  @if (isPmOrAbove)
+  {
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Admin" asp-action="ReportingMonths" aria-label="חודשי דיווח">
+        <span class="myalloc-tile-icon" aria-hidden="true">📅</span>
+        <span>חודשי דיווח</span>
+      </a>
+    </div>
+  }
+  @if (isAdmin)
+  {
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Lookup" asp-action="Index" aria-label="ניהול טבלאות עזר">
+        <span class="myalloc-tile-icon" aria-hidden="true">⚙️</span>
+        <span>ניהול</span>
+      </a>
+    </div>
+  }
+  @if (isInspector)
+  {
+    <div class="col-12 col-md-6 col-lg-4">
+      <a class="myalloc-tile" asp-controller="Dashboard" asp-action="Summary" aria-label="סיכום ואישור דיווחים">
+        <span class="myalloc-tile-icon" aria-hidden="true">✅</span>
+        <span>סיכום דיווחים</span>
+      </a>
+    </div>
+  }
 </div>

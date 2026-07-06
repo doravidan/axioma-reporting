@@ -182,7 +182,7 @@ public class ReportValidationService : IReportValidationService
     if (row.Subject2Id.HasValue && allocation.AllocationSubjects.Any() && !allocation.AllocationSubjects.Any(x => x.SubjectId == row.Subject2Id.Value))
       result.AddError("נושא 2 אינו תואם להקצאת העובד");
     if (row.DiscussionCodeId.HasValue && allocation.AllocationDiscussionCodes.Any() && !allocation.AllocationDiscussionCodes.Any(x => x.DiscussionCodeId == row.DiscussionCodeId.Value))
-      result.AddError("קוד הדיון אינו תואם להקצאת העובד");
+      result.AddError("קיום הדיון אינו תואם להקצאת העובד");
     // כיתה, שכבה, מסקנה-כיתה, מסקנה-מסגרת and מסקנה-מיקום are global lookups —
     // not scoped to the allocation — so they are intentionally not checked here.
   }

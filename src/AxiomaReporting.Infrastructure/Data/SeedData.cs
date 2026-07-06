@@ -160,7 +160,7 @@ public static class SeedData
         Id = 1,
         TypeDescription = "ReportReceived",
         Subject = "דיווח פעילות חודשית התקבל",
-        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} התקבל בהצלחה.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} התקבל בהצלחה.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -169,7 +169,7 @@ public static class SeedData
         Id = 2,
         TypeDescription = "ReportApproved",
         Subject = "דיווח פעילות חודשית אושר",
-        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} אושר.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} אושר.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -178,7 +178,7 @@ public static class SeedData
         Id = 3,
         TypeDescription = "ReportRejected",
         Subject = "דיווח פעילות חודשית הוחזר לתיקון",
-        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} הוחזר לתיקון.\n\nסיבת ההחזרה: {{RejectionReason}}\n\nנא לתקן ולהגיש מחדש.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית שלך לחודש {{Month}}/{{Year}} הוחזר לתיקון.\n\nסיבת ההחזרה: {{RejectionReason}}\n\nנא לתקן ולהגיש מחדש.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -187,7 +187,7 @@ public static class SeedData
         Id = 4,
         TypeDescription = "ReminderNotSubmitted",
         Subject = "תזכורת: דיווח פעילות חודשית טרם הוגש",
-        Body = "שלום {{EmployeeName}},\n\nנא לשים לב שדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} טרם הוגש.\n\nהמועד האחרון להגשה: {{Deadline}}.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nנא לשים לב שדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} טרם הוגש.\n\nהמועד האחרון להגשה: {{Deadline}}.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -196,7 +196,7 @@ public static class SeedData
         Id = 5,
         TypeDescription = "ReminderNeedsCorrection",
         Subject = "תזכורת: דיווח פעילות חודשית ממתין לתיקון",
-        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} הוחזר לתיקון וטרם תוקן.\n\nנא לתקן ולהגיש לפני: {{Deadline}}.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nדיווח הפעילות החודשית לחודש {{Month}}/{{Year}} הוחזר לתיקון וטרם תוקן.\n\nנא לתקן ולהגיש לפני: {{Deadline}}.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -205,7 +205,7 @@ public static class SeedData
         Id = 6,
         TypeDescription = "PasswordReset",
         Subject = "איפוס סיסמה",
-        Body = "שלום {{EmployeeName}},\n\nלאיפוס הסיסמה לחץ על הקישור הבא:\n{{ResetLink}}\n\nהקישור תקף לזמן מוגבל.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nלאיפוס הסיסמה לחץ על הקישור הבא:\n{{ResetLink}}\n\nהקישור תקף לזמן מוגבל.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -214,7 +214,7 @@ public static class SeedData
         Id = 7,
         TypeDescription = "TwoFactorCode",
         Subject = "קוד אימות לכניסה למערכת",
-        Body = "שלום {{EmployeeName}},\n\nקוד האימות שלך הוא: {{Code}}\n\nהקוד תקף ל-{{Minutes}} דקות.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nקוד האימות שלך הוא: {{Code}}\n\nהקוד תקף ל-{{Minutes}} דקות.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -223,7 +223,7 @@ public static class SeedData
         Id = 8,
         TypeDescription = "PasswordExpiryWarning",
         Subject = "התראה: סיסמתך עומדת לפוג",
-        Body = "שלום {{EmployeeName}},\n\nסיסמתך תפוג בעוד {{DaysLeft}} ימים (בתאריך {{ExpiryDate}}).\n\nנא להתחבר למערכת ולשנות את הסיסמה לפני מועד הפקיעה.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{EmployeeName}},\n\nסיסמתך תפוג בעוד {{DaysLeft}} ימים (בתאריך {{ExpiryDate}}).\n\nנא להתחבר למערכת ולשנות את הסיסמה לפני מועד הפקיעה.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -232,7 +232,7 @@ public static class SeedData
         Id = 9,
         TypeDescription = "BatchImportSuccessUploader",
         Subject = "קובץ דיווח מרוכז נקלט בהצלחה",
-        Body = "שלום {{UploaderName}},\n\nקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נקלט בהצלחה.\n\nסה\"כ דיווחים שנקלטו: {{RowsImported}}\nסה\"כ עובדים: {{EmployeesCount}}\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{UploaderName}},\n\nקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נקלט בהצלחה.\n\nסה\"כ דיווחים שנקלטו: {{RowsImported}}\nסה\"כ עובדים: {{EmployeesCount}}\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       },
@@ -241,7 +241,7 @@ public static class SeedData
         Id = 10,
         TypeDescription = "BatchImportErrors",
         Subject = "שגיאות בקובץ דיווח מרוכז",
-        Body = "שלום {{UploaderName}},\n\nבקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נמצאו {{ErrorsCount}} שגיאות.\nשורות תקינות נקלטו למערכת; שורות שגויות לא נקלטו.\n\nשורות שלא עברו בדיקת תקינות:\n{{ErrorList}}\n\nרשימת השגיאות המפורטת מצורפת גם כקובץ PDF.\n\nבברכה,\nמערכת אקסיומא",
+        Body = "שלום {{UploaderName}},\n\nבקובץ הדיווח המרוכז לחודש {{Month}}/{{Year}} נמצאו {{ErrorsCount}} שגיאות.\nשורות תקינות נקלטו למערכת; שורות שגויות לא נקלטו.\n\nשורות שלא עברו בדיקת תקינות:\n{{ErrorList}}\n\nרשימת השגיאות המפורטת מצורפת גם כקובץ PDF.\n\nבברכה,\nמערכת סייט&סאונד חינוך",
         IsActive = true,
         CreatedAt = now
       }

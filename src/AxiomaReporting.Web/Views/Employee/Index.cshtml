@@ -424,12 +424,12 @@
                   {
                     <form method="post" action="@Url.Action("DeleteEmployee", "Employee", new { id = emp.Id })@Context.Request.QueryString"
                           style="display:inline"
-                          onsubmit="return confirm('להשבית עובד זה?')">
+                          onsubmit="return confirm('להעביר עובד זה לסטטוס לא פעיל?')">
                       @Html.AntiForgeryToken()
                       <input type="hidden" name="search" value="@filter.Search" />
                       <input type="hidden" name="firstName" value="@filter.FirstName" />
                       <input type="hidden" name="lastName" value="@filter.LastName" />
-                      <button type="submit" class="btn btn-sm btn-outline-danger">השבתה</button>
+                      <button type="submit" class="btn btn-sm btn-outline-danger">לא פעיל</button>
                     </form>
                   }
                 </div>

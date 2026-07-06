@@ -27,43 +27,9 @@
         <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between app-navbar-content">
           @if (User.Identity?.IsAuthenticated == true)
           {
+            @* סדר הלשוניות מימין לשמאל לפי משוב הלקוח (B12):
+               ניהול, ראשי, עובדים, הקצאות, חודשי דיווח, דשבורד דיווחים *@
             <ul class="navbar-nav app-main-nav">
-              <li class="nav-item">
-                <a class="nav-link" asp-controller="Home" asp-action="Index">ראשי</a>
-              </li>
-              @if (User.IsInRole("6"))
-              {
-                <li class="nav-item">
-                  <a class="nav-link" asp-controller="MyAllocations" asp-action="Index">פעילות חודשית</a>
-                </li>
-              }
-              else
-              {
-                <li class="nav-item">
-                  <a class="nav-link" asp-controller="Report" asp-action="Index">פעילות חודשית</a>
-                </li>
-              }
-              @if (!User.IsInRole("6"))
-              {
-                <li class="nav-item">
-                  <a class="nav-link" asp-controller="Dashboard" asp-action="Index">דשבורד דיווחים</a>
-                </li>
-              }
-              <li class="nav-item">
-                <a class="nav-link" asp-controller="Allocations" asp-action="Index">הקצאות</a>
-              </li>
-              @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
-              {
-                <li class="nav-item">
-                  <a class="nav-link" asp-controller="Employee" asp-action="Index">עובדים</a>
-                </li>
-              }
-              @if (User.IsInRole("1") || User.IsInRole("2"))
-              {
-                <li class="nav-item">
-                  <a class="nav-link" asp-controller="Admin" asp-action="ReportingMonths">חודשי דיווח</a>
-                </li>
-              }
               @if (User.IsInRole("1"))
               {
                 <li class="nav-item dropdown">
@@ -88,6 +54,45 @@
                   </ul>
                 </li>
               }
+              <li class="nav-item">
+                <a class="nav-link" asp-controller="Home" asp-action="Index">ראשי</a>
+              </li>
+              @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Employee" asp-action="Index">עובדים</a>
+                </li>
+              }
+              @if (!User.IsInRole("6"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Allocations" asp-action="Index">הקצאות</a>
+                </li>
+              }
+              @if (User.IsInRole("1") || User.IsInRole("2"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Admin" asp-action="ReportingMonths">חודשי דיווח</a>
+                </li>
+              }
+              @if (!User.IsInRole("6"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Dashboard" asp-action="Index">דשבורד דיווחים</a>
+                </li>
+              }
+              @if (User.IsInRole("6"))
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="MyAllocations" asp-action="Index">פעילות חודשית</a>
+                </li>
+              }
+              else
+              {
+                <li class="nav-item">
+                  <a class="nav-link" asp-controller="Report" asp-action="Index">פעילות חודשית</a>
+                </li>
+              }
             </ul>
             <ul class="navbar-nav me-auto app-user-nav">
               <li class="nav-item dropdown">
@@ -104,6 +109,11 @@
                     </form>
                   </li>
                 </ul>
+              </li>
+              <li class="nav-item d-flex align-items-center">
+                <a class="nav-link" asp-controller="Home" asp-action="Index" aria-label="דף הבית" title="דף הבית">
+                  <span aria-hidden="true">🏠</span>
+                </a>
               </li>
               <li class="nav-item d-flex align-items-center">
                 <form asp-controller="Account" asp-action="Logout" method="post" class="m-0">
