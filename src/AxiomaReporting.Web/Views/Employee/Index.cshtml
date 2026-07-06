@@ -386,6 +386,11 @@
                      class="btn btn-sm btn-primary" title="עריכת כרטיס">עריכה</a>
                   <a asp-action="Allocations" asp-route-id="@emp.Id"
                      class="btn btn-sm btn-success" title="הקצאות">הקצאות</a>
+                  @if (activeAllocations.Count > 0)
+                  {
+                    <a asp-controller="Report" asp-action="Index" asp-route-userId="@emp.Id"
+                       class="btn btn-sm btn-outline-primary" title="דווח פעילות חודשית עבור העובד">דווח</a>
+                  }
                   <form method="post" action="@Url.Action("ResetPassword", "Employee", new { id = emp.Id })@Context.Request.QueryString"
                         style="display:inline"
                         onsubmit="return confirm('לאפס סיסמה למספר הזהות?')">
