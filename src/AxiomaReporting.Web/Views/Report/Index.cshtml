@@ -331,6 +331,15 @@
     </div>
   </div>
 
+  @if (report != null && Model.Any())
+  {
+    @* הורדת הדיווח לאקסל — זמין לעובד בכל סטטוס (בקשת לקוח Sheet7 #4) *@
+    <div class="mt-3">
+      <a asp-action="ExportMyReport" asp-route-reportId="@report.Id" asp-route-allocationId="@allocationId"
+         class="btn btn-outline-success btn-sm">הורד דיווח לאקסל</a>
+    </div>
+  }
+
   @if (canEdit && report?.StatusId is 1 or 2 or 5)
   {
     <div class="mt-3 d-flex flex-wrap gap-2">
@@ -902,21 +911,20 @@
       const inst = window._axChoices && window._axChoices.get ? window._axChoices.get(el) : null;
       if (inst) {
         // Choices.js wraps the select — setting el.value directly does not update
-        // its UI, so drive the instance API instead.
-        if (value === null || value === undefined || value === '') {
-          inst.removeActiveItems();
-          inst.setChoiceByValue('');
-        } else {
-          inst.setChoiceByValue(String(value));
-        }
+        // its UI, so drive the instance API. NOTE: never call removeActiveItems()
+        // on a single-select instance — it drops the item from the store for good;
+        // selecting the placeholder ('' option) is the correct "clear".
+        inst.setChoiceByValue(String(value ?? ''));
       } else {
         el.value = value || '';
       }
     }
 
     function addRow() {
-      document.getElementById('rowForm').reset();
-      // form.reset() does not refresh Choices.js widgets — clear them explicitly.
+      // NOTE: intentionally NOT form.reset() — it restores native select state behind
+      // Choices.js' back and permanently desyncs the widgets. Clear fields explicitly.
+      document.querySelectorAll('#rowForm input[type="date"], #rowForm input[type="number"], #rowForm textarea')
+        .forEach(el => { el.value = ''; });
       document.querySelectorAll('#rowForm select').forEach(el => setSelect(el.id, ''));
       document.getElementById('rowId').value = '0';
       document.getElementById('rowRowVersion').value = '';

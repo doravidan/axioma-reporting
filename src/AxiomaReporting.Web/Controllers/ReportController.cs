@@ -228,6 +228,93 @@ public class ReportController : Controller
       "report_upload_template.xlsx");
   }
 
+  // GET /Report/ExportMyReport — ייצוא הדיווח לאקסל: כותרות בעברית ובסדר העמודות
+  // של המסך (משוב בטא B24/B25), כולל תווית מסגרת משולבת. זמין גם לעובד עצמו (Sheet7 #4).
+  [HttpGet]
+  public async Task<IActionResult> ExportMyReport(int reportId, int allocationId)
+  {
+    var report = await _db.Reports
+      .Include(r => r.User)
+      .Include(r => r.ReportingMonth)
+      .FirstOrDefaultAsync(r => r.Id == reportId);
+    if (report == null) return NotFound();
+    if (!await CanViewEmployeeReportAsync(report.UserId)) return Forbid();
+
+    var rows = await _db.ReportRows
+      .AsSplitQuery()
+      .Include(r => r.District)
+      .Include(r => r.Locality)
+      .Include(r => r.Framework)
+      .Include(r => r.EducationalProgram)
+      .Include(r => r.Domain)
+      .Include(r => r.Subject1)
+      .Include(r => r.Subject2)
+      .Include(r => r.DiscussionCode)
+      .Include(r => r.ConclusionClass)
+      .Include(r => r.ConclusionFramework)
+      .Include(r => r.ConclusionLocation)
+      .Include(r => r.GradeLevel)
+      .Include(r => r.Class)
+      .Where(r => r.ReportId == reportId && r.AllocationId == allocationId)
+      .OrderBy(r => r.MeetingDate).ThenBy(r => r.SequenceNumber)
+      .ToListAsync();
+
+    var frameworkLabels = await FrameworkLabelService.BuildLabelsAsync(
+      _db, rows.Select(r => r.FrameworkId).Distinct().ToList());
+
+    using var workbook = new XLWorkbook();
+    var ws = workbook.Worksheets.Add("דיווח פעילות חודשית");
+    ws.RightToLeft = true;
+
+    // סדר העמודות זהה למסך הדיווח.
+    var headers = new[]
+    {
+      "מס\"ד", "תאריך", "משך תפוקה", "מחוז", "ישוב", "מסגרת חינוכית", "תוכנית",
+      "תחום", "נושא 1", "נושא 2", "קיום דיון", "מסקנה-כיתה", "מסקנה-מסגרת",
+      "מסקנה-מיקום", "שכבה", "כיתה", "הערות"
+    };
+    for (var i = 0; i < headers.Length; i++)
+    {
+      ws.Cell(1, i + 1).Value = headers[i];
+      ws.Cell(1, i + 1).Style.Font.Bold = true;
+    }
+
+    var rowIdx = 2;
+    foreach (var r in rows)
+    {
+      ws.Cell(rowIdx, 1).Value = r.SequenceNumber;
+      ws.Cell(rowIdx, 2).Value = r.MeetingDate;
+      ws.Cell(rowIdx, 2).Style.DateFormat.Format = "dd/MM/yyyy";
+      ws.Cell(rowIdx, 3).Value = r.MeetingDuration;
+      ws.Cell(rowIdx, 4).Value = r.District?.Description;
+      ws.Cell(rowIdx, 5).Value = r.Locality?.Description;
+      ws.Cell(rowIdx, 6).Value = frameworkLabels.TryGetValue(r.FrameworkId, out var fwLabel)
+        ? fwLabel : r.Framework?.Description;
+      ws.Cell(rowIdx, 7).Value = r.EducationalProgram?.Description;
+      ws.Cell(rowIdx, 8).Value = r.Domain?.Description;
+      ws.Cell(rowIdx, 9).Value = r.Subject1?.Description;
+      ws.Cell(rowIdx, 10).Value = r.Subject2?.Description;
+      ws.Cell(rowIdx, 11).Value = r.DiscussionCode?.Description;
+      ws.Cell(rowIdx, 12).Value = r.ConclusionClass?.Description;
+      ws.Cell(rowIdx, 13).Value = r.ConclusionFramework?.Description;
+      ws.Cell(rowIdx, 14).Value = r.ConclusionLocation?.Description;
+      ws.Cell(rowIdx, 15).Value = r.GradeLevel?.Description;
+      ws.Cell(rowIdx, 16).Value = r.Class?.Description;
+      ws.Cell(rowIdx, 17).Value = r.Notes;
+      rowIdx++;
+    }
+
+    ws.Columns().AdjustToContents();
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    var month = report.ReportingMonth != null ? $"{report.ReportingMonth.Month:00}-{report.ReportingMonth.Year}" : "";
+    return File(
+      stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"activity_report_{month}.xlsx");
+  }
+
   [HttpGet]
   public async Task<IActionResult> GetRow(int rowId)
   {
