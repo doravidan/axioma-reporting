@@ -1,88 +1,434 @@
 /* ──────────────────────────────────────────────────────────────────────
- * theme.css — Axioma "Site & Sound חינוך" brand palette
- * Sampled from wwwroot/images/logo.png via scripts/extract_logo_colors.py
+ * theme.css — Site & Sound חינוך design system
  *
- * Top three dominant non-white/non-black, non-greyscale colors:
- *   --axioma-primary  : #F1601F   (logo orange — wordmark + right bar)
- *   --axioma-accent   : #1D144D   (logo deep navy — left bar)
- *   --axioma-secondary: #7D3739   (logo maroon — middle bar)
+ * Brand hues sampled from wwwroot/images/logo.png
+ * (scripts/extract_logo_colors.py):
+ *   #F1601F  logo orange (wordmark + right bar)
+ *   #1D144D  logo deep navy (left bar)
+ *   #7D3739  logo maroon (middle bar)
  *
- * Applied scope (deliberately narrow):
- *   .navbar / .app-navbar background        → primary
- *   .btn-primary background + border        → primary
- *   .btn-primary:hover/:focus               → primary darkened
- *   .card-header.bg-primary                 → primary
- *   .nav-link.active highlight              → primary tint
+ * The bright logo orange fails WCAG AA (4.5:1) for white button text, so
+ * filled controls use --ax-primary-strong (#C9490F ≈ 4.7:1 on white) and
+ * the bright hue is reserved for accents (borders, banner, active states).
  *
- * Bootstrap success / danger / warning / info are intentionally untouched.
- * Loaded AFTER site.css so it overrides app-navbar / btn-primary.
+ * Loaded AFTER bootstrap.rtl + site.css, so everything here wins.
+ * RTL app — logical properties (inline-start/end) only, never left/right.
  * ────────────────────────────────────────────────────────────────────── */
 
 :root {
+  /* Brand (legacy names kept — referenced elsewhere) */
   --axioma-primary: #F1601F;
   --axioma-primary-hover: #d04f15;
   --axioma-primary-active: #ad400e;
   --axioma-accent: #1D144D;
   --axioma-secondary: #7D3739;
+
+  /* Extended ramp */
+  --ax-primary: #F1601F;
+  --ax-primary-strong: #C9490F;   /* filled buttons — AA on white */
+  --ax-primary-stronger: #A73B0A;
+  --ax-primary-soft: #FDEFE7;
+  --ax-primary-softer: #FFF8F4;
+  --ax-navy: #1D144D;
+  --ax-navy-2: #2A1F66;
+  --ax-navy-soft: #EEEDF6;
+
+  /* Neutrals */
+  --ax-ink: #232B3E;
+  --ax-ink-2: #3A4663;
+  --ax-muted: #5B6478;
+  --ax-border: #E3E7EF;
+  --ax-border-strong: #CBD2DE;
+  --ax-surface: #FFFFFF;
+  --ax-bg: #F5F6FA;
+
+  /* Elevation */
+  --ax-shadow-xs: 0 1px 2px rgba(29, 20, 77, 0.06);
+  --ax-shadow-sm: 0 1px 3px rgba(29, 20, 77, 0.08), 0 4px 12px rgba(29, 20, 77, 0.05);
+  --ax-shadow-md: 0 4px 10px rgba(29, 20, 77, 0.08), 0 12px 28px rgba(29, 20, 77, 0.08);
+  --ax-shadow-lg: 0 10px 20px rgba(29, 20, 77, 0.12), 0 24px 48px rgba(29, 20, 77, 0.14);
+
+  /* Radii */
+  --ax-radius-sm: 8px;
+  --ax-radius: 12px;
+  --ax-radius-lg: 16px;
+
+  /* Bootstrap root remaps */
+  --bs-body-font-family: 'Heebo', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --bs-body-color: var(--ax-ink);
+  --bs-body-bg: var(--ax-bg);
+  --bs-border-color: var(--ax-border);
+  --bs-link-color: var(--ax-primary-strong);
+  --bs-link-hover-color: var(--ax-primary-stronger);
 }
 
-/* Navbar — replace the cool-blue with the brand orange */
+/* ── Base ─────────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--bs-body-font-family);
+  background: var(--ax-bg);
+  color: var(--ax-ink);
+}
+
+a { color: var(--ax-primary-strong); }
+a:hover { color: var(--ax-primary-stronger); }
+
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+  color: var(--ax-navy);
+  font-weight: 700;
+}
+
+.display-5, .display-6 { font-weight: 700; }
+
+.text-muted { color: var(--ax-muted) !important; }
+.text-primary { color: var(--ax-primary-strong) !important; }
+.bg-primary { background-color: var(--ax-primary-strong) !important; }
+
+main#main-content { min-height: 55vh; }
+
+/* Subtle custom scrollbars for scrollable regions */
+.table-responsive::-webkit-scrollbar { height: 10px; width: 10px; }
+.table-responsive::-webkit-scrollbar-thumb { background: var(--ax-border-strong); border-radius: 6px; }
+.table-responsive::-webkit-scrollbar-track { background: transparent; }
+
+/* ── App header (navbar) — deep navy, orange accent line ─────────────── */
 .app-navbar,
 .navbar.app-navbar {
-  background: var(--axioma-primary) !important;
-  border-color: var(--axioma-primary-hover) !important;
+  background: linear-gradient(180deg, var(--ax-navy-2), var(--ax-navy)) !important;
+  border-bottom: 3px solid var(--ax-primary) !important;
+  box-shadow: var(--ax-shadow-sm);
+  padding-block: .45rem;
+}
+
+.app-navbar .navbar-brand { color: #fff; }
+
+.app-navbar-logo {
+  max-height: 36px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 3px 8px;
+  box-shadow: inset 0 0 0 1px rgba(29, 20, 77, .08);
+}
+
+.app-navbar .nav-link {
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: var(--ax-radius-sm);
+  padding-inline: 0.9rem;
+  font-weight: 500;
+  position: relative;
+  transition: background .15s ease, color .15s ease;
 }
 
 .app-navbar .nav-link:hover,
 .app-navbar .nav-link:focus,
 .app-navbar .show > .nav-link,
 .app-navbar .nav-link.active {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
 
-/* Logout button — orange tint on hover instead of blue */
+/* Logout pill */
 .app-logout-btn {
-  color: var(--axioma-secondary);
+  color: var(--ax-navy);
+  background: #fff;
+  border: 0;
+  border-radius: 999px;
+  font-weight: 700;
+  min-width: 74px;
+  padding-block: .3rem;
 }
 
 .app-logout-btn:hover,
 .app-logout-btn:focus {
-  color: var(--axioma-secondary);
-  background: #fff3ec;
-  border-color: #fff3ec;
+  color: var(--ax-primary-stronger);
+  background: var(--ax-primary-soft);
+  border-color: var(--ax-primary-soft);
 }
 
-/* Bootstrap btn-primary — re-skin in brand orange */
+/* Dropdown menus (navbar + everywhere) */
+.dropdown-menu {
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius);
+  box-shadow: var(--ax-shadow-md);
+  padding: .4rem;
+}
+
+.dropdown-item {
+  border-radius: var(--ax-radius-sm);
+  padding: .45rem .8rem;
+  color: var(--ax-ink);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+  color: var(--ax-primary-stronger);
+  background: var(--ax-primary-softer);
+}
+
+.dropdown-divider { border-color: var(--ax-border); opacity: 1; }
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+.footer {
+  background: var(--ax-surface);
+  border-top: 1px solid var(--ax-border) !important;
+  color: var(--ax-muted);
+  font-size: .9rem;
+}
+
+.footer a { color: var(--ax-muted); }
+.footer a:hover { color: var(--ax-primary-stronger); }
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+.btn {
+  border-radius: var(--ax-radius-sm);
+  font-weight: 600;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+
+.btn:active { transform: translateY(1px); }
+
 .btn-primary {
-  --bs-btn-bg: var(--axioma-primary);
-  --bs-btn-border-color: var(--axioma-primary);
-  --bs-btn-hover-bg: var(--axioma-primary-hover);
-  --bs-btn-hover-border-color: var(--axioma-primary-hover);
+  --bs-btn-bg: var(--ax-primary-strong);
+  --bs-btn-border-color: var(--ax-primary-strong);
+  --bs-btn-hover-bg: var(--ax-primary-stronger);
+  --bs-btn-hover-border-color: var(--ax-primary-stronger);
   --bs-btn-active-bg: var(--axioma-primary-active);
   --bs-btn-active-border-color: var(--axioma-primary-active);
-  --bs-btn-disabled-bg: var(--axioma-primary);
-  --bs-btn-disabled-border-color: var(--axioma-primary);
+  --bs-btn-disabled-bg: var(--ax-primary-strong);
+  --bs-btn-disabled-border-color: var(--ax-primary-strong);
+  box-shadow: 0 1px 2px rgba(201, 73, 15, .35);
 }
 
-/* Card header — the "blue card" override (see CLIENT_FEEDBACK item #11) */
+.btn-outline-primary {
+  --bs-btn-color: var(--ax-primary-strong);
+  --bs-btn-border-color: var(--ax-primary-strong);
+  --bs-btn-hover-bg: var(--ax-primary-strong);
+  --bs-btn-hover-border-color: var(--ax-primary-strong);
+  --bs-btn-active-bg: var(--ax-primary-stronger);
+  --bs-btn-active-border-color: var(--ax-primary-stronger);
+}
+
+.btn-secondary {
+  --bs-btn-bg: var(--ax-navy);
+  --bs-btn-border-color: var(--ax-navy);
+  --bs-btn-hover-bg: var(--ax-navy-2);
+  --bs-btn-hover-border-color: var(--ax-navy-2);
+  --bs-btn-active-bg: var(--ax-navy-2);
+  --bs-btn-active-border-color: var(--ax-navy-2);
+}
+
+/* Amber outline (used for "reset password" row actions) — the stock yellow
+   fails contrast on white */
+.btn-outline-warning {
+  --bs-btn-color: #A16207;
+  --bs-btn-border-color: #D5A021;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: #B97D0C;
+  --bs-btn-hover-border-color: #B97D0C;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: #A16207;
+  --bs-btn-active-border-color: #A16207;
+}
+
+.btn-sm { white-space: nowrap; }
+
+.btn-outline-secondary {
+  --bs-btn-color: var(--ax-ink-2);
+  --bs-btn-border-color: var(--ax-border-strong);
+  --bs-btn-hover-color: var(--ax-ink);
+  --bs-btn-hover-bg: var(--ax-navy-soft);
+  --bs-btn-hover-border-color: var(--ax-border-strong);
+  --bs-btn-active-color: var(--ax-ink);
+  --bs-btn-active-bg: var(--ax-navy-soft);
+  --bs-btn-active-border-color: var(--ax-border-strong);
+}
+
+.btn-link { color: var(--ax-primary-strong); text-decoration: none; }
+.btn-link:hover { color: var(--ax-primary-stronger); text-decoration: underline; }
+
+/* ── Cards ────────────────────────────────────────────────────────────── */
+.card {
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius);
+  box-shadow: var(--ax-shadow-xs);
+}
+
+.card-header {
+  background: var(--ax-surface);
+  border-bottom: 1px solid var(--ax-border);
+  font-weight: 700;
+  color: var(--ax-navy);
+  border-radius: var(--ax-radius) var(--ax-radius) 0 0 !important;
+  padding: .8rem 1rem;
+}
+
+/* Brand card header (client feedback #11 — "blue card" stays brand orange) */
 .card-header.bg-primary {
-  background-color: var(--axioma-primary) !important;
+  background: linear-gradient(120deg, var(--ax-primary-strong), var(--axioma-primary)) !important;
   color: #fff !important;
+  border-bottom: 0;
 }
 
-/* Active nav-link highlight (e.g. dashboard side menu) */
+.card-header.bg-primary h1, .card-header.bg-primary h2, .card-header.bg-primary h3,
+.card-header.bg-primary h4, .card-header.bg-primary h5, .card-header.bg-primary h6 {
+  color: #fff;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────── */
+.table {
+  --bs-table-color: var(--ax-ink);
+  --bs-table-striped-bg: #FAFBFD;
+  --bs-table-hover-bg: var(--ax-primary-softer);
+  border-color: var(--ax-border);
+  margin-bottom: 0.5rem;
+}
+
+/* Normalize every thead variant (.table-dark / .table-light legacy markup)
+   to one design-system header. --bs-table-* must be reset on the cell level
+   or Bootstrap's variant colors (e.g. white table-dark text) leak through. */
+.table > thead th,
+.table > thead.table-light th,
+.table > thead.table-dark th {
+  --bs-table-bg: #EEF1F7;
+  --bs-table-color: var(--ax-ink-2);
+  --bs-table-striped-bg: #EEF1F7;
+  --bs-table-striped-color: var(--ax-ink-2);
+  --bs-table-border-color: var(--ax-border-strong);
+  background: #EEF1F7;
+  color: var(--ax-ink-2);
+  font-weight: 600;
+  font-size: .875rem;
+  border-bottom: 1px solid var(--ax-border-strong);
+  padding-block: .65rem;
+  white-space: nowrap;
+}
+
+.table > thead th a { color: var(--ax-ink-2); text-decoration: none; }
+.table > thead th a:hover { color: var(--ax-primary-stronger); }
+.table > thead th .link-light { color: var(--ax-ink-2) !important; }
+.table > thead th .link-light:hover { color: var(--ax-primary-stronger) !important; }
+
+.table > tbody td { padding-block: .55rem; vertical-align: middle; }
+
+.table-bordered { border-radius: var(--ax-radius-sm); overflow: hidden; }
+
+/* Card containing a flush table — round the corners cleanly */
+.card .table { margin-bottom: 0; }
+
+/* ── Forms ────────────────────────────────────────────────────────────── */
+.form-label { font-weight: 600; color: var(--ax-ink-2); margin-bottom: .3rem; }
+
+.form-control,
+.form-select {
+  border-radius: var(--ax-radius-sm);
+  border-color: var(--ax-border-strong);
+  color: var(--ax-ink);
+}
+
+.form-control::placeholder { color: #98A1B3; }
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--ax-primary);
+}
+
+.form-check-input:checked {
+  background-color: var(--ax-primary-strong);
+  border-color: var(--ax-primary-strong);
+}
+
+.form-text { color: var(--ax-muted); }
+
+.input-group-text {
+  background: var(--ax-navy-soft);
+  border-color: var(--ax-border-strong);
+  color: var(--ax-ink-2);
+}
+
+/* ── Alerts ───────────────────────────────────────────────────────────── */
+.alert {
+  border: 0;
+  border-inline-start: 4px solid transparent;
+  border-radius: var(--ax-radius-sm);
+  box-shadow: var(--ax-shadow-xs);
+}
+
+.alert-success { border-inline-start-color: #199A56; }
+.alert-danger { border-inline-start-color: #D64545; }
+.alert-warning { border-inline-start-color: #E8A413; }
+.alert-info { border-inline-start-color: #2E7CD6; }
+
+/* ── Badges ───────────────────────────────────────────────────────────── */
+.badge { font-weight: 600; border-radius: 999px; padding: .38em .75em; }
+
+/* ── Modals ───────────────────────────────────────────────────────────── */
+.modal-content {
+  border: 0;
+  border-radius: var(--ax-radius-lg);
+  box-shadow: var(--ax-shadow-lg);
+}
+
+.modal-header {
+  border-bottom: 1px solid var(--ax-border);
+  padding: 1rem 1.25rem;
+}
+
+.modal-title { font-weight: 700; color: var(--ax-navy); }
+
+.modal-footer { border-top: 1px solid var(--ax-border); }
+
+/* ── Pagination ───────────────────────────────────────────────────────── */
+.pagination {
+  --bs-pagination-color: var(--ax-ink-2);
+  --bs-pagination-border-color: var(--ax-border);
+  --bs-pagination-hover-color: var(--ax-primary-stronger);
+  --bs-pagination-hover-bg: var(--ax-primary-softer);
+  --bs-pagination-hover-border-color: var(--ax-border);
+  --bs-pagination-focus-color: var(--ax-primary-stronger);
+  --bs-pagination-focus-bg: var(--ax-primary-softer);
+  --bs-pagination-active-bg: var(--ax-primary-strong);
+  --bs-pagination-active-border-color: var(--ax-primary-strong);
+}
+
+.pagination { flex-wrap: wrap; row-gap: 4px; }
+
+.page-link {
+  font-weight: 500;
+  padding: .3rem .65rem;
+  font-size: .9rem;
+}
+
+/* ── Nav pills / tabs ─────────────────────────────────────────────────── */
+.nav-pills .nav-link { color: var(--ax-ink-2); border-radius: var(--ax-radius-sm); }
+
 .nav-pills .nav-link.active,
 .nav-pills .show > .nav-link {
-  background-color: var(--axioma-primary);
+  background-color: var(--ax-primary-strong);
 }
 
-/* Skip link colour (accessibility) — keep contrast with brand */
+.nav-tabs { border-color: var(--ax-border); }
+.nav-tabs .nav-link { color: var(--ax-ink-2); }
+.nav-tabs .nav-link.active {
+  color: var(--ax-primary-stronger);
+  font-weight: 600;
+  border-bottom: 2px solid var(--ax-primary);
+}
+
+/* ── List groups ──────────────────────────────────────────────────────── */
+.list-group-item { border-color: var(--ax-border); }
+.list-group-item.active {
+  background-color: var(--ax-primary-strong);
+  border-color: var(--ax-primary-strong);
+}
+
+/* ── Accessibility: skip link (IS 5568) — over the navy header ────────── */
 .skip-link {
-  background: var(--axioma-accent);
+  background: var(--ax-navy);
+  border: 2px solid #fff;
+  border-radius: 0 0 8px 8px;
 }
 
-/* ── Choices.js — RTL container (Choices renders LTR by default) ──────── */
+/* ── Choices.js — RTL + design-system skin ────────────────────────────── */
 .choices {
   direction: rtl;
   text-align: right;
@@ -92,19 +438,39 @@
 .choices__inner {
   direction: rtl;
   text-align: right;
+  background: var(--ax-surface);
+  border: 1px solid var(--ax-border-strong);
+  border-radius: var(--ax-radius-sm);
+  min-height: 40px;
+}
+
+.is-focused .choices__inner,
+.is-open .choices__inner {
+  border-color: var(--ax-primary);
 }
 
 .choices__list--dropdown,
 .choices__list[aria-expanded] {
   direction: rtl;
   text-align: right;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-radius-sm);
+  box-shadow: var(--ax-shadow-md);
+}
+
+.choices__list--dropdown .choices__item--selectable.is-highlighted,
+.choices__list[aria-expanded] .choices__item--selectable.is-highlighted {
+  background: var(--ax-primary-softer);
+  color: var(--ax-primary-stronger);
 }
 
 .choices__list--multiple .choices__item {
   margin-inline-end: 3.75px;
   margin-inline-start: 0;
-  background-color: var(--axioma-primary);
-  border-color: var(--axioma-primary-hover);
+  background-color: var(--ax-primary-strong);
+  border-color: var(--ax-primary-stronger);
+  border-radius: 999px;
+  font-weight: 500;
 }
 
 .choices__list--multiple .choices__item .choices__button {
@@ -119,28 +485,57 @@
 .choices__input {
   direction: rtl;
   text-align: right;
+  background: transparent;
 }
 
-/* ── /MyAllocations tile cards ────────────────────────────────────────── */
+/* ── Anonymous pages (login / forgot / reset / 2FA / terms) ───────────── */
+body.anonymous-page {
+  background:
+    radial-gradient(900px 480px at 85% -10%, rgba(241, 96, 31, 0.28), transparent 60%),
+    radial-gradient(700px 420px at 10% 110%, rgba(125, 55, 57, 0.30), transparent 55%),
+    linear-gradient(160deg, var(--ax-navy-2), var(--ax-navy) 55%, #150E3B);
+  min-height: 100vh;
+}
+
+body.anonymous-page .skip-link:focus { top: 0; }
+
+.login-card {
+  max-width: 420px;
+  width: 100%;
+  margin: 9vh auto 3rem;
+  border: 0;
+  border-radius: var(--ax-radius-lg);
+  box-shadow: var(--ax-shadow-lg);
+}
+
+.login-card .card-body { padding: 2rem !important; }
+
+.login-logo { text-align: center; padding: 4px 0 18px; }
+
+.login-logo-img { max-width: 230px; max-height: 92px; }
+
+.login-logo p {
+  color: var(--ax-muted);
+  font-weight: 500;
+  letter-spacing: .01em;
+}
+
+.login-card .btn-primary { padding-block: .6rem; font-size: 1.05rem; }
+
+/* ── MyAllocations banner + tile cards ────────────────────────────────── */
 .myalloc-banner {
-  background: linear-gradient(135deg, var(--axioma-primary), var(--axioma-secondary));
+  background: linear-gradient(120deg, var(--ax-navy-2), var(--ax-navy) 70%);
+  border-inline-start: 5px solid var(--ax-primary);
   color: #fff;
-  border-radius: 12px;
+  border-radius: var(--ax-radius);
   padding: 1.5rem 1.75rem;
   margin-bottom: 1.5rem;
-  box-shadow: 0 6px 18px rgba(31, 27, 77, 0.15);
+  box-shadow: var(--ax-shadow-md);
 }
 
-.myalloc-banner h2 {
-  margin: 0 0 .25rem;
-  font-weight: 800;
-  font-size: 1.6rem;
-}
+.myalloc-banner h2 { margin: 0 0 .25rem; font-weight: 800; font-size: 1.6rem; color: #fff; }
 
-.myalloc-banner .myalloc-deadline {
-  font-size: 1.05rem;
-  opacity: .95;
-}
+.myalloc-banner .myalloc-deadline { font-size: 1.05rem; opacity: .92; }
 
 .myalloc-tile {
   display: flex;
@@ -149,28 +544,36 @@
   justify-content: center;
   text-align: center;
   padding: 2rem 1rem;
-  border-radius: 12px;
-  border: 2px solid var(--axioma-primary);
-  background: #fff;
-  color: var(--axioma-accent);
+  border-radius: var(--ax-radius-lg);
+  border: 1px solid var(--ax-border);
+  background: var(--ax-surface);
+  color: var(--ax-navy);
   text-decoration: none;
   font-weight: 700;
   font-size: 1.15rem;
   min-height: 180px;
-  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  box-shadow: var(--ax-shadow-xs);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 
 .myalloc-tile:hover,
 .myalloc-tile:focus {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(232, 91, 31, 0.25);
-  background: #fff7f2;
-  color: var(--axioma-accent);
+  transform: translateY(-3px);
+  box-shadow: var(--ax-shadow-md);
+  border-color: var(--ax-primary);
+  color: var(--ax-navy);
   text-decoration: none;
 }
 
 .myalloc-tile-icon {
-  font-size: 3rem;
+  font-size: 2rem;
   line-height: 1;
-  margin-bottom: .75rem;
+  margin-bottom: .9rem;
+  width: 68px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ax-primary-soft);
 }

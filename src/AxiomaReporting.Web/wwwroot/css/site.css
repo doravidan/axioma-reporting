@@ -2,10 +2,10 @@
 .skip-link {
   position: absolute;
   top: -9999px;
-  right: 0;
+  inset-inline-start: 0;
   z-index: 9999;
   padding: 0.75rem 1.25rem;
-  background: #0f5fd7;
+  background: #1D144D;
   color: #fff;
   font-weight: 700;
   text-decoration: none;
@@ -40,7 +40,7 @@ html {
 a:focus-visible {
   outline: 2px solid #ffcc00;
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(15, 95, 215, 0.4);
+  box-shadow: 0 0 0 4px rgba(29, 20, 77, 0.35);
 }
 
 html {
@@ -53,8 +53,8 @@ body {
 }
 
 .app-navbar {
-  background: #0f5fd7;
-  border-color: #0b4fb5 !important;
+  background: #1D144D;
+  border-color: #F1601F !important;
 }
 
 .app-navbar .navbar-brand {
@@ -106,7 +106,7 @@ body {
 }
 
 .app-logout-btn {
-  color: #0b3f91;
+  color: #1D144D;
   border-color: #fff;
   font-weight: 700;
   min-width: 74px;
@@ -114,24 +114,24 @@ body {
 
 .app-logout-btn:hover,
 .app-logout-btn:focus {
-  color: #062d68;
-  background: #eaf2ff;
-  border-color: #eaf2ff;
+  color: #A73B0A;
+  background: #FDEFE7;
+  border-color: #FDEFE7;
 }
 
 .app-navbar .dropdown-menu {
-  border: 1px solid #d7e3f4;
-  box-shadow: 0 10px 24px rgba(15, 45, 85, 0.18);
+  border: 1px solid #E3E7EF;
+  box-shadow: 0 10px 24px rgba(29, 20, 77, 0.16);
 }
 
 .app-navbar .dropdown-item {
-  color: #1f2937;
+  color: #232B3E;
 }
 
 .app-navbar .dropdown-item:hover,
 .app-navbar .dropdown-item:focus {
-  color: #0b3f91;
-  background: #edf5ff;
+  color: #A73B0A;
+  background: #FFF8F4;
 }
 
 @media (max-width: 575.98px) {
