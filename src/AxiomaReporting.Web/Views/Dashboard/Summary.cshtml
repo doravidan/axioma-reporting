@@ -149,6 +149,7 @@
     {
         <form asp-action="BulkApprove" method="post" id="bulkForm">
             @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@currentUrl" />
 
             <div class="d-flex gap-2 mb-2 align-items-center">
                 <button type="button" onclick="selectAll(true)" class="btn btn-outline-secondary btn-sm">בחר הכל</button>
@@ -232,13 +233,12 @@
                                 <td>
                                     @if (r.StatusId == 3)
                                     {
-                                        <form asp-controller="Report" asp-action="Approve"
-                                              asp-route-reportId="@r.ReportId" method="post" style="display:inline">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="returnUrl" value="@currentUrl" />
-                                            <button type="submit" class="btn btn-sm btn-success">אשר</button>
-                                        </form>
-                                        <button class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
+                                        @* אין לקנן <form> בתוך טופס האישור המרוכז — הדפדפן זורק את הטופס
+                                           הפנימי והכפתור מגיש את bulkForm ריק ל-/Dashboard/BulkApprove.
+                                           לכן הכפתור מגיש את הטופס החיצוני עם formaction לאישור בודד. *@
+                                        <button type="submit" class="btn btn-sm btn-success"
+                                                formaction="@Url.Action("Approve", "Report", new { reportId = r.ReportId })">אשר</button>
+                                        <button type="button" class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
                                     }
                                     else
                                     {

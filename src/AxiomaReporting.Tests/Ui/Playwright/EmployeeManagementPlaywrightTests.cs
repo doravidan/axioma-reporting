@@ -131,22 +131,30 @@ public class EmployeeManagementPlaywrightTests : PlaywrightTestBase
     [Fact]
     public async Task AllocationDetail_HasEditorControls()
     {
+        // The allocation editor is the card-based AllocationForm (client-feedback
+        // redesign) — the old table-picker UI this test originally asserted no
+        // longer exists.
         var response = await Page.GotoAsync("/Employee/2/Allocations");
         response!.Status.Should().BeLessThan(500);
 
         var body = await GetPageTextAsync();
         body.Should().Contain("הקצאות");
-        body.Should().Contain("פרטי הקצאה");
-        body.Should().Contain("טבלת מחוזות בחירה");
-        body.Should().Contain("טבלת תוכניות");
-        body.Should().Contain("בחר טבלה לעריכה");
-        body.Should().Contain("ערכים שנבחרו");
-        body.Should().Contain("צא לטבלה");
 
-        (await Page.Locator(".allocation-picker").CountAsync()).Should().BeGreaterThan(0);
-        (await Page.Locator(".allocation-category").CountAsync()).Should().BeGreaterThan(0);
-        (await Page.Locator(".allocation-search-available").CountAsync()).Should().BeGreaterThan(0);
-        (await Page.Locator(".allocation-search-selected").CountAsync()).Should().BeGreaterThan(0);
+        var addLink = Page.Locator("a[href*='/Allocations/Create']").First;
+        (await addLink.CountAsync()).Should().BeGreaterThan(0,
+            because: "the allocations page must offer adding a new allocation");
+        await addLink.ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+
+        var form = await GetPageTextAsync();
+        form.Should().Contain("פרטי הקצאה");
+        form.Should().Contain("שיוכים");
+        form.Should().Contain("משך תפוקה");
+
+        (await Page.Locator("select[name='ProjectId'], #projectIdSelect").CountAsync()).Should().BeGreaterThan(0);
+        (await Page.Locator("select[name='DistrictIds']").CountAsync()).Should().BeGreaterThan(0);
+        (await Page.Locator("select[name='ProgramIds']").CountAsync()).Should().BeGreaterThan(0);
+        (await Page.Locator("input[name='OutputDurationValues']").CountAsync()).Should().BeGreaterThan(0);
     }
 
     // ─── Cascading Program Filter (AJAX) ─────────────────────────────────────

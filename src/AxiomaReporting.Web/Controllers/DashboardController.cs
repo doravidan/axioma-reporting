@@ -204,8 +204,14 @@ public class DashboardController : Controller
   [HttpPost]
   [ValidateAntiForgeryToken]
   [Authorize(Policy = PolicyNames.CanApproveReports)]
-  public async Task<IActionResult> BulkApprove(List<int> reportIds)
+  public async Task<IActionResult> BulkApprove(List<int> reportIds, string? returnUrl = null)
   {
+    if (reportIds.Count == 0)
+    {
+      TempData["Error"] = "לא נבחרו דיווחים לאישור";
+      return RedirectBack(returnUrl);
+    }
+
     var approved = 0;
     foreach (var id in reportIds.Distinct())
     {
@@ -217,8 +223,13 @@ public class DashboardController : Controller
     }
 
     TempData["Success"] = $"{approved} דיווחים אושרו בהצלחה";
-    return RedirectToAction(nameof(Summary));
+    return RedirectBack(returnUrl);
   }
+
+  private IActionResult RedirectBack(string? returnUrl) =>
+    !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
+      ? Redirect(returnUrl)
+      : RedirectToAction(nameof(Summary));
 
   private async Task PopulateFilterDataAsync(DashboardFilter filter)
   {
