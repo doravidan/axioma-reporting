@@ -179,6 +179,20 @@
       if (typeof window.Choices === 'undefined') { return; }
       window._axChoices = window._axChoices || new WeakMap();
 
+      // Choices מטמיע "Remove item" קשיח על כפתור ההסרה של פריט — עברות
+      // (יישור לגרסת השרת שמציגה "הסר פריט").
+      function hebrewizeRemoveButtons(root) {
+        (root || document).querySelectorAll('.choices__button').forEach(function (btn) {
+          if (btn.textContent.trim() === 'Remove item') {
+            btn.textContent = 'הסר פריט';
+            btn.setAttribute('aria-label', 'הסר פריט');
+          }
+        });
+      }
+      new MutationObserver(function () { hebrewizeRemoveButtons(); })
+        .observe(document.body, { childList: true, subtree: true });
+      hebrewizeRemoveButtons();
+
       function baseOptions() {
         return {
           searchPlaceholderValue: 'חיפוש…',

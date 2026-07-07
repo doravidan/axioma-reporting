@@ -60,6 +60,7 @@
     <table class="table table-bordered table-sm align-middle">
       <thead class="table-light">
         <tr>
+          <th>מפקח</th>
           <th>ת.ז</th>
           <th>שם פרטי</th>
           <th>שם משפחה</th>
@@ -73,6 +74,7 @@
         @foreach (var item in assignments)
         {
           <tr>
+            <td>@item.Inspector?.FirstName @item.Inspector?.LastName</td>
             <td>@item.Inspector?.IdNumber</td>
             <td>@item.Inspector?.FirstName</td>
             <td>@item.Inspector?.LastName</td>
@@ -90,7 +92,7 @@
         }
         @if (!assignments.Any())
         {
-          <tr><td colspan="7" class="text-center text-muted">אין שיוכים</td></tr>
+          <tr><td colspan="8" class="text-center text-muted">אין שיוכים</td></tr>
         }
       </tbody>
     </table>

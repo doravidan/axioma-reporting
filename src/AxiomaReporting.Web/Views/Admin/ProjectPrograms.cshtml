@@ -15,8 +15,8 @@
 
 <div class="container py-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>ניהול תוכניות לפי פרויקט</h2>
-    <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה לניהול</a>
+    <h2>ניהול תוכניות והיקפים לפי פרויקט</h2>
+    <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה</a>
   </div>
 
   <div class="alert alert-info" role="alert">
@@ -49,7 +49,7 @@
             <span class="visually-hidden">פרויקט: </span>@project.Description
           </div>
           <div class="card-body">
-            <label class="form-label" for="programs_@project.Id">תוכניות קשורות</label>
+            <label class="form-label" for="programs_@project.Id">תוכניות</label>
             <select id="programs_@project.Id" name="programIds" multiple class="form-select"
                     size="@Math.Min(Math.Max(programs.Count, 3), 10)"
                     aria-label="תוכניות קשורות לפרויקט @project.Description">
@@ -61,7 +61,7 @@
             <p class="form-text">לבחירה מרובה יש להחזיק את מקש הבחירה המרובה במקלדת וללחוץ על הפריטים.</p>
           </div>
           <div class="card-footer text-start">
-            <button type="submit" class="btn btn-primary">שמור</button>
+            <button type="submit" class="btn btn-primary">שמור תוכניות</button>
           </div>
         </form>
       </div>
@@ -151,7 +151,7 @@
             </div>
           </div>
           <div class="col-12">
-            <button type="submit" class="btn btn-primary">שמור שיוכי ערכים</button>
+            <button type="submit" class="btn btn-primary">שמור היקף</button>
           </div>
         </div>
       </form>

@@ -254,10 +254,13 @@ public class DashboardController : Controller
       .Select(rr => rr.Id)
       .ToListAsync();
 
+    // כולל גם מסמכים ברמת העובד (ללא שיוך לדיווח ספציפי) — כמו בגרסת השרת.
+    var reportUserId = report.UserId;
     var attachments = await _db.DocumentAttachments
       .AsNoTracking()
       .Where(a => a.ReportId == reportId ||
-                  (a.ReportRowId.HasValue && rowIds.Contains(a.ReportRowId.Value)))
+                  (a.ReportRowId.HasValue && rowIds.Contains(a.ReportRowId.Value)) ||
+                  (a.UserId == reportUserId && a.ReportId == null && a.ReportRowId == null))
       .OrderByDescending(a => a.UploadedAt)
       .ToListAsync();
 

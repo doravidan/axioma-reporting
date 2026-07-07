@@ -190,10 +190,10 @@ public class AdminController : Controller
 
   [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> Frameworks(string? name = null, string? symbol = null,
-    int? stageId = null, string? locality = null, int page = 1, int pageSize = 50)
+    int? stageId = null, string? locality = null, bool? isActive = null, int page = 1, int pageSize = 50)
   {
-    // חיפוש לפי שם מסגרת / סמל / שלב חינוך / יישוב (משוב בטא B29, B34).
-    var query = BuildFrameworksQuery(name, symbol, stageId, locality);
+    // חיפוש לפי שם מסגרת / סמל / שלב חינוך / יישוב / סטטוס (משוב בטא B29, B34; יישור לגרסת השרת).
+    var query = BuildFrameworksQuery(name, symbol, stageId, locality, isActive);
 
     var total = await query.CountAsync();
     pageSize = pageSize is < 1 or > 500 ? 50 : pageSize;
@@ -205,18 +205,28 @@ public class AdminController : Controller
       .Take(pageSize)
       .ToListAsync();
 
+    // עמודת יישוב (יישור לגרסת השרת): נגזר מהמוסד החולק את סמל המסגרת.
+    var shownSymbols = items.Select(f => f.InstitutionSymbol).Distinct().ToList();
+    ViewBag.LocalityBySymbol = (await _db.Institutions
+        .Where(i => i.Locality != null && shownSymbols.Contains(i.InstitutionSymbol.ToString()))
+        .Select(i => new { Symbol = i.InstitutionSymbol.ToString(), Locality = i.Locality!.Description })
+        .ToListAsync())
+      .GroupBy(x => x.Symbol)
+      .ToDictionary(g => g.Key, g => g.First().Locality);
+
     ViewBag.EducationalStages = await _db.EducationalStages.Where(s => s.IsActive).ToListAsync();
     ViewBag.FilterName = name;
     ViewBag.FilterSymbol = symbol;
     ViewBag.FilterStageId = stageId;
     ViewBag.FilterLocality = locality;
+    ViewBag.FilterIsActive = isActive;
     ViewBag.Page = page;
     ViewBag.PageSize = pageSize;
     ViewBag.TotalCount = total;
     return View(items);
   }
 
-  private IQueryable<Framework> BuildFrameworksQuery(string? name, string? symbol, int? stageId, string? locality)
+  private IQueryable<Framework> BuildFrameworksQuery(string? name, string? symbol, int? stageId, string? locality, bool? isActive = null)
   {
     var query = _db.Frameworks.AsQueryable();
     if (!string.IsNullOrWhiteSpace(name))
@@ -225,6 +235,8 @@ public class AdminController : Controller
       query = query.Where(f => EF.Functions.Like(f.InstitutionSymbol, $"%{symbol.Trim()}%"));
     if (stageId.HasValue)
       query = query.Where(f => f.EducationalStageId == stageId.Value);
+    if (isActive.HasValue)
+      query = query.Where(f => f.IsActive == isActive.Value);
     if (!string.IsNullOrWhiteSpace(locality))
     {
       // Locality is resolved via the Institution sharing the framework's symbol.
@@ -282,9 +294,9 @@ public class AdminController : Controller
   [HttpPost, ValidateAntiForgeryToken]
   [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> BulkSetFrameworksActive(bool isActive, string? name = null,
-    string? symbol = null, int? stageId = null, string? locality = null)
+    string? symbol = null, int? stageId = null, string? locality = null, bool? filterIsActive = null)
   {
-    var items = await BuildFrameworksQuery(name, symbol, stageId, locality).ToListAsync();
+    var items = await BuildFrameworksQuery(name, symbol, stageId, locality, filterIsActive).ToListAsync();
     foreach (var f in items)
     {
       f.IsActive = isActive;
