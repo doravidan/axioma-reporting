@@ -9,7 +9,7 @@
   @if (published != null)
   {
     <div class="small text-muted mb-3">
-      גרסה @published.VersionNumber · בתוקף מתאריך @published.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy")
+      גרסה @published.VersionNumber | בתוקף מתאריך @published.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
     </div>
     <div class="card"><div class="card-body">@Html.Raw(published.BodyHtml)</div></div>
     return;
