@@ -36,15 +36,11 @@ public class DashboardController : Controller
     filter ??= new DashboardFilter();
     await PopulateFilterDataAsync(filter);
 
-    // אפיון: "כשנכנסים למסך הטבלה ריקה כל עוד לא לוחצים על הצג" —
-    // data loads only after the user presses הצג (show=1).
-    var showData = show == 1;
-    ViewBag.ShowData = showData;
+    // הדשבורד מציג את כל השורות כברירת מחדל; "הצג" רק מחיל סינון
+    // (בקשת לקוח 07/2026 — מבטל את השער הקודם של "טבלה ריקה עד הצג").
+    ViewBag.ShowData = true;
 
-    var rows = new List<DashboardReportDetailRow>();
-    var total = 0;
-    if (showData)
-      (rows, total) = await _filterService.GetReportRowsAsync(filter, _currentUser.UserId, _currentUser.UserRole);
+    var (rows, total) = await _filterService.GetReportRowsAsync(filter, _currentUser.UserId, _currentUser.UserRole);
 
     ViewBag.Rows = rows;
     ViewBag.TotalCount = total;

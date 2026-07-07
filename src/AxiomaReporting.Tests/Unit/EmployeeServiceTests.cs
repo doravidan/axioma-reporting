@@ -117,6 +117,30 @@ public class EmployeeServiceTests : IDisposable
     (await _sut.GetAllocationsAsync(2)).Should().BeEmpty();
   }
 
+  [Fact]
+  public async Task UpdateAllocation_DeduplicatesPostedJunctionIds()
+  {
+    // Regression: Choices can post the same id twice; adding two junction rows
+    // with the same composite key used to crash the EF change tracker.
+    _db.Users.Add(User(3, "EMP003", "333", "A", "B", (int)UserRoleEnum.Employee, statusId: 1));
+    await _db.SaveChangesAsync();
+
+    var createDto = AllocationDto(userId: 3, projectId: 1);
+    createDto.ProgramIds.Add(1);
+    var allocation = await _sut.CreateAllocationAsync(createDto);
+
+    var updateDto = AllocationDto(userId: 3, projectId: 1);
+    updateDto.ProgramIds.AddRange(new[] { 1, 1, 1 });
+    updateDto.EducationalProgramIds.AddRange(new[] { 1, 1 });
+    updateDto.DistrictIds.AddRange(new[] { 1, 1, 0 });
+
+    (await _sut.UpdateAllocationAsync(allocation.Id, updateDto)).Should().BeTrue();
+
+    _db.Set<AllocationProgram>().Where(x => x.AllocationId == allocation.Id).Should().HaveCount(1);
+    _db.Set<AllocationEducationalProgram>().Where(x => x.AllocationId == allocation.Id).Should().HaveCount(1);
+    _db.Set<AllocationDistrict>().Where(x => x.AllocationId == allocation.Id).Should().HaveCount(1);
+  }
+
   private static EmployeeDto EmployeeDto(string code, string idNumber, string first, string last) => new()
   {
     EmployeeCode = code,

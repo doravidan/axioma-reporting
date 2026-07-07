@@ -317,74 +317,54 @@ public class EmployeeService : IEmployeeService
 
   private async Task SyncAllocationJunctionsAsync(int allocationId, AllocationDto dto)
   {
-    // Remove all existing junction records then re-add from dto
-    _db.Set<AllocationDistrict>()
-      .RemoveRange(_db.Set<AllocationDistrict>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationProgram>()
-      .RemoveRange(_db.Set<AllocationProgram>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationSector>()
-      .RemoveRange(_db.Set<AllocationSector>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationLocality>()
-      .RemoveRange(_db.Set<AllocationLocality>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationFramework>()
-      .RemoveRange(_db.Set<AllocationFramework>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationSubject>()
-      .RemoveRange(_db.Set<AllocationSubject>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationDomain>()
-      .RemoveRange(_db.Set<AllocationDomain>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationEducationalProgram>()
-      .RemoveRange(_db.Set<AllocationEducationalProgram>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationClass>()
-      .RemoveRange(_db.Set<AllocationClass>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationGradeLevel>()
-      .RemoveRange(_db.Set<AllocationGradeLevel>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationDiscussionCode>()
-      .RemoveRange(_db.Set<AllocationDiscussionCode>().Where(x => x.AllocationId == allocationId));
-    _db.Set<AllocationLocalityDistrictNational>()
-      .RemoveRange(_db.Set<AllocationLocalityDistrictNational>().Where(x => x.AllocationId == allocationId));
+    // Diff-based sync in a SINGLE SaveChanges: the old delete-all-save-then-add
+    // pattern committed the deletions first, so a failure while adding (e.g.
+    // duplicate ids posted by a Choices widget) wiped the allocation's scopes.
+    // Diffing also tolerates duplicate/zero ids from the form.
+    await SyncJunctionSetAsync(allocationId, dto.DistrictIds,
+      (AllocationDistrict x) => x.DistrictId, id => new AllocationDistrict { AllocationId = allocationId, DistrictId = id });
+    await SyncJunctionSetAsync(allocationId, dto.ProgramIds,
+      (AllocationProgram x) => x.ProgramId, id => new AllocationProgram { AllocationId = allocationId, ProgramId = id });
+    await SyncJunctionSetAsync(allocationId, dto.SectorIds,
+      (AllocationSector x) => x.SectorId, id => new AllocationSector { AllocationId = allocationId, SectorId = id });
+    await SyncJunctionSetAsync(allocationId, dto.LocalityIds,
+      (AllocationLocality x) => x.LocalityId, id => new AllocationLocality { AllocationId = allocationId, LocalityId = id });
+    await SyncJunctionSetAsync(allocationId, dto.FrameworkIds,
+      (AllocationFramework x) => x.FrameworkId, id => new AllocationFramework { AllocationId = allocationId, FrameworkId = id });
+    await SyncJunctionSetAsync(allocationId, dto.SubjectIds,
+      (AllocationSubject x) => x.SubjectId, id => new AllocationSubject { AllocationId = allocationId, SubjectId = id });
+    await SyncJunctionSetAsync(allocationId, dto.DomainIds,
+      (AllocationDomain x) => x.DomainId, id => new AllocationDomain { AllocationId = allocationId, DomainId = id });
+    await SyncJunctionSetAsync(allocationId, dto.EducationalProgramIds,
+      (AllocationEducationalProgram x) => x.EducationalProgramId, id => new AllocationEducationalProgram { AllocationId = allocationId, EducationalProgramId = id });
+    await SyncJunctionSetAsync(allocationId, dto.ClassIds,
+      (AllocationClass x) => x.ClassId, id => new AllocationClass { AllocationId = allocationId, ClassId = id });
+    await SyncJunctionSetAsync(allocationId, dto.GradeLevelIds,
+      (AllocationGradeLevel x) => x.GradeLevelId, id => new AllocationGradeLevel { AllocationId = allocationId, GradeLevelId = id });
+    await SyncJunctionSetAsync(allocationId, dto.DiscussionCodeIds,
+      (AllocationDiscussionCode x) => x.DiscussionCodeId, id => new AllocationDiscussionCode { AllocationId = allocationId, DiscussionCodeId = id });
+    await SyncJunctionSetAsync(allocationId, dto.LocalityDistrictNationalIds,
+      (AllocationLocalityDistrictNational x) => x.LocalityDistrictNationalId, id => new AllocationLocalityDistrictNational { AllocationId = allocationId, LocalityDistrictNationalId = id });
 
     await _db.SaveChangesAsync();
+  }
 
-    foreach (var id in dto.DistrictIds)
-      _db.Set<AllocationDistrict>().Add(new AllocationDistrict { AllocationId = allocationId, DistrictId = id });
+  private async Task SyncJunctionSetAsync<T>(
+    int allocationId,
+    IEnumerable<int>? desiredIds,
+    Func<T, int> valueId,
+    Func<int, T> create) where T : class
+  {
+    var desired = (desiredIds ?? Enumerable.Empty<int>()).Where(id => id > 0).ToHashSet();
 
-    foreach (var id in dto.ProgramIds)
-      _db.Set<AllocationProgram>().Add(new AllocationProgram { AllocationId = allocationId, ProgramId = id });
+    var existing = await _db.Set<T>()
+      .Where(e => EF.Property<int>(e, "AllocationId") == allocationId)
+      .ToListAsync();
 
-    foreach (var id in dto.SectorIds)
-      _db.Set<AllocationSector>().Add(new AllocationSector { AllocationId = allocationId, SectorId = id });
+    _db.Set<T>().RemoveRange(existing.Where(e => !desired.Contains(valueId(e))));
 
-    foreach (var id in dto.LocalityIds)
-      _db.Set<AllocationLocality>().Add(new AllocationLocality { AllocationId = allocationId, LocalityId = id });
-
-    foreach (var id in dto.FrameworkIds)
-      _db.Set<AllocationFramework>().Add(new AllocationFramework { AllocationId = allocationId, FrameworkId = id });
-
-    foreach (var id in dto.SubjectIds)
-      _db.Set<AllocationSubject>().Add(new AllocationSubject { AllocationId = allocationId, SubjectId = id });
-
-    foreach (var id in dto.DomainIds)
-      _db.Set<AllocationDomain>().Add(new AllocationDomain { AllocationId = allocationId, DomainId = id });
-
-    foreach (var id in dto.EducationalProgramIds)
-      _db.Set<AllocationEducationalProgram>().Add(
-        new AllocationEducationalProgram { AllocationId = allocationId, EducationalProgramId = id });
-
-    foreach (var id in dto.ClassIds)
-      _db.Set<AllocationClass>().Add(new AllocationClass { AllocationId = allocationId, ClassId = id });
-
-    foreach (var id in dto.GradeLevelIds)
-      _db.Set<AllocationGradeLevel>().Add(
-        new AllocationGradeLevel { AllocationId = allocationId, GradeLevelId = id });
-
-    foreach (var id in dto.DiscussionCodeIds)
-      _db.Set<AllocationDiscussionCode>().Add(
-        new AllocationDiscussionCode { AllocationId = allocationId, DiscussionCodeId = id });
-
-    foreach (var id in dto.LocalityDistrictNationalIds)
-      _db.Set<AllocationLocalityDistrictNational>().Add(
-        new AllocationLocalityDistrictNational { AllocationId = allocationId, LocalityDistrictNationalId = id });
-
-    await _db.SaveChangesAsync();
+    var present = existing.Select(valueId).ToHashSet();
+    foreach (var id in desired.Where(id => !present.Contains(id)))
+      _db.Set<T>().Add(create(id));
   }
 }

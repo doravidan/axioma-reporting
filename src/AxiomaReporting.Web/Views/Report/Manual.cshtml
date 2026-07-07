@@ -9,10 +9,10 @@
   <a asp-action="Index" class="btn btn-outline-secondary">חזרה לדיווח</a>
 </div>
 
-<form method="get" asp-action="ManualOpen" class="card">
+<div class="card mb-3">
+  <div class="card-header">איתור עובד</div>
   <div class="card-body">
-    <input type="hidden" id="manualUserId" name="userId" required />
-    <div class="row g-3 align-items-end">
+    <div class="row g-3">
       <div class="col-md-3">
         <label class="form-label" for="manualIdNumber">ת.ז</label>
         <input id="manualIdNumber" class="form-control manual-employee-filter" autocomplete="off" />
@@ -29,12 +29,35 @@
         <label class="form-label" for="manualLastName">שם משפחה</label>
         <input id="manualLastName" class="form-control manual-employee-filter" autocomplete="off" />
       </div>
-      <div class="col-12">
-        <div id="manualEmployeeResults" class="list-group small" aria-live="polite"></div>
-      </div>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" aria-label="תוצאות איתור עובדים">
+      <thead>
+        <tr>
+          <th scope="col">ת.ז</th>
+          <th scope="col">קוד עובד</th>
+          <th scope="col">שם פרטי</th>
+          <th scope="col">שם משפחה</th>
+          <th scope="col"><span class="visually-hidden">פעולות</span></th>
+        </tr>
+      </thead>
+      <tbody id="manualEmployeeResults" aria-live="polite">
+        <tr><td colspan="5" class="text-center text-muted py-3">טוען…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+@* בחירת הקצאה וחודש — נחשף רק לאחר לחיצה על "דווח" ליד עובד *@
+<form method="get" asp-action="ManualOpen" id="manualPickerCard" class="card" style="display:none">
+  <div class="card-header">פתיחת דיווח עבור <span id="manualSelectedName" class="fw-bold"></span></div>
+  <div class="card-body">
+    <input type="hidden" id="manualUserId" name="userId" required />
+    <div class="row g-3 align-items-end">
       <div class="col-md-5">
         <label class="form-label" for="manualAllocationSelect">הקצאה</label>
-        <select id="manualAllocationSelect" name="allocationId" class="form-select" data-no-choices required disabled></select>
+        <select id="manualAllocationSelect" name="allocationId" class="form-select" data-no-choices required></select>
       </div>
       <div class="col-md-5">
         <label class="form-label" for="manualMonthSelect">חודש דיווח</label>
@@ -46,7 +69,7 @@
         </select>
       </div>
       <div class="col-md-2">
-        <button id="manualOpenButton" type="submit" class="btn btn-primary w-100" disabled>פתח</button>
+        <button id="manualOpenButton" type="submit" class="btn btn-primary w-100">פתח</button>
       </div>
     </div>
     <div id="manualNoAllocations" class="text-danger small mt-2" style="display:none" role="alert">
@@ -60,48 +83,68 @@
     (function () {
       const filters = document.querySelectorAll('.manual-employee-filter');
       const results = document.getElementById('manualEmployeeResults');
+      const pickerCard = document.getElementById('manualPickerCard');
+      const selectedName = document.getElementById('manualSelectedName');
       const userId = document.getElementById('manualUserId');
       const alloc = document.getElementById('manualAllocationSelect');
-      const button = document.getElementById('manualOpenButton');
+      const openButton = document.getElementById('manualOpenButton');
       const empty = document.getElementById('manualNoAllocations');
       const searchUrl = '@Url.Action("ManualEmployeeSearch", "Report")';
       let timer = null;
+      let lastData = { employees: [], allocations: [] };
 
-      function clearSelection() {
+      const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+      function hidePicker() {
+        pickerCard.style.display = 'none';
         userId.value = '';
         alloc.innerHTML = '';
-        alloc.disabled = true;
-        button.disabled = true;
         empty.style.display = 'none';
       }
 
-      function render(data) {
-        results.innerHTML = '';
-        clearSelection();
-        (data.employees || []).forEach(function (emp) {
-          const item = document.createElement('button');
-          item.type = 'button';
-          item.className = 'list-group-item list-group-item-action';
-          item.textContent = [emp.idNumber, emp.employeeCode, emp.firstName, emp.lastName].filter(Boolean).join(' | ');
-          item.addEventListener('click', function () {
-            userId.value = emp.id;
-            results.innerHTML = '<div class="list-group-item active">' + item.textContent + '</div>';
-            alloc.innerHTML = '';
-            (data.allocations || []).filter(a => a.userId === emp.id).forEach(function (a) {
-              const opt = document.createElement('option');
-              opt.value = a.id;
-              opt.textContent = a.projectName;
-              alloc.appendChild(opt);
-            });
-            alloc.disabled = alloc.options.length === 0;
-            button.disabled = alloc.options.length === 0;
-            empty.style.display = alloc.options.length === 0 ? 'block' : 'none';
-          });
-          results.appendChild(item);
+      function selectEmployee(emp) {
+        userId.value = emp.id;
+        selectedName.textContent = `${emp.firstName} ${emp.lastName} (${emp.idNumber})`;
+        alloc.innerHTML = '';
+        lastData.allocations.filter(a => a.userId === emp.id).forEach(function (a) {
+          const opt = document.createElement('option');
+          opt.value = a.id;
+          opt.textContent = a.projectName;
+          alloc.appendChild(opt);
         });
-        if ((data.employees || []).length === 0) {
-          results.innerHTML = '<div class="list-group-item text-muted">לא נמצאו עובדים</div>';
+        const hasAllocations = alloc.options.length > 0;
+        alloc.disabled = !hasAllocations;
+        openButton.disabled = !hasAllocations;
+        empty.style.display = hasAllocations ? 'none' : 'block';
+        pickerCard.style.display = '';
+        pickerCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // highlight the chosen row
+        results.querySelectorAll('tr').forEach(tr => tr.classList.remove('table-active'));
+        const row = results.querySelector(`tr[data-emp-id='${emp.id}']`);
+        if (row) row.classList.add('table-active');
+      }
+
+      function render(data) {
+        lastData = data;
+        hidePicker();
+        const employees = data.employees || [];
+        if (!employees.length) {
+          results.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">לא נמצאו עובדים</td></tr>';
+          return;
         }
+        results.innerHTML = employees.map(emp =>
+          `<tr data-emp-id="${emp.id}">` +
+          `<td>${esc(emp.idNumber)}</td>` +
+          `<td>${esc(emp.employeeCode)}</td>` +
+          `<td>${esc(emp.firstName)}</td>` +
+          `<td>${esc(emp.lastName)}</td>` +
+          `<td><button type="button" class="btn btn-sm btn-primary manual-report-btn" data-emp-id="${emp.id}">דווח</button></td>` +
+          `</tr>`).join('');
+        results.querySelectorAll('.manual-report-btn').forEach(btn =>
+          btn.addEventListener('click', function () {
+            const emp = employees.find(e => String(e.id) === this.dataset.empId);
+            if (emp) selectEmployee(emp);
+          }));
       }
 
       async function search() {
