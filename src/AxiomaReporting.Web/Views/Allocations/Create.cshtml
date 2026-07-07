@@ -1,0 +1,71 @@
+@{
+  ViewData["Title"] = "הוספת הקצאה";
+  var employees = ViewBag.Employees as List<AxiomaReporting.Core.Entities.User>
+    ?? new List<AxiomaReporting.Core.Entities.User>();
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3">הוספת הקצאה לעובד</h1>
+  <a asp-action="Index" class="btn btn-outline-secondary">חזרה להקצאות</a>
+</div>
+
+<form method="get" asp-action="Create" class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="idNumber">ת.ז</label>
+        <input id="idNumber" name="idNumber" class="form-control" value="@ViewBag.IdNumber" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="employeeCode">קוד עובד</label>
+        <input id="employeeCode" name="employeeCode" class="form-control" value="@ViewBag.EmployeeCode" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="firstName">שם פרטי</label>
+        <input id="firstName" name="firstName" class="form-control" value="@ViewBag.FirstName" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="lastName">שם משפחה</label>
+        <input id="lastName" name="lastName" class="form-control" value="@ViewBag.LastName" />
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">חפש</button>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-header">בחר עובד</div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th scope="col">ת.ז</th>
+          <th scope="col">קוד עובד</th>
+          <th scope="col">שם פרטי</th>
+          <th scope="col">שם משפחה</th>
+          <th scope="col"><span class="visually-hidden">פעולות</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (employees.Count == 0)
+        {
+          <tr><td colspan="5" class="text-center text-muted py-4">לא נמצאו עובדים תואמים</td></tr>
+        }
+        @foreach (var employee in employees)
+        {
+          <tr>
+            <td>@employee.IdNumber</td>
+            <td>@employee.EmployeeCode</td>
+            <td>@employee.FirstName</td>
+            <td>@employee.LastName</td>
+            <td>
+              <a class="btn btn-sm btn-success" href="/Employee/@employee.Id/Allocations/Create">הוסף הקצאה</a>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

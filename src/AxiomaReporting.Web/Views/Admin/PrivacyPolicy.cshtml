@@ -1,0 +1,77 @@
+@{
+  ViewData["Title"] = "ניהול מדיניות פרטיות";
+  var versions = ViewBag.Versions as List<AxiomaReporting.Core.Entities.PrivacyPolicyVersion>
+    ?? new List<AxiomaReporting.Core.Entities.PrivacyPolicyVersion>();
+  var latestBody = versions.FirstOrDefault()?.BodyHtml ?? string.Empty;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3">ניהול גרסאות מדיניות פרטיות</h1>
+  <a asp-controller="Home" asp-action="Privacy" target="_blank" class="btn btn-outline-secondary btn-sm">צפייה במדיניות</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">פרסום גרסה חדשה</div>
+  <div class="card-body">
+    <form method="post" asp-action="PublishPrivacyPolicy">
+      @Html.AntiForgeryToken()
+      <div class="mb-3">
+        <label class="form-label" for="effectiveFrom">בתוקף מתאריך</label>
+        <input id="effectiveFrom" name="effectiveFrom" type="datetime-local" class="form-control" style="max-width: 280px" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="bodyHtml">תוכן מדיניות הפרטיות <span class="text-danger">*</span></label>
+        <textarea id="bodyHtml" name="bodyHtml" class="form-control" rows="14" required aria-required="true">@latestBody</textarea>
+        <div class="form-text">
+          כל שמירה מפרסמת גרסה חדשה. הגרסה האחרונה היא המוצגת למשתמשים במסך מדיניות הפרטיות.
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">פרסם גרסה חדשה</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">היסטוריית גרסאות</div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th scope="col">גרסה</th>
+          <th scope="col">בתוקף מתאריך</th>
+          <th scope="col">נוצרה בתאריך</th>
+          <th scope="col">פורסם על ידי</th>
+          <th scope="col">תוכן</th>
+          <th scope="col"><span class="visually-hidden">פעולות</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (versions.Count == 0)
+        {
+          <tr><td colspan="6" class="text-center text-muted py-4">לא פורסמו גרסאות מדיניות פרטיות</td></tr>
+        }
+        @foreach (var version in versions)
+        {
+          var previewId = $"privacy-preview-{version.Id}";
+          <tr>
+            <td>@version.VersionNumber</td>
+            <td>@version.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+            <td>@version.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+            <td>@($"{version.PublishedByUser?.FirstName} {version.PublishedByUser?.LastName}".Trim())</td>
+            <td>
+              <div id="@previewId" class="border rounded p-2 bg-light" style="max-height:160px;overflow:auto;min-width:280px">
+                @Html.Raw(version.BodyHtml)
+              </div>
+            </td>
+            <td>
+              <button type="button" class="btn btn-outline-secondary btn-sm" data-source="@previewId"
+                      onclick="document.getElementById('bodyHtml').value = document.getElementById(this.dataset.source).innerHTML.trim(); document.getElementById('bodyHtml').focus();">
+                ערוך לפי גרסה זו
+              </button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

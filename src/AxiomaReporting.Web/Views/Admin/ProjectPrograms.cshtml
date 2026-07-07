@@ -3,6 +3,14 @@
   var projects = (List<AxiomaReporting.Core.Entities.Project>)ViewBag.Projects;
   var programs = (List<AxiomaReporting.Core.Entities.Program>)ViewBag.Programs;
   var mapping = (Dictionary<int, HashSet<int>>)ViewBag.Mapping;
+
+  var scopeSubjects = ViewBag.ScopeSubjects as List<AxiomaReporting.Core.Entities.Subject> ?? new();
+  var scopeDomains = ViewBag.ScopeDomains as List<AxiomaReporting.Core.Entities.Domain> ?? new();
+  var scopeFrameworks = ViewBag.ScopeFrameworks as List<AxiomaReporting.Core.Entities.Framework> ?? new();
+  var scopeEduPrograms = ViewBag.ScopeEducationalPrograms as List<AxiomaReporting.Core.Entities.EducationalProgram> ?? new();
+  var scopeDiscussionCodes = ViewBag.ScopeDiscussionCodes as List<AxiomaReporting.Core.Entities.DiscussionCode> ?? new();
+  var scopeGradeLevels = ViewBag.ScopeGradeLevels as List<AxiomaReporting.Core.Entities.GradeLevel> ?? new();
+  var scopeClasses = ViewBag.ScopeClasses as List<AxiomaReporting.Core.Entities.SchoolClass> ?? new();
 }
 
 <div class="container py-3">
@@ -65,4 +73,143 @@
       </div>
     }
   </div>
+
+  @* ── עורך שיוכי ערכים לתוכנית (יישור לגרסת השרת): ערכי טבלאות הקוד
+       שממולאים אוטומטית בעת בחירת התוכנית בהקצאה ובדיווח. ── *@
+  <div class="card mt-4">
+    <div class="card-header">שיוכי ערכים לתוכנית</div>
+    <div class="card-body">
+      <p class="form-text mt-0">
+        בחרו פרויקט ותוכנית כדי לערוך את ערכי טבלאות הקוד המשויכים אליה. הערכים המסומנים
+        הם המוצעים אוטומטית בהקצאות ובדיווחים עבור התוכנית.
+      </p>
+      <form method="post" asp-action="SaveProjectProgramScope" id="scopeForm">
+        @Html.AntiForgeryToken()
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="scopeProjectId">פרויקט</label>
+            <select id="scopeProjectId" name="projectId" class="form-select" data-no-choices required>
+              <option value="">בחר...</option>
+              @foreach (var project in projects)
+              {
+                <option value="@project.Id">@project.Description</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeProgramId">תוכנית</label>
+            <select id="scopeProgramId" name="programId" class="form-select" data-no-choices required disabled>
+              <option value="">בחר קודם פרויקט...</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="scopeLists" class="row g-3 mt-1" style="display:none">
+          <div class="col-md-4">
+            <label class="form-label" for="scopeSubjectIds">נושאים</label>
+            <select id="scopeSubjectIds" name="subjectIds" multiple class="form-select">
+              @foreach (var item in scopeSubjects) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeDomainIds">תחומים</label>
+            <select id="scopeDomainIds" name="domainIds" multiple class="form-select">
+              @foreach (var item in scopeDomains) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeEducationalProgramIds">תוכניות חינוכיות</label>
+            <select id="scopeEducationalProgramIds" name="educationalProgramIds" multiple class="form-select">
+              @foreach (var item in scopeEduPrograms) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeDiscussionCodeIds">קיום דיון</label>
+            <select id="scopeDiscussionCodeIds" name="discussionCodeIds" multiple class="form-select">
+              @foreach (var item in scopeDiscussionCodes) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeGradeLevelIds">שכבות</label>
+            <select id="scopeGradeLevelIds" name="gradeLevelIds" multiple class="form-select">
+              @foreach (var item in scopeGradeLevels) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeClassIds">כיתות</label>
+            <select id="scopeClassIds" name="classIds" multiple class="form-select">
+              @foreach (var item in scopeClasses) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="scopeFrameworkIds">מסגרות</label>
+            <select id="scopeFrameworkIds" name="frameworkIds" multiple class="form-select">
+              @foreach (var item in scopeFrameworks) { <option value="@item.Id">@item.Description</option> }
+            </select>
+            <div class="form-text">
+              שיוכי מסגרות אינם ממלאים את ההקצאה אוטומטית — מסגרת נקבעת לפי הקצאת העובד.
+            </div>
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-primary">שמור שיוכי ערכים</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
+
+@section Scripts {
+  <script>
+    (function () {
+      const projectPrograms = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        mapping.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value)));
+      const programNames = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        programs.ToDictionary(p => p.Id.ToString(), p => p.Description)));
+      const scopeUrl = '@Url.Action("ProjectProgramScope")';
+      const projectSelect = document.getElementById('scopeProjectId');
+      const programSelect = document.getElementById('scopeProgramId');
+      const listsWrap = document.getElementById('scopeLists');
+      const listNames = ['subjectIds', 'domainIds', 'educationalProgramIds', 'discussionCodeIds', 'gradeLevelIds', 'classIds', 'frameworkIds'];
+
+      function setMultiSelection(name, ids) {
+        const sel = document.querySelector(`#scopeForm select[name='${name}']`);
+        if (!sel) return;
+        const wanted = new Set((ids || []).map(String));
+        const inst = window._axChoices && window._axChoices.get(sel);
+        if (inst) {
+          inst.removeActiveItems();
+          wanted.forEach(v => inst.setChoiceByValue(v));
+        } else {
+          Array.from(sel.options).forEach(o => o.selected = wanted.has(o.value));
+        }
+      }
+
+      projectSelect.addEventListener('change', function () {
+        programSelect.innerHTML = '<option value="">בחר...</option>';
+        listsWrap.style.display = 'none';
+        const ids = projectPrograms[this.value] || [];
+        ids.forEach(function (id) {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = programNames[String(id)] || id;
+          programSelect.appendChild(opt);
+        });
+        programSelect.disabled = ids.length === 0;
+        if (ids.length === 0 && this.value) {
+          programSelect.innerHTML = '<option value="">אין תוכניות משויכות לפרויקט</option>';
+        }
+      });
+
+      programSelect.addEventListener('change', async function () {
+        if (!this.value) { listsWrap.style.display = 'none'; return; }
+        const resp = await fetch(`${scopeUrl}?projectId=${projectSelect.value}&programId=${this.value}`,
+          { headers: { Accept: 'application/json' } });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        listNames.forEach(name => setMultiSelection(name, data[name]));
+        listsWrap.style.display = '';
+      });
+    })();
+  </script>
+}

@@ -16,15 +16,18 @@ public class DashboardController : Controller
   private readonly IDashboardFilterService _filterService;
   private readonly ICurrentUserService _currentUser;
   private readonly IReportStatusService _reportStatusService;
+  private readonly AxiomaReporting.Infrastructure.Data.AppDbContext _db;
 
   public DashboardController(
     IDashboardFilterService filterService,
     ICurrentUserService currentUser,
-    IReportStatusService reportStatusService)
+    IReportStatusService reportStatusService,
+    AxiomaReporting.Infrastructure.Data.AppDbContext db)
   {
     _filterService = filterService;
     _currentUser = currentUser;
     _reportStatusService = reportStatusService;
+    _db = db;
   }
 
   [HttpGet]
@@ -230,6 +233,82 @@ public class DashboardController : Controller
     !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
       ? Redirect(returnUrl)
       : RedirectToAction(nameof(Summary));
+
+  // ── מסמכי דיווח במודאל מהדשבורד (יישור לגרסת השרת) ─────────────────────
+
+  [HttpGet]
+  public async Task<IActionResult> ReportDocuments(int reportId)
+  {
+    if (!await _filterService.CanAccessReportAsync(reportId, _currentUser.UserId, _currentUser.UserRole))
+      return Forbid();
+
+    var report = await _db.Reports
+      .AsNoTracking()
+      .Include(r => r.User)
+      .Include(r => r.ReportingMonth)
+      .FirstOrDefaultAsync(r => r.Id == reportId);
+    if (report == null) return NotFound();
+
+    var rowIds = await _db.ReportRows
+      .Where(rr => rr.ReportId == reportId)
+      .Select(rr => rr.Id)
+      .ToListAsync();
+
+    var attachments = await _db.DocumentAttachments
+      .AsNoTracking()
+      .Where(a => a.ReportId == reportId ||
+                  (a.ReportRowId.HasValue && rowIds.Contains(a.ReportRowId.Value)))
+      .OrderByDescending(a => a.UploadedAt)
+      .ToListAsync();
+
+    return Json(new
+    {
+      employeeName = $"{report.User?.FirstName} {report.User?.LastName}".Trim(),
+      reportMonth = report.ReportingMonth?.Description ?? "",
+      documents = attachments.Select(a => new
+      {
+        id = a.Id,
+        fileName = a.FileName,
+        description = a.Description,
+        uploadedAt = a.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
+        fileSize = FormatFileSize(a.FileSize),
+        viewUrl = Url.Action(nameof(DocumentAttachment), "Dashboard", new { attachmentId = a.Id }),
+        downloadUrl = Url.Action(nameof(DocumentAttachment), "Dashboard", new { attachmentId = a.Id, download = true })
+      })
+    });
+  }
+
+  [HttpGet]
+  public async Task<IActionResult> DocumentAttachment(int attachmentId, bool download = false)
+  {
+    var attachment = await _db.DocumentAttachments.AsNoTracking()
+      .FirstOrDefaultAsync(a => a.Id == attachmentId);
+    if (attachment == null) return NotFound();
+
+    var reportId = attachment.ReportId
+      ?? (attachment.ReportRowId.HasValue
+        ? await _db.ReportRows.Where(rr => rr.Id == attachment.ReportRowId.Value).Select(rr => (int?)rr.ReportId).FirstOrDefaultAsync()
+        : null);
+    if (reportId.HasValue &&
+        !await _filterService.CanAccessReportAsync(reportId.Value, _currentUser.UserId, _currentUser.UserRole))
+      return Forbid();
+
+    var uploadsRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"));
+    var relativePath = attachment.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+    var filePath = Path.GetFullPath(Path.Combine(uploadsRoot, relativePath));
+    if (!filePath.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(filePath))
+      return NotFound();
+
+    var contentType = string.IsNullOrWhiteSpace(attachment.MimeType) ? "application/octet-stream" : attachment.MimeType;
+    return PhysicalFile(filePath, contentType, download ? attachment.FileName : null);
+  }
+
+  private static string FormatFileSize(long bytes) => bytes switch
+  {
+    >= 1_048_576 => (bytes / 1_048_576m).ToString("0.#") + " MB",
+    >= 1_024 => (bytes / 1_024m).ToString("0.#") + " KB",
+    _ => bytes + " B"
+  };
 
   private async Task PopulateFilterDataAsync(DashboardFilter filter)
   {

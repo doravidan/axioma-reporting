@@ -44,6 +44,47 @@ public class AllocationsController : Controller
     return View("~/Views/Employee/AllocationList.cshtml", allocations);
   }
 
+  // הוספת הקצאה מרשימת ההקצאות: איתור עובד ומעבר לטופס ההקצאה שלו
+  // (יישור לגרסת השרת).
+  [HttpGet("create")]
+  public async Task<IActionResult> Create(string? idNumber = null, string? employeeCode = null, string? firstName = null, string? lastName = null)
+  {
+    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator))
+      return Forbid();
+
+    var query = _db.Users.Where(u => u.StatusId == 1 && u.IsReportingEmployee);
+    if (!string.IsNullOrWhiteSpace(idNumber))
+    {
+      var value = idNumber.Trim();
+      query = query.Where(u => u.IdNumber.Replace("-", "").Replace(" ", "").Contains(value));
+    }
+    if (!string.IsNullOrWhiteSpace(employeeCode))
+    {
+      var code = employeeCode.Trim();
+      query = query.Where(u => u.EmployeeCode.Contains(code));
+    }
+    if (!string.IsNullOrWhiteSpace(firstName))
+    {
+      var first = firstName.Trim();
+      query = query.Where(u => u.FirstName.Contains(first));
+    }
+    if (!string.IsNullOrWhiteSpace(lastName))
+    {
+      var last = lastName.Trim();
+      query = query.Where(u => u.LastName.Contains(last));
+    }
+
+    ViewBag.IdNumber = idNumber;
+    ViewBag.EmployeeCode = employeeCode;
+    ViewBag.FirstName = firstName;
+    ViewBag.LastName = lastName;
+    ViewBag.Employees = await query
+      .OrderBy(u => u.LastName).ThenBy(u => u.FirstName)
+      .Take(100)
+      .ToListAsync();
+    return View("~/Views/Allocations/Create.cshtml");
+  }
+
   [HttpGet("{allocationId:int}")]
   public async Task<IActionResult> Details(int allocationId)
   {

@@ -11,6 +11,11 @@ public class Report : BaseEntity
   public int StatusId { get; set; }
   public ReportStatus? Status { get; set; }
   public DateTime? SubmittedAt { get; set; }
+  /// <summary>
+  /// דיווח בארכיון מוסתר כברירת מחדל בדשבורד ובהיסטוריית העובד; רק
+  /// אדמין/מנהל פרויקט/רכז יכולים לכלול אותו בתוצאות (יישור לגרסת השרת).
+  /// </summary>
+  public bool IsArchived { get; set; }
   public DateTime? ApprovedAt { get; set; }
   public int? ApprovedBy { get; set; }
   public User? ApprovedByUser { get; set; }

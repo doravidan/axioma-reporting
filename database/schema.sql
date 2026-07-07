@@ -2165,3 +2165,105 @@ GO
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260707133409_AlignWithClientServerFeatures')
+BEGIN
+
+    IF COL_LENGTH('dbo.Reports', 'IsArchived') IS NULL
+        ALTER TABLE dbo.Reports ADD IsArchived bit NOT NULL CONSTRAINT DF_Reports_IsArchived DEFAULT(0);
+
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260707133409_AlignWithClientServerFeatures')
+BEGIN
+
+    IF OBJECT_ID('dbo.PrivacyPolicyVersions', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.PrivacyPolicyVersions (
+            Id int IDENTITY(1,1) NOT NULL CONSTRAINT PK_PrivacyPolicyVersions PRIMARY KEY,
+            VersionNumber int NOT NULL,
+            BodyHtml nvarchar(max) NOT NULL,
+            EffectiveFrom datetime2 NOT NULL,
+            PublishedByUserId int NOT NULL,
+            CreatedAt datetime2 NOT NULL,
+            UpdatedAt datetime2 NULL,
+            CONSTRAINT FK_PrivacyPolicyVersions_Users_PublishedByUserId
+                FOREIGN KEY (PublishedByUserId) REFERENCES dbo.Users (Id) ON DELETE NO ACTION
+        );
+        CREATE UNIQUE INDEX IX_PrivacyPolicyVersions_VersionNumber ON dbo.PrivacyPolicyVersions (VersionNumber);
+        CREATE INDEX IX_PrivacyPolicyVersions_PublishedByUserId ON dbo.PrivacyPolicyVersions (PublishedByUserId);
+    END
+
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260707133409_AlignWithClientServerFeatures')
+BEGIN
+
+    IF OBJECT_ID('dbo.ProjectProgramFrameworks', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.ProjectProgramFrameworks (
+            ProjectId int NOT NULL,
+            ProgramId int NOT NULL,
+            FrameworkId int NOT NULL,
+            CONSTRAINT PK_ProjectProgramFrameworks PRIMARY KEY (ProjectId, ProgramId, FrameworkId),
+            CONSTRAINT FK_ProjectProgramFrameworks_Frameworks_FrameworkId
+                FOREIGN KEY (FrameworkId) REFERENCES dbo.Frameworks (Id) ON DELETE CASCADE
+        );
+        CREATE INDEX IX_ProjectProgramFrameworks_FrameworkId ON dbo.ProjectProgramFrameworks (FrameworkId);
+    END
+
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260707133409_AlignWithClientServerFeatures')
+BEGIN
+
+    IF OBJECT_ID('dbo.ProjectProgramGradeLevels', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.ProjectProgramGradeLevels (
+            ProjectId int NOT NULL,
+            ProgramId int NOT NULL,
+            GradeLevelId int NOT NULL,
+            CONSTRAINT PK_ProjectProgramGradeLevels PRIMARY KEY (ProjectId, ProgramId, GradeLevelId),
+            CONSTRAINT FK_ProjectProgramGradeLevels_GradeLevels_GradeLevelId
+                FOREIGN KEY (GradeLevelId) REFERENCES dbo.GradeLevels (Id) ON DELETE CASCADE
+        );
+        CREATE INDEX IX_ProjectProgramGradeLevels_GradeLevelId ON dbo.ProjectProgramGradeLevels (GradeLevelId);
+    END
+
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260707133409_AlignWithClientServerFeatures')
+BEGIN
+
+    IF OBJECT_ID('dbo.ProjectProgramClasses', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.ProjectProgramClasses (
+            ProjectId int NOT NULL,
+            ProgramId int NOT NULL,
+            ClassId int NOT NULL,
+            CONSTRAINT PK_ProjectProgramClasses PRIMARY KEY (ProjectId, ProgramId, ClassId),
+            CONSTRAINT FK_ProjectProgramClasses_SchoolClasses_ClassId
+                FOREIGN KEY (ClassId) REFERENCES dbo.SchoolClasses (Id) ON DELETE CASCADE
+        );
+        CREATE INDEX IX_ProjectProgramClasses_ClassId ON dbo.ProjectProgramClasses (ClassId);
+    END
+
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260707133409_AlignWithClientServerFeatures')
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260707133409_AlignWithClientServerFeatures', N'6.0.36');
+END;
+GO
+
+COMMIT;
+GO
+

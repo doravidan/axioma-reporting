@@ -1,0 +1,60 @@
+@* מודאל מסמכי דיווח — נפתח מעמודת המסמכים בדשבורד ובמסך הסיכום
+   (openReportDocuments(reportId); יישור לגרסת השרת). *@
+<div class="modal fade" id="reportDocsModal" tabindex="-1" aria-labelledby="reportDocsModalTitle" aria-modal="true" role="dialog">
+  <div class="modal-dialog modal-lg" role="dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="reportDocsModalTitle">מסמכי הדיווח</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור חלון מסמכים"></button>
+      </div>
+      <div class="modal-body">
+        <div id="reportDocsMeta" class="text-muted small mb-2"></div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0" aria-label="מסמכים מצורפים לדיווח">
+            <thead>
+              <tr>
+                <th scope="col">שם קובץ</th>
+                <th scope="col">תיאור</th>
+                <th scope="col">תאריך העלאה</th>
+                <th scope="col">גודל</th>
+                <th scope="col"><span class="visually-hidden">פעולות</span></th>
+              </tr>
+            </thead>
+            <tbody id="reportDocsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  async function openReportDocuments(reportId) {
+    const body = document.getElementById('reportDocsBody');
+    const meta = document.getElementById('reportDocsMeta');
+    body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">טוען…</td></tr>';
+    meta.textContent = '';
+    new bootstrap.Modal(document.getElementById('reportDocsModal')).show();
+
+    const resp = await fetch('@Url.Action("ReportDocuments", "Dashboard")?reportId=' + reportId,
+      { headers: { Accept: 'application/json' } });
+    if (!resp.ok) {
+      body.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-3">שגיאה בטעינת המסמכים</td></tr>';
+      return;
+    }
+    const data = await resp.json();
+    meta.textContent = [data.employeeName, data.reportMonth].filter(Boolean).join(' · ');
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const docs = data.documents || [];
+    if (!docs.length) {
+      body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">אין מסמכים מצורפים לדיווח</td></tr>';
+      return;
+    }
+    body.innerHTML = docs.map(d =>
+      '<tr><td>' + esc(d.fileName) + '</td><td>' + esc(d.description || '—') + '</td><td>' + esc(d.uploadedAt) +
+      '</td><td>' + esc(d.fileSize) + '</td><td class="text-nowrap">' +
+      '<a class="btn btn-sm btn-outline-primary" target="_blank" href="' + d.viewUrl + '">צפייה</a> ' +
+      '<a class="btn btn-sm btn-outline-secondary" href="' + d.downloadUrl + '">הורדה</a>' +
+      '</td></tr>').join('');
+  }
+</script>

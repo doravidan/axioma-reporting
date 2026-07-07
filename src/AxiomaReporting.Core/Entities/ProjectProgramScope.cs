@@ -35,3 +35,31 @@ public class ProjectProgramDiscussionCode
   public int DiscussionCodeId { get; set; }
   public DiscussionCode? DiscussionCode { get; set; }
 }
+
+// שלושת הסוגים הבאים אינם משתתפים במילוי האוטומטי של ההקצאה (QA #4 —
+// מסגרת נקבעת רק לפי הקצאת העובד), אבל כן מנוהלים בעורך השיוכים של
+// ניהול תוכניות לפי פרויקט, ליישור עם גרסת השרת שבה הם מאוכלסים.
+
+public class ProjectProgramFramework
+{
+  public int ProjectId { get; set; }
+  public int ProgramId { get; set; }
+  public int FrameworkId { get; set; }
+  public Framework? Framework { get; set; }
+}
+
+public class ProjectProgramGradeLevel
+{
+  public int ProjectId { get; set; }
+  public int ProgramId { get; set; }
+  public int GradeLevelId { get; set; }
+  public GradeLevel? GradeLevel { get; set; }
+}
+
+public class ProjectProgramClass
+{
+  public int ProjectId { get; set; }
+  public int ProgramId { get; set; }
+  public int ClassId { get; set; }
+  public SchoolClass? SchoolClass { get; set; }
+}

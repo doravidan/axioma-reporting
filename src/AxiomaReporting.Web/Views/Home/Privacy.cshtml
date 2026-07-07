@@ -1,9 +1,19 @@
 @{
     ViewData["Title"] = "מדיניות פרטיות";
+    var published = ViewBag.PublishedVersion as AxiomaReporting.Core.Entities.PrivacyPolicyVersion;
 }
 
 <div class="container py-3" style="max-width: 860px">
   <h1 class="mb-4">@ViewData["Title"]</h1>
+
+  @if (published != null)
+  {
+    <div class="small text-muted mb-3">
+      גרסה @published.VersionNumber · בתוקף מתאריך @published.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy")
+    </div>
+    <div class="card"><div class="card-body">@Html.Raw(published.BodyHtml)</div></div>
+    return;
+  }
 
   <section class="mb-4">
     <h5>כללי</h5>

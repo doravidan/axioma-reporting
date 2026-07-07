@@ -223,8 +223,8 @@
                                     @* כמות מסמכים וגישה אליהם ברמת העובד (משוב בטא B40) *@
                                     @if (r.AttachmentCount > 0)
                                     {
-                                        <a asp-controller="Report" asp-action="Index" asp-route-reportId="@r.ReportId"
-                                           title="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</a>
+                                        <button type="button" class="btn btn-link btn-sm p-0" onclick="openReportDocuments(@r.ReportId)"
+                                                aria-label="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</button>
                                     }
                                     else
                                     {
@@ -317,8 +317,8 @@
                             <td class="text-center">
                                 @if (r.AttachmentCount > 0)
                                 {
-                                    <a asp-controller="Report" asp-action="Index" asp-route-reportId="@r.ReportId"
-                                       title="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</a>
+                                    <button type="button" class="btn btn-link btn-sm p-0" onclick="openReportDocuments(@r.ReportId)"
+                                            aria-label="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</button>
                                 }
                                 else
                                 {
@@ -352,6 +352,8 @@
         </div>
     }
 </div>
+
+<partial name="_ReportDocumentsModal" />
 
 <!-- Reject Modal -->
 <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">

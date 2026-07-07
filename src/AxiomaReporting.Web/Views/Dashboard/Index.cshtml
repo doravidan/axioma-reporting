@@ -52,6 +52,7 @@
         ["EmployeeName"] = filter.EmployeeName,
         ["FromMonthId"] = filter.FromMonthId,
         ["ToMonthId"] = filter.ToMonthId,
+        ["IncludeArchived"] = filter.IncludeArchived ? "true" : null,
         ["SortBy"] = sortBy ?? filter.SortBy,
         ["SortDesc"] = sortBy == null ? filter.SortDesc : filter.SortBy == sortBy ? !filter.SortDesc : false
     };
@@ -69,6 +70,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3>דשבורד דיווחים</h3>
         <div class="d-flex gap-2">
+            @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
+            {
+                <a asp-controller="Report" asp-action="Manual" class="btn btn-outline-primary btn-sm">דיווח ידני</a>
+            }
             <a href="@Url.Action("ExportExcel", RouteValues(1))" class="btn btn-outline-success btn-sm">ייצוא אקסל</a>
             <a asp-action="Summary" class="btn btn-primary btn-sm">מסך סיכום ואישור</a>
         </div>
@@ -96,6 +101,15 @@
                 <input type="hidden" name="show" value="1" />
                 <input type="hidden" name="SortBy" value="@filter.SortBy" />
                 <input type="hidden" name="SortDesc" value="@filter.SortDesc" />
+                @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
+                {
+                    @* ארכיון — דיווחים ישנים/מוסתרים שאינם מוצגים כברירת מחדל (יישור לגרסת השרת) *@
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" role="switch" id="includeArchived"
+                               name="IncludeArchived" value="true" checked="@filter.IncludeArchived" />
+                        <label class="form-check-label" for="includeArchived">הצג דיווחים בארכיון</label>
+                    </div>
+                }
                 <div class="row g-2">
                     <div class="col-md-1">
                         <label class="form-label form-label-sm">ת.ז</label>
@@ -292,12 +306,11 @@
                         <td>@TextOrDash(r.ConclusionFrameworkName)</td>
                         <td>@TextOrDash(r.ConclusionLocationName)</td>
                         <td class="text-center">
-                            @* כמות מסמכים + גישה אליהם (משוב בטא B40) *@
+                            @* כמות מסמכים + גישה אליהם במודאל (משוב בטא B40; יישור לגרסת השרת) *@
                             @if (r.AttachmentCount > 0)
                             {
-                                <a asp-controller="Report" asp-action="Index"
-                                   asp-route-userId="@r.UserId" asp-route-allocationId="@r.AllocationId" asp-route-reportId="@r.ReportId"
-                                   title="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</a>
+                                <button type="button" class="btn btn-link btn-sm p-0" onclick="openReportDocuments(@r.ReportId)"
+                                        aria-label="צפייה במסמכים המצורפים">@r.AttachmentCount 📎</button>
                             }
                             else
                             {
@@ -316,6 +329,8 @@
         <span>סה"כ שעות בעמוד: <strong>@rows.Where(r => r.StatusId != 0).Sum(r => r.MeetingDuration)</strong></span>
     </div>
 </div>
+
+<partial name="_ReportDocumentsModal" />
 
 @section Scripts {
   <script>

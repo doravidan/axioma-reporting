@@ -9,7 +9,7 @@ namespace AxiomaReporting.Infrastructure.Services;
 
 public interface IBatchReportImportService
 {
-  Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default);
+  Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default, string? progressId = null);
 }
 
 public class BatchImportResult
@@ -108,7 +108,7 @@ public class BatchReportImportService : IBatchReportImportService
     _emailService = emailService;
   }
 
-  public async Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default)
+  public async Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default, string? progressId = null)
   {
     var result = new BatchImportResult();
 
@@ -117,10 +117,21 @@ public class BatchReportImportService : IBatchReportImportService
     {
       result.Errors.Add(new BatchImportError { FileRowNumber = 0, ErrorMessage = "חודש הדיווח לא נמצא" });
       result.ErrorRowsCount = 1;
+      BatchImportProgressStore.Update(progressId, 0, 0, "error");
       return result;
     }
 
     using var workbook = new XLWorkbook(xlsxStream);
+
+    // אומדן סך השורות לצורך אחוז ההתקדמות (נדגם מהדפדפן דרך BatchReportImportProgress).
+    var estimatedTotalRows = 0;
+    foreach (var sheet in workbook.Worksheets)
+    {
+      var estimateHeader = FindHeaderRow(sheet);
+      if (estimateHeader < 0) continue;
+      estimatedTotalRows += Math.Max(0, (sheet.LastRowUsed()?.RowNumber() ?? estimateHeader) - estimateHeader);
+    }
+    BatchImportProgressStore.Start(progressId, estimatedTotalRows);
 
     // Snapshot which (UserId) already had a report for this month BEFORE the import,
     // so we can emit "עודכן דוח קיים" vs "שורה נוספה" descriptions per row.
@@ -148,6 +159,7 @@ public class BatchReportImportService : IBatchReportImportService
         ct.ThrowIfCancellationRequested();
         if (IsRowEmpty(sheet, r, headerMap)) continue;
         result.TotalRowsRead++;
+        BatchImportProgressStore.Update(progressId, result.TotalRowsRead, estimatedTotalRows);
 
         var rawEmpCode = GetCellString(sheet, r, headerMap, "EmployeeCode");
         var reporterName = GetCellString(sheet, r, headerMap, "ReporterName");
@@ -470,6 +482,7 @@ public class BatchReportImportService : IBatchReportImportService
     }
 
     // Uploader summary emails (sent by controller because it may need to attach PDF).
+    BatchImportProgressStore.Complete(progressId, result.TotalRowsRead);
     return result;
   }
 

@@ -49,8 +49,50 @@
           <label for="file" class="form-label">קובץ אקסל (xlsx)</label>
           <input type="file" id="file" name="file" accept=".xlsx" class="form-control" required />
         </div>
-        <button type="submit" class="btn btn-primary">ייבא דיווחים</button>
+        <input type="hidden" id="progressId" name="progressId" />
+        <button type="submit" id="importSubmitBtn" class="btn btn-primary">ייבא דיווחים</button>
       </form>
+
+      @* פס התקדמות בזמן הייבוא — נדגם מהשרת בזמן שה-POST רץ (יישור לגרסת השרת) *@
+      <div id="importProgressWrap" class="mt-3" style="display:none" aria-live="polite">
+        <div class="d-flex justify-content-between small text-muted mb-1">
+          <span>מייבא דיווחים…</span>
+          <span id="importProgressText">0%</span>
+        </div>
+        <div class="progress" role="progressbar" aria-label="התקדמות ייבוא" aria-valuemin="0" aria-valuemax="100">
+          <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
+
+@section Scripts {
+  <script>
+    (function () {
+      const form = document.querySelector("form[enctype='multipart/form-data']");
+      const progressUrl = '@Url.Action("BatchReportImportProgress")';
+      let pollTimer = null;
+
+      form.addEventListener('submit', function () {
+        const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random().toString(16).slice(2);
+        document.getElementById('progressId').value = id;
+        document.getElementById('importSubmitBtn').disabled = true;
+        document.getElementById('importProgressWrap').style.display = 'block';
+
+        pollTimer = setInterval(async function () {
+          try {
+            const resp = await fetch(progressUrl + '?id=' + encodeURIComponent(id), { headers: { Accept: 'application/json' } });
+            if (!resp.ok) return;
+            const p = await resp.json();
+            const pct = p.percent ?? p.Percent ?? 0;
+            document.getElementById('importProgressBar').style.width = pct + '%';
+            document.getElementById('importProgressText').textContent =
+              pct + '%' + ((p.totalRows ?? p.TotalRows) ? ' (' + (p.processedRows ?? p.ProcessedRows) + '/' + (p.totalRows ?? p.TotalRows) + ' שורות)' : '');
+            if ((p.status ?? p.Status) === 'done') clearInterval(pollTimer);
+          } catch (e) { /* keep polling */ }
+        }, 800);
+      });
+    })();
+  </script>
+}

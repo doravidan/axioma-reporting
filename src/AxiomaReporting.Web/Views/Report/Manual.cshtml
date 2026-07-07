@@ -1,0 +1,123 @@
+@{
+  ViewData["Title"] = "הוספת דיווח ידני";
+  var months = ViewBag.ReportingMonths as List<AxiomaReporting.Core.Entities.ReportingMonth>
+    ?? new List<AxiomaReporting.Core.Entities.ReportingMonth>();
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3">הוספת דיווח ידני</h1>
+  <a asp-action="Index" class="btn btn-outline-secondary">חזרה לדיווח</a>
+</div>
+
+<form method="get" asp-action="ManualOpen" class="card">
+  <div class="card-body">
+    <input type="hidden" id="manualUserId" name="userId" required />
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="manualIdNumber">ת.ז</label>
+        <input id="manualIdNumber" class="form-control manual-employee-filter" autocomplete="off" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="manualEmployeeCode">קוד עובד</label>
+        <input id="manualEmployeeCode" class="form-control manual-employee-filter" autocomplete="off" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="manualFirstName">שם פרטי</label>
+        <input id="manualFirstName" class="form-control manual-employee-filter" autocomplete="off" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="manualLastName">שם משפחה</label>
+        <input id="manualLastName" class="form-control manual-employee-filter" autocomplete="off" />
+      </div>
+      <div class="col-12">
+        <div id="manualEmployeeResults" class="list-group small" aria-live="polite"></div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="manualAllocationSelect">הקצאה</label>
+        <select id="manualAllocationSelect" name="allocationId" class="form-select" data-no-choices required disabled></select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="manualMonthSelect">חודש דיווח</label>
+        <select id="manualMonthSelect" name="reportingMonthId" class="form-select" data-no-choices required>
+          @foreach (var month in months)
+          {
+            <option value="@month.Id" selected="@month.IsActive">@month.Description</option>
+          }
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button id="manualOpenButton" type="submit" class="btn btn-primary w-100" disabled>פתח</button>
+      </div>
+    </div>
+    <div id="manualNoAllocations" class="text-danger small mt-2" style="display:none" role="alert">
+      אין הקצאה פעילה לעובד שנבחר
+    </div>
+  </div>
+</form>
+
+@section Scripts {
+  <script>
+    (function () {
+      const filters = document.querySelectorAll('.manual-employee-filter');
+      const results = document.getElementById('manualEmployeeResults');
+      const userId = document.getElementById('manualUserId');
+      const alloc = document.getElementById('manualAllocationSelect');
+      const button = document.getElementById('manualOpenButton');
+      const empty = document.getElementById('manualNoAllocations');
+      const searchUrl = '@Url.Action("ManualEmployeeSearch", "Report")';
+      let timer = null;
+
+      function clearSelection() {
+        userId.value = '';
+        alloc.innerHTML = '';
+        alloc.disabled = true;
+        button.disabled = true;
+        empty.style.display = 'none';
+      }
+
+      function render(data) {
+        results.innerHTML = '';
+        clearSelection();
+        (data.employees || []).forEach(function (emp) {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'list-group-item list-group-item-action';
+          item.textContent = [emp.idNumber, emp.employeeCode, emp.firstName, emp.lastName].filter(Boolean).join(' | ');
+          item.addEventListener('click', function () {
+            userId.value = emp.id;
+            results.innerHTML = '<div class="list-group-item active">' + item.textContent + '</div>';
+            alloc.innerHTML = '';
+            (data.allocations || []).filter(a => a.userId === emp.id).forEach(function (a) {
+              const opt = document.createElement('option');
+              opt.value = a.id;
+              opt.textContent = a.projectName;
+              alloc.appendChild(opt);
+            });
+            alloc.disabled = alloc.options.length === 0;
+            button.disabled = alloc.options.length === 0;
+            empty.style.display = alloc.options.length === 0 ? 'block' : 'none';
+          });
+          results.appendChild(item);
+        });
+        if ((data.employees || []).length === 0) {
+          results.innerHTML = '<div class="list-group-item text-muted">לא נמצאו עובדים</div>';
+        }
+      }
+
+      async function search() {
+        const params = new URLSearchParams({
+          idNumber: document.getElementById('manualIdNumber').value,
+          employeeCode: document.getElementById('manualEmployeeCode').value,
+          firstName: document.getElementById('manualFirstName').value,
+          lastName: document.getElementById('manualLastName').value
+        });
+        const resp = await fetch(searchUrl + '?' + params.toString(), { headers: { Accept: 'application/json' } });
+        if (resp.ok) render(await resp.json());
+      }
+
+      function schedule() { clearTimeout(timer); timer = setTimeout(search, 250); }
+      filters.forEach(el => el.addEventListener('input', schedule));
+      search();
+    })();
+  </script>
+}

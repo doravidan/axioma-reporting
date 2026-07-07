@@ -67,6 +67,11 @@ public class ReportController : Controller
       : null;
     if (reportId.HasValue && requestedReport == null) return NotFound();
 
+    // דיווח בארכיון נגיש רק לאדמין/מנהל פרויקט/רכז (יישור לגרסת השרת).
+    if (requestedReport?.IsArchived == true &&
+        _currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator))
+      return NotFound();
+
     var targetUserId = requestedReport?.UserId ?? userId ?? _currentUser.UserId;
     if (!await CanViewEmployeeReportAsync(targetUserId)) return Forbid();
 
@@ -188,7 +193,7 @@ public class ReportController : Controller
     // דיווחים קודמים — כל הדוחות של העובד מחודשים אחרים, לצפייה (עריכה נחסמת
     // ממילא לפי מועד הסגירה והסטטוס של אותו חודש).
     ViewBag.PastReports = await _db.Reports
-      .Where(r => r.UserId == targetUserId && r.Id != report.Id)
+      .Where(r => r.UserId == targetUserId && r.Id != report.Id && !r.IsArchived)
       .OrderByDescending(r => r.ReportingMonth!.Year)
       .ThenByDescending(r => r.ReportingMonth!.Month)
       .Select(r => new PastReportListItem(
@@ -542,6 +547,90 @@ public class ReportController : Controller
       TempData["Error"] = "לא ניתן להחזיר לעריכה — רק דיווח מאושר ניתן לפתיחה מחדש";
 
     return RedirectBackToDashboard(returnUrl);
+  }
+
+  // ── דיווח ידני (יישור לגרסת השרת): מנהל מאתר עובד, בוחר הקצאה וחודש
+  //    (כולל חודשי עבר — "אין הגבלה" לפי הבהרת הלקוח #6) ופותח את הדיווח. ──
+
+  [HttpGet]
+  [Route("Report/Manual")]
+  public async Task<IActionResult> Manual()
+  {
+    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator))
+      return Forbid();
+
+    ViewBag.ReportingMonths = await _db.ReportingMonths
+      .OrderByDescending(m => m.Year).ThenByDescending(m => m.Month)
+      .ToListAsync();
+    return View("Manual");
+  }
+
+  [HttpGet]
+  [Route("Report/ManualEmployeeSearch")]
+  public async Task<IActionResult> ManualEmployeeSearch(string? idNumber, string? employeeCode, string? firstName, string? lastName)
+  {
+    var query = _db.Users.Where(u => u.StatusId == 1 && u.IsReportingEmployee);
+    if (_currentUser.UserRole == UserRoleEnum.Employee)
+      query = query.Where(u => u.Id == _currentUser.UserId);
+
+    if (!string.IsNullOrWhiteSpace(idNumber))
+    {
+      var raw = idNumber.Trim();
+      query = query.Where(u => u.IdNumber.Replace("-", "").Replace(" ", "").Contains(raw));
+    }
+    if (!string.IsNullOrWhiteSpace(employeeCode))
+    {
+      var code = employeeCode.Trim();
+      query = query.Where(u => u.EmployeeCode.Contains(code));
+    }
+    if (!string.IsNullOrWhiteSpace(firstName))
+    {
+      var first = firstName.Trim();
+      query = query.Where(u => u.FirstName.Contains(first));
+    }
+    if (!string.IsNullOrWhiteSpace(lastName))
+    {
+      var last = lastName.Trim();
+      query = query.Where(u => u.LastName.Contains(last));
+    }
+
+    var employees = await query
+      .OrderBy(u => u.LastName).ThenBy(u => u.FirstName)
+      .Take(30)
+      .Select(u => new { id = u.Id, idNumber = u.IdNumber, employeeCode = u.EmployeeCode, firstName = u.FirstName, lastName = u.LastName })
+      .ToListAsync();
+
+    var employeeIds = employees.Select(e => e.id).ToList();
+    var allocations = await _db.Allocations
+      .Where(a => a.IsActive && employeeIds.Contains(a.UserId))
+      .OrderBy(a => a.Project!.Description)
+      .Select(a => new { id = a.Id, userId = a.UserId, projectName = a.Project != null ? a.Project.Description : "" })
+      .ToListAsync();
+
+    return Json(new { employees, allocations });
+  }
+
+  [HttpGet]
+  public async Task<IActionResult> ManualOpen(int userId, int allocationId, int reportingMonthId)
+  {
+    if (!await CanViewEmployeeReportAsync(userId)) return Forbid();
+
+    var allocation = await _db.Allocations.FirstOrDefaultAsync(a => a.Id == allocationId && a.IsActive);
+    if (allocation == null)
+    {
+      TempData["Error"] = "ההקצאה שנבחרה אינה פעילה או לא קיימת";
+      return RedirectToAction(nameof(Manual));
+    }
+    if (allocation.UserId != userId)
+    {
+      TempData["Error"] = "יש לבחור הקצאה ששייכת לעובד שנבחר";
+      return RedirectToAction(nameof(Manual));
+    }
+
+    var report = await _statusService.GetOrCreateDraftAsync(userId, reportingMonthId);
+    if (report == null) return StatusCode(500);
+
+    return RedirectToAction(nameof(Index), new { userId, allocationId, reportId = report.Id });
   }
 
   [HttpPost]

@@ -729,6 +729,16 @@ public class AdminController : Controller
     ViewBag.Projects = projects;
     ViewBag.Programs = programs;
     ViewBag.Mapping = mapping;
+
+    // ערכי טבלאות הקוד לעורך שיוכי הערכים (יישור לגרסת השרת).
+    ViewBag.ScopeSubjects = await _db.Subjects.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeDomains = await _db.Domains.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeFrameworks = await _db.Frameworks.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeEducationalPrograms = await _db.EducationalPrograms.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeDiscussionCodes = await _db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeGradeLevels = await _db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeClasses = await _db.Classes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+
     return View();
   }
 
@@ -771,6 +781,125 @@ public class AdminController : Controller
     await _db.SaveChangesAsync();
     TempData["Success"] = $"נשמרו {desired.Count} תוכניות עבור פרויקט '{project.Description}'";
     return RedirectToAction(nameof(ProjectPrograms));
+  }
+
+  // --- Project ↔ Program value scoping (עורך שיוכים — יישור לגרסת השרת) ---
+
+  /// <summary>הערכים המשויכים ל(פרויקט, תוכנית) בכל שבע טבלאות השיוך — לעורך.</summary>
+  [HttpGet]
+  public async Task<IActionResult> ProjectProgramScope(int projectId, int programId)
+  {
+    return Json(new
+    {
+      subjectIds = await _db.ProjectProgramSubjects.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.SubjectId).ToListAsync(),
+      domainIds = await _db.ProjectProgramDomains.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.DomainId).ToListAsync(),
+      frameworkIds = await _db.ProjectProgramFrameworks.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.FrameworkId).ToListAsync(),
+      educationalProgramIds = await _db.ProjectProgramEducationalPrograms.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.EducationalProgramId).ToListAsync(),
+      discussionCodeIds = await _db.ProjectProgramDiscussionCodes.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.DiscussionCodeId).ToListAsync(),
+      gradeLevelIds = await _db.ProjectProgramGradeLevels.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.GradeLevelId).ToListAsync(),
+      classIds = await _db.ProjectProgramClasses.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.ClassId).ToListAsync()
+    });
+  }
+
+  [HttpPost, ValidateAntiForgeryToken]
+  public async Task<IActionResult> SaveProjectProgramScope(int projectId, int programId,
+    int[]? subjectIds, int[]? domainIds, int[]? frameworkIds, int[]? educationalProgramIds,
+    int[]? discussionCodeIds, int[]? gradeLevelIds, int[]? classIds)
+  {
+    var exists = await _db.ProjectPrograms.AnyAsync(pp => pp.ProjectId == projectId && pp.ProgramId == programId);
+    if (!exists)
+    {
+      TempData["Error"] = "שיוך פרויקט-תוכנית לא נמצא — יש לשמור קודם את התוכניות לפרויקט";
+      return RedirectToAction(nameof(ProjectPrograms));
+    }
+
+    await ReplaceScopeAsync(_db.ProjectProgramSubjects,
+      x => x.ProjectId == projectId && x.ProgramId == programId, subjectIds,
+      id => new ProjectProgramSubject { ProjectId = projectId, ProgramId = programId, SubjectId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramDomains,
+      x => x.ProjectId == projectId && x.ProgramId == programId, domainIds,
+      id => new ProjectProgramDomain { ProjectId = projectId, ProgramId = programId, DomainId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramFrameworks,
+      x => x.ProjectId == projectId && x.ProgramId == programId, frameworkIds,
+      id => new ProjectProgramFramework { ProjectId = projectId, ProgramId = programId, FrameworkId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramEducationalPrograms,
+      x => x.ProjectId == projectId && x.ProgramId == programId, educationalProgramIds,
+      id => new ProjectProgramEducationalProgram { ProjectId = projectId, ProgramId = programId, EducationalProgramId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramDiscussionCodes,
+      x => x.ProjectId == projectId && x.ProgramId == programId, discussionCodeIds,
+      id => new ProjectProgramDiscussionCode { ProjectId = projectId, ProgramId = programId, DiscussionCodeId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramGradeLevels,
+      x => x.ProjectId == projectId && x.ProgramId == programId, gradeLevelIds,
+      id => new ProjectProgramGradeLevel { ProjectId = projectId, ProgramId = programId, GradeLevelId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramClasses,
+      x => x.ProjectId == projectId && x.ProgramId == programId, classIds,
+      id => new ProjectProgramClass { ProjectId = projectId, ProgramId = programId, ClassId = id });
+
+    await _db.SaveChangesAsync();
+    await _auditLog.LogAsync("ProjectProgramScope.Update", nameof(ProjectProgram), $"{projectId}:{programId}",
+      after: new { projectId, programId, subjectIds, domainIds, frameworkIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, classIds });
+
+    TempData["Success"] = "שיוכי הערכים לתוכנית נשמרו";
+    return RedirectToAction(nameof(ProjectPrograms));
+  }
+
+  private async Task ReplaceScopeAsync<T>(
+    Microsoft.EntityFrameworkCore.DbSet<T> set,
+    System.Linq.Expressions.Expression<Func<T, bool>> match,
+    int[]? selectedIds,
+    Func<int, T> create) where T : class
+  {
+    var existing = await set.Where(match).ToListAsync();
+    set.RemoveRange(existing);
+    foreach (var id in (selectedIds ?? Array.Empty<int>()).Where(x => x > 0).Distinct())
+      set.Add(create(id));
+  }
+
+  // --- מדיניות פרטיות (ניהול גרסאות — יישור לגרסת השרת) ---
+
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> PrivacyPolicy()
+  {
+    ViewBag.Versions = await _db.PrivacyPolicyVersions
+      .AsNoTracking()
+      .Include(v => v.PublishedByUser)
+      .OrderByDescending(v => v.VersionNumber)
+      .ToListAsync();
+    return View();
+  }
+
+  [HttpPost, ValidateAntiForgeryToken]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> PublishPrivacyPolicy(string bodyHtml, DateTime? effectiveFrom)
+  {
+    if (string.IsNullOrWhiteSpace(bodyHtml))
+    {
+      TempData["Error"] = "יש להזין תוכן למדיניות הפרטיות";
+      return RedirectToAction(nameof(PrivacyPolicy));
+    }
+
+    if (!int.TryParse(User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier), out var actorId))
+    {
+      TempData["Error"] = "לא ניתן לזהות את המשתמש המבצע";
+      return RedirectToAction(nameof(PrivacyPolicy));
+    }
+
+    var nextVersion = (await _db.PrivacyPolicyVersions.MaxAsync(v => (int?)v.VersionNumber) ?? 0) + 1;
+    var version = new PrivacyPolicyVersion
+    {
+      VersionNumber = nextVersion,
+      BodyHtml = bodyHtml,
+      EffectiveFrom = effectiveFrom ?? DateTime.UtcNow,
+      PublishedByUserId = actorId,
+      CreatedAt = DateTime.UtcNow
+    };
+    _db.PrivacyPolicyVersions.Add(version);
+    await _db.SaveChangesAsync();
+    await _auditLog.LogAsync("Privacy.Publish", nameof(PrivacyPolicyVersion), version.Id.ToString(),
+      after: new { version.Id, version.VersionNumber, version.EffectiveFrom, version.PublishedByUserId });
+
+    TempData["Success"] = $"גרסה {nextVersion} של מדיניות הפרטיות פורסמה";
+    return RedirectToAction(nameof(PrivacyPolicy));
   }
 
   // --- AX-024: Data Migration Tool ---
@@ -1595,7 +1724,7 @@ public class AdminController : Controller
   }
 
   [HttpPost, ValidateAntiForgeryToken]
-  public async Task<IActionResult> BatchReportImport(IFormFile file, int reportingMonthId, CancellationToken ct)
+  public async Task<IActionResult> BatchReportImport(IFormFile file, int reportingMonthId, CancellationToken ct, string? progressId = null)
   {
     if (file == null || file.Length == 0)
     {
@@ -1609,7 +1738,7 @@ public class AdminController : Controller
     var month = await _db.ReportingMonths.FindAsync(new object[] { reportingMonthId }, ct);
 
     await using var stream = file.OpenReadStream();
-    var result = await _batchImportService.ImportAsync(stream, reportingMonthId, uploaderId, ct);
+    var result = await _batchImportService.ImportAsync(stream, reportingMonthId, uploaderId, ct, progressId);
 
     // Pre-generate the errors PDF once so we can both email it as an attachment
     // and offer it as a download from the results screen.
@@ -1683,6 +1812,49 @@ public class AdminController : Controller
 
     var bytes = _pdfReportService.CreateErrorReport(lines);
     return File(bytes, "application/pdf", $"batch-import-errors-{DateTime.Now:yyyyMMddHHmm}.pdf");
+  }
+
+  /// <summary>אחוז ההתקדמות של ייבוא רץ — נדגם מהדפדפן (יישור לגרסת השרת).</summary>
+  [HttpGet]
+  public IActionResult BatchReportImportProgress(string id) =>
+    Json(BatchImportProgressStore.Get(id));
+
+  /// <summary>רשימת שגיאות הייבוא האחרון כקובץ אקסל (בנוסף ל-PDF).</summary>
+  [HttpGet]
+  public IActionResult BatchReportImportErrorsExcel()
+  {
+    var serialized = TempData["BatchImportErrors"] as string ?? string.Empty;
+    TempData.Keep("BatchImportErrors");
+
+    using var workbook = new XLWorkbook();
+    var ws = workbook.Worksheets.Add("שגיאות יבוא");
+    ws.RightToLeft = true;
+    var headers = new[] { "שורה בקובץ", "קוד עובד", "שם מדווח", "שגיאה" };
+    for (var i = 0; i < headers.Length; i++)
+      ws.Cell(1, i + 1).Value = headers[i];
+    ws.Row(1).Style.Font.Bold = true;
+
+    var lines = string.IsNullOrWhiteSpace(serialized)
+      ? Array.Empty<string>()
+      : serialized.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    var row = 2;
+    foreach (var line in lines)
+    {
+      // Serialized as: "שורה {n} | קוד {code} | {name} | {message}" (see the POST above).
+      var parts = line.Split('|', StringSplitOptions.TrimEntries);
+      ws.Cell(row, 1).Value = parts.ElementAtOrDefault(0)?.Replace("שורה", "").Trim() ?? "";
+      ws.Cell(row, 2).Value = parts.ElementAtOrDefault(1)?.Replace("קוד", "").Trim() ?? "";
+      ws.Cell(row, 3).Value = parts.ElementAtOrDefault(2) ?? "";
+      ws.Cell(row, 4).Value = string.Join(" | ", parts.Skip(3));
+      row++;
+    }
+    ws.Columns().AdjustToContents();
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return File(stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"batch-import-errors-{DateTime.Now:yyyyMMddHHmm}.xlsx");
   }
 
   // --- Terms of Use Versions ---

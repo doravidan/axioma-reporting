@@ -36,6 +36,8 @@ public class DashboardFilter
   public int PageSize { get; set; } = 25;
   public string? SortBy { get; set; }
   public bool SortDesc { get; set; }
+  /// <summary>כלול דיווחים בארכיון (מכובד רק לאדמין/מנהל פרויקט/רכז).</summary>
+  public bool IncludeArchived { get; set; }
 }
 
 public class IdName
@@ -171,6 +173,9 @@ public class DashboardFilterService : IDashboardFilterService
       .Include(r => r.ReportingMonth)
       .Where(r => employeeIds.Contains(r.UserId));
 
+    if (!(filter.IncludeArchived && CanIncludeArchived(currentUserRole)))
+      reports = reports.Where(r => !r.IsArchived);
+
     reports = await ApplyMonthRangeAsync(reports, filter);
 
     if (filter.StatusId.HasValue)
@@ -204,13 +209,18 @@ public class DashboardFilterService : IDashboardFilterService
   {
     var report = await _db.Reports.FindAsync(reportId);
     if (report == null) return false;
-    if (currentUserRole == UserRoleEnum.Employee) return report.UserId == currentUserId;
+    if (currentUserRole == UserRoleEnum.Employee)
+      return !report.IsArchived && report.UserId == currentUserId;
+    if (report.IsArchived && !CanIncludeArchived(currentUserRole)) return false;
     if (currentUserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
       return true;
 
     var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
     return scopedUserIds.Contains(report.UserId);
   }
+
+  private static bool CanIncludeArchived(UserRoleEnum role) =>
+    role is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator;
 
   public async Task<(List<DashboardReportDetailRow> Rows, int TotalCount)> GetReportRowsAsync(
     DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole)
@@ -239,6 +249,9 @@ public class DashboardFilterService : IDashboardFilterService
       .Include(r => r.User)
       .Include(r => r.ReportingMonth)
       .Where(r => activeEmployeeIds.Contains(r.UserId));
+
+    if (!(filter.IncludeArchived && CanIncludeArchived(currentUserRole)))
+      reports = reports.Where(r => !r.IsArchived);
 
     reports = await ApplyMonthRangeAsync(reports, filter);
 
@@ -367,7 +380,8 @@ public class DashboardFilterService : IDashboardFilterService
     if (month == null) return (new List<DashboardReportDetailRow>(), 0);
 
     var reportedUserIds = await _db.Reports
-      .Where(r => r.ReportingMonthId == month.Id)
+      .Where(r => r.ReportingMonthId == month.Id &&
+                  (filter.IncludeArchived || !r.IsArchived))
       .Select(r => r.UserId)
       .Distinct()
       .ToListAsync();
@@ -599,7 +613,8 @@ public class DashboardFilterService : IDashboardFilterService
                   !_db.Reports.Any(r => r.UserId == u.Id &&
                                         r.ReportingMonthId == month.Id &&
                                         r.StatusId != 1 &&
-                                        r.StatusId != 2));
+                                        r.StatusId != 2 &&
+                                        (filter.IncludeArchived || !r.IsArchived)));
 
     var total = await employees.CountAsync();
     var page = await ApplyMissingReportSort(employees, filter.SortBy, filter.SortDesc)

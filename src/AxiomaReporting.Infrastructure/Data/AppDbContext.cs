@@ -35,6 +35,9 @@ public class AppDbContext : DbContext
   public DbSet<ProjectProgramDomain> ProjectProgramDomains => Set<ProjectProgramDomain>();
   public DbSet<ProjectProgramEducationalProgram> ProjectProgramEducationalPrograms => Set<ProjectProgramEducationalProgram>();
   public DbSet<ProjectProgramDiscussionCode> ProjectProgramDiscussionCodes => Set<ProjectProgramDiscussionCode>();
+  public DbSet<ProjectProgramFramework> ProjectProgramFrameworks => Set<ProjectProgramFramework>();
+  public DbSet<ProjectProgramGradeLevel> ProjectProgramGradeLevels => Set<ProjectProgramGradeLevel>();
+  public DbSet<ProjectProgramClass> ProjectProgramClasses => Set<ProjectProgramClass>();
 
   // System tables
   public DbSet<ReportStatus> ReportStatuses => Set<ReportStatus>();
@@ -58,6 +61,7 @@ public class AppDbContext : DbContext
   public DbSet<TwoFactorCode> TwoFactorCodes => Set<TwoFactorCode>();
   public DbSet<TermsOfUseVersion> TermsOfUseVersions => Set<TermsOfUseVersion>();
   public DbSet<TermsOfUseAcceptance> TermsOfUseAcceptances => Set<TermsOfUseAcceptance>();
+  public DbSet<PrivacyPolicyVersion> PrivacyPolicyVersions => Set<PrivacyPolicyVersion>();
   public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
   public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 

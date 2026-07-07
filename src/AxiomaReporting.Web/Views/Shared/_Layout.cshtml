@@ -47,6 +47,7 @@
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="SystemConstants">קבועי מערכת</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="Branding">לוגו המערכת</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="TermsOfUse">תנאי שימוש</a></li>
+                    <li><a class="dropdown-item" asp-controller="Admin" asp-action="PrivacyPolicy">ניהול מדיניות פרטיות</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="EmailTemplates">תבניות מייל</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="EmailServerSettings">הגדרות שרת מייל</a></li>
                     <li><a class="dropdown-item" asp-controller="Admin" asp-action="NotificationLogs">יומן התראות</a></li>
@@ -59,6 +60,9 @@
               }
               <li class="nav-item">
                 <a class="nav-link" asp-controller="Home" asp-action="Index">ראשי</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" asp-controller="Home" asp-action="Privacy">מדיניות פרטיות</a>
               </li>
               @if (User.IsInRole("1") || User.IsInRole("2") || User.IsInRole("3"))
               {

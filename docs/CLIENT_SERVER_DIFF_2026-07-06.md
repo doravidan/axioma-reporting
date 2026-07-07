@@ -1,5 +1,14 @@
 # Client-Server Build vs Repo Master — Full Diff Report (2026-07-06)
 
+> **UPDATE 2026-07-07:** All seven server-only Features & Screens (§1 rows 1–7)
+> were ported into repo master (commit "Align master with client-server
+> features"): manual reporting, privacy-policy versioning, dashboard archive
+> toggle, dashboard documents modal, batch-import progress + errors-as-Excel,
+> ProjectProgram scope editor (all 7 value types incl. the newly mapped
+> frameworks/grade-levels/classes tables), and allocations quick-create.
+> Remaining gaps vs the server branch: PathBase/reverse-proxy URL handling
+> (§ "Fixes & Infrastructure") and the data merge (§5/§6).
+
 Comparison of the client's live-server package (`Exioma-dev-setup-20260705-164307`:
 published v1.2.11 binaries + decompiled v1.2.8 sources + live-DB backup, restored
 locally as `AxiomaReportingClient`, app on :5000) against repo `master` @ `1ce7dc5`
