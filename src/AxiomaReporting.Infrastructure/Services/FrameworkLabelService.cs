@@ -8,7 +8,9 @@ namespace AxiomaReporting.Infrastructure.Services;
 /// "יישוב — סמל — שם מסגרת" (משוב בטא B35/B38/B39). The locality is resolved via the
 /// Institution that shares the framework's InstitutionSymbol; frameworks with a
 /// synthetic/unknown symbol fall back to the plain description.
-/// The composite also disambiguates same-named frameworks (QA #6: "כל תאור מופיע פעמיים").
+/// The composite also disambiguates same-named frameworks (QA #6: "כל תאור מופיע פעמיים");
+/// when even the composite collides (same symbol+name across educational stages),
+/// the stage is appended so no two options in a dropdown read identically.
 /// </summary>
 public static class FrameworkLabelService
 {
@@ -19,10 +21,11 @@ public static class FrameworkLabelService
 
     var frameworks = await db.Frameworks.AsNoTracking()
       .Where(f => frameworkIds.Contains(f.Id))
-      .Select(f => new { f.Id, f.Description, f.InstitutionSymbol })
+      .Select(f => new FrameworkRow(f.Id, f.Description, f.InstitutionSymbol,
+        f.EducationalStage != null ? f.EducationalStage.Description : null))
       .ToListAsync(ct);
 
-    return await ComposeAsync(db, frameworks.Select(f => (f.Id, f.Description, f.InstitutionSymbol)).ToList(), ct);
+    return await ComposeAsync(db, frameworks, ct);
   }
 
   /// <summary>Label map for ALL active frameworks (admin screens / global dropdowns).</summary>
@@ -31,14 +34,17 @@ public static class FrameworkLabelService
   {
     var frameworks = await db.Frameworks.AsNoTracking()
       .Where(f => f.IsActive)
-      .Select(f => new { f.Id, f.Description, f.InstitutionSymbol })
+      .Select(f => new FrameworkRow(f.Id, f.Description, f.InstitutionSymbol,
+        f.EducationalStage != null ? f.EducationalStage.Description : null))
       .ToListAsync(ct);
 
-    return await ComposeAsync(db, frameworks.Select(f => (f.Id, f.Description, f.InstitutionSymbol)).ToList(), ct);
+    return await ComposeAsync(db, frameworks, ct);
   }
 
+  private sealed record FrameworkRow(int Id, string Description, string Symbol, string? Stage);
+
   private static async Task<Dictionary<int, string>> ComposeAsync(
-    AppDbContext db, List<(int Id, string Description, string Symbol)> frameworks, CancellationToken ct)
+    AppDbContext db, List<FrameworkRow> frameworks, CancellationToken ct)
   {
     // Symbols are numeric for real institutions; synthetic (FW-*/QCAT-*) have no institution.
     var numericSymbols = frameworks
@@ -72,6 +78,23 @@ public static class FrameworkLabelService
             : $"{locality} — {symbol} — {f.Description}")
         : f.Description;
     }
+
+    // Same symbol+name can legitimately repeat across educational stages —
+    // append the stage where the composite alone would collide.
+    var collidingLabels = labels.Values
+      .GroupBy(l => l)
+      .Where(g => g.Count() > 1)
+      .Select(g => g.Key)
+      .ToHashSet();
+    if (collidingLabels.Count > 0)
+    {
+      foreach (var f in frameworks)
+      {
+        if (collidingLabels.Contains(labels[f.Id]) && !string.IsNullOrWhiteSpace(f.Stage))
+          labels[f.Id] = $"{labels[f.Id]} ({f.Stage})";
+      }
+    }
+
     return labels;
   }
 }

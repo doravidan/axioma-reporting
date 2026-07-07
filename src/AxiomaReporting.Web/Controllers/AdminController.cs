@@ -745,7 +745,13 @@ public class AdminController : Controller
     // ערכי טבלאות הקוד לעורך שיוכי הערכים (יישור לגרסת השרת).
     ViewBag.ScopeSubjects = await _db.Subjects.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeDomains = await _db.Domains.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
-    ViewBag.ScopeFrameworks = await _db.Frameworks.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    // מסגרות בתווית מורכבת "יישוב — סמל — שם" (משוב בטא B35/B39) — שמות מסגרות
+    // חוזרים על עצמם לגיטימית (רשומה לכל שלב חינוך) והתווית מבדילה ביניהם.
+    ViewBag.ScopeFrameworks = (await AxiomaReporting.Infrastructure.Services.FrameworkLabelService
+        .BuildAllActiveLabelsAsync(_db))
+      .OrderBy(kv => kv.Value)
+      .Select(kv => (Id: kv.Key, Label: kv.Value))
+      .ToList();
     ViewBag.ScopeEducationalPrograms = await _db.EducationalPrograms.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeDiscussionCodes = await _db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeGradeLevels = await _db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
