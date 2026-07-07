@@ -40,6 +40,43 @@ NOW = datetime.utcnow()
 
 SKIP_VALUES = {"", "None", "מס", "מסד", 'מס"ד'}
 
+# Spelling fixes for values coming from client files (the שמיים-חטיבות-ביניים
+# workbook spells "ביניים" as "ביינים"). Applied to program-like lookups only.
+EDU_PROGRAM_FIXES = {
+    "תוכנית שמיים- חטיבת ביינים": "תוכנית שמיים - חטיבות ביניים",
+}
+
+# District wording variants → the canonical row already in Districts.
+DISTRICT_FIXES = {
+    "תל אביב-יפו": "תל אביב",
+}
+
+# Locality spelling variants in client files → the canonical curated row
+# (verified against the client server's Localities list). Prevents creating
+# near-duplicate towns like "אום אל פחם" next to "אום אל-פחם".
+LOCALITY_FIXES = {
+    "אום אל פחם": "אום אל-פחם",
+    "אל קסום": "אלקסום - אל קסום",
+    "אלבטוף": "מועצה אזורית אל בטוף",
+    "באקה": "באקה אל-גרביה",
+    "בועיינה נוגידאת": "בועיינה-נוג'ידאת",
+    "ביר אלמכסור": "ביר אל-מכסור",
+    'ברטעה-בסמ"ה': 'בסמ"ה',
+    "ג'דיידה": "ג'דיידה-מכר",
+    "ג'סר אל-זרקא": "ג'סר א-זרקא",
+    "יפו": "תל אביב - יפו",
+    "כאוכב אבו אלהיג'א": "כאוכב אבו אל-היג'א",
+    "מג'ד אלכרום": "מג'ד אל-כרום",
+    "מוסמוס-מעלה עירון": "מעלה עירון",
+    "סאלם-מעלה עירון": "מעלה עירון",
+    "סלאמה": "סלמה",
+    "עילבון": "עיילבון",
+    "פרידייס": "פוריידיס",
+    "שגב-שלום": "שגב שלום",
+    "שיבלי אום אלגנם": "שבלי - אום אל-גנם",
+    "תרשיחא": "מעלות תרשיחא",
+}
+
 REST_DAYS = {
     "ראשון": 0,
     "א": 0,
@@ -267,7 +304,8 @@ class Importer:
             if not any(clean(v) for v in row):
                 continue
             # Allocation-scoped lookups — collected here and linked per allocation.
-            add_lookup(result, "educational_programs", self.lookup_id("EducationalPrograms", value_by_header(row, mapping, "תוכנית")))
+            edu_program = clean(value_by_header(row, mapping, "תוכנית"))
+            add_lookup(result, "educational_programs", self.lookup_id("EducationalPrograms", EDU_PROGRAM_FIXES.get(edu_program, edu_program)))
             add_lookup(result, "domains", self.lookup_id("Domains", value_by_header(row, mapping, "תחום")))
             add_lookup(result, "subjects", self.lookup_id("Subjects", value_by_header(row, mapping, "נושא 1")))
             add_lookup(result, "subjects", self.lookup_id("Subjects", value_by_header(row, mapping, "נושא 2")))
@@ -411,7 +449,8 @@ class Importer:
             if not allocation_id:
                 continue
 
-            district_id = self.lookup_id("Districts", value_by_header(row, mapping, "מחוז"))
+            alloc_district = clean(value_by_header(row, mapping, "מחוז"))
+            district_id = self.lookup_id("Districts", DISTRICT_FIXES.get(alloc_district, alloc_district))
             sector_id = self.lookup_id("Sectors", value_by_header(row, mapping, "מגזר"))
             if district_id:
                 self.ensure_link("AllocationDistricts", allocation_id, "DistrictId", district_id)
@@ -551,11 +590,13 @@ class Importer:
         district_ids: set[int] = set()
         for row in rows_after(ws, header[0]):
             symbol = institution_symbol(value_by_header(row, mapping, "סמל מוסד"))
-            name = clean(value_by_header(row, mapping, "שם מוסד") or value_by_header(row, mapping, "מסגרת חינוכית") or value_by_header(row, mapping, "שם המסגרת חינוכית"))
+            name = clean(value_by_header(row, mapping, "שם מוסד") or value_by_header(row, mapping, "שם המוסד") or value_by_header(row, mapping, "מסגרת חינוכית") or value_by_header(row, mapping, "שם המסגרת חינוכית"))
             if not symbol or not name:
                 continue
-            locality_id = self.lookup_id("Localities", value_by_header(row, mapping, "שם הישוב") or value_by_header(row, mapping, "יישוב"))
-            district_id = self.lookup_id("Districts", value_by_header(row, mapping, "מחוז"))
+            locality = clean(value_by_header(row, mapping, "שם הישוב") or value_by_header(row, mapping, "יישוב") or value_by_header(row, mapping, "שם ישוב"))
+            locality_id = self.lookup_id("Localities", LOCALITY_FIXES.get(locality, locality))
+            district = clean(value_by_header(row, mapping, "מחוז"))
+            district_id = self.lookup_id("Districts", DISTRICT_FIXES.get(district, district))
             sector_id = self.lookup_id("Sectors", value_by_header(row, mapping, "מגזר"))
             type_id = self.lookup_id("EducationTypes", value_by_header(row, mapping, "סוג חינוך"))
             stage_id = self.lookup_id("EducationalStages", value_by_header(row, mapping, "שלב חינוך"))
@@ -583,8 +624,10 @@ class Importer:
             name = clean(value_by_header(row, mapping, "מסגרת חינוכית") or value_by_header(row, mapping, "שם מוסד"))
             if not employee_code or not symbol or not name:
                 continue
-            locality_id = self.lookup_id("Localities", value_by_header(row, mapping, "שם הישוב") or value_by_header(row, mapping, "יישוב"))
-            district_id = self.lookup_id("Districts", value_by_header(row, mapping, "מחוז"))
+            locality = clean(value_by_header(row, mapping, "שם הישוב") or value_by_header(row, mapping, "יישוב") or value_by_header(row, mapping, "שם ישוב"))
+            locality_id = self.lookup_id("Localities", LOCALITY_FIXES.get(locality, locality))
+            district = clean(value_by_header(row, mapping, "מחוז"))
+            district_id = self.lookup_id("Districts", DISTRICT_FIXES.get(district, district))
             sector_id = self.lookup_id("Sectors", value_by_header(row, mapping, "מגזר"))
             self.ensure_institution(symbol, name, locality_id, district_id, sector_id, None, None)
             fid = self.framework_id(symbol=str(symbol), name=name, stage_id=None)
@@ -725,6 +768,8 @@ def normalize_program(value: str) -> str:
         "מחטים, קידום נוער ומרכזי נוער": "תוכנית מחטים, קידום נוער ומרכזי נוער",
         "מניעת נשירה- ג'סר א-זרקא": "תוכנית מניעת נשירה- ג'סר א זרקה",
         "מניעת נשירה- ג'סר א זרקה": "תוכנית מניעת נשירה- ג'סר א זרקה",
+        "תוכנית שמיים- חטיבת ביינים": "תוכנית שמיים - חטיבות ביניים",
+        "שמיים- חטיבת ביינים": "תוכנית שמיים - חטיבות ביניים",
     }
     return replacements.get(text, text)
 
@@ -804,7 +849,9 @@ def choose_all_sheets(wb, kind: str) -> list[Any]:
                 continue
             mapping = header_map(header[1])
             if norm_header("קוד עובד") not in mapping and (
-                norm_header("שם מוסד") in mapping or norm_header("מסגרת חינוכית") in mapping
+                norm_header("שם מוסד") in mapping
+                or norm_header("שם המוסד") in mapping
+                or norm_header("מסגרת חינוכית") in mapping
             ):
                 result.append(ws)
     return result

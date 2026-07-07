@@ -17,7 +17,7 @@ Companion docs (Hebrew, more narrative): `docs/CLIENT_DELIVERY.md`, `docs/DEPLOY
 | `{{DOMAIN}}` | Public host name of the site | `reports.example.co.il` |
 | `{{DB_PASSWORD}}` | New strong password (16+ chars) for the `AxiomaWeb` SQL login | — |
 | `{{ADMIN_PASSWORD}}` | New strong password for the application `admin` user | 8+ chars, letters+digits |
-| `{{BAK_PATH}}` | Where the delivery backup file was copied on the server | `C:\deploy\AxiomaReporting_delivery_2026-07-06.bak` |
+| `{{BAK_PATH}}` | Where the delivery backup file was copied on the server | `C:\deploy\AxiomaReporting_delivery_2026-07-07.bak` |
 | `{{SMTP_*}}` | SMTP relay: server, port, user, password, from-address | configured later via the admin UI, not in files |
 
 ## Package contents
@@ -27,8 +27,8 @@ Companion docs (Hebrew, more narrative): `docs/CLIENT_DELIVERY.md`, `docs/DEPLOY
 | Source code (build on dev machine or on server) | `https://github.com/doravidan/axioma-reporting.git`, branch `master` | yes |
 | Publish script | `deploy/publish.ps1` | yes |
 | Full schema, idempotent (structure only) | `database/schema.sql` (~2,100 lines, generated from EF migrations) | yes |
-| **Full database backup — structure + all client data** (SQL 2022+ only) | `AxiomaReporting_delivery_2026-07-06.bak` (30.7 MB, taken 2026-07-06 19:07) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
-| **Version-independent data export — same content, works on SQL 2019** | `AxiomaReporting_delivery_2026-07-06.bacpac` (0.6 MB, round-trip verified) | **NO — same PII rule; delivered separately.** |
+| **Full database backup — structure + all client data** (SQL 2022+ only) | `AxiomaReporting_delivery_2026-07-07.bak` (33 MB, taken 2026-07-07; includes the שמיים-חטיבות-ביניים onboarding of 2026-07-07) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
+| **Version-independent data export — same content, works on SQL 2019** | `AxiomaReporting_delivery_2026-07-07.bacpac` (0.7 MB, round-trip verified) | **NO — same PII rule; delivered separately.** |
 | Password-normalization script (go-live step §2.2) | `scripts/reset_passwords_to_id.py` | yes |
 | This runbook | `deploy/CODEX_DEPLOY_RUNBOOK.md` | yes |
 
@@ -36,17 +36,17 @@ The `.bak` contains the fully imported client dataset. Expected row counts (used
 
 | Table | Rows |
 |---|---|
-| Users | 446 |
-| Allocations | 442 |
-| Frameworks | 3,193 |
-| Institutions | 4,268 |
-| Localities | 1,482 |
-| Reports / ReportRows | 18 / 452 (incl. 3 July-2026 test reports — removed in §2.2) |
+| Users | 492 |
+| Allocations | 489 |
+| Frameworks | 3,222 |
+| Institutions | 4,297 |
+| Localities | 1,448 |
+| Reports / ReportRows | 21 / 455 (incl. 5 July-2026 test reports — removed in §2.2) |
 | ReportingMonths | 3 (יולי 2026 is the active month) |
-| EmailTemplates | 10 |
+| EmailTemplates | 12 |
 | SystemConstants | 9 |
-| ProjectProgramSubjects | 3,960 |
-| `__EFMigrationsHistory` | 19 |
+| ProjectProgramSubjects | 3,961 |
+| `__EFMigrationsHistory` | 21 |
 
 ---
 
@@ -71,8 +71,9 @@ iisreset /restart
 # 1.3 SQL Server Express — 2022 preferred, 2019 supported.
 # The delivery .bak was produced by SQL Server 2022 (16.0) and CANNOT be
 # restored on SQL 2019 or older (native backups never downgrade). On a
-# SQL 2019 server use §2 Option A2 — import the delivered .bacpac instead
-# (identical data, version-independent).
+# SQL 2019 server use §2 Option A2 — import the delivered
+# AxiomaReporting_delivery_2026-07-07.bacpac instead (identical data,
+# version-independent).
 # Install with the "Basic" preset; also install SSMS if a human will manage it.
 
 # 1.4 App folders
@@ -111,7 +112,7 @@ sqlcmd -S .\SQLEXPRESS -E -Q "ALTER DATABASE AxiomaReporting SET RECOVERY SIMPLE
 
 A native `.bak` can never be restored onto an older SQL Server. If the server runs
 SQL 2019 (or anything older than 2022), import the delivered
-`AxiomaReporting_delivery_2026-07-06.bacpac` instead — identical content,
+`AxiomaReporting_delivery_2026-07-07.bacpac` instead — identical content,
 round-trip verified against the same row counts.
 
 ```powershell
@@ -126,7 +127,7 @@ sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE AxiomaReporting COLLATE Hebrew_CI_
 
 # 3) Import (replace the path with wherever the .bacpac was copied)
 & "C:\deploy\sqlpackage\sqlpackage.exe" /Action:Import `
-  /SourceFile:"C:\deploy\AxiomaReporting_delivery_2026-07-06.bacpac" `
+  /SourceFile:"C:\deploy\AxiomaReporting_delivery_2026-07-07.bacpac" `
   /TargetServerName:.\SQLEXPRESS /TargetDatabaseName:AxiomaReporting /TargetTrustServerCertificate:True
 ```
 
@@ -134,7 +135,7 @@ sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE AxiomaReporting COLLATE Hebrew_CI_
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -W -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM Users) Users, (SELECT COUNT(*) FROM Frameworks) Frameworks, (SELECT CONVERT(varchar(50), DATABASEPROPERTYEX(DB_NAME(),'Collation'))) Collation"
-# Expect: Users=446, Frameworks=3193, Collation=Hebrew_CI_AS
+# Expect: Users=492, Frameworks=3222, Collation=Hebrew_CI_AS
 ```
 
 Then continue with §2.1 and §2.2 exactly as for Option A.
@@ -168,7 +169,7 @@ the December/January pilot reports stay pending the client's purge decision):
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -Q "SET QUOTED_IDENTIFIER ON; DECLARE @ids TABLE (Id int); INSERT INTO @ids SELECT r.Id FROM Reports r JOIN ReportingMonths m ON m.Id = r.ReportingMonthId WHERE m.Year = 2026 AND m.Month = 7; DELETE FROM DocumentAttachments WHERE ReportId IN (SELECT Id FROM @ids) OR ReportRowId IN (SELECT rr.Id FROM ReportRows rr WHERE rr.ReportId IN (SELECT Id FROM @ids)); DELETE FROM ReportRows WHERE ReportId IN (SELECT Id FROM @ids); DELETE FROM Reports WHERE Id IN (SELECT Id FROM @ids); SELECT @@ROWCOUNT AS deleted_reports"
-# Expect: deleted_reports = 3
+# Expect: deleted_reports = 5
 ```
 
 **b) Normalize every employee password to their ID number with a forced change
@@ -199,7 +200,7 @@ activate the correct month via `/Admin/ReportingMonths` after first login.
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -W -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM Users) AS Users, (SELECT COUNT(*) FROM Allocations) AS Allocations, (SELECT COUNT(*) FROM Frameworks) AS Frameworks, (SELECT COUNT(*) FROM __EFMigrationsHistory) AS Migrations, (SELECT COUNT(*) FROM Users WHERE MustChangePassword = 1) AS ForcedChanges"
-# Expect: Users=446, Allocations=442, Frameworks=3193, Migrations=19, ForcedChanges=446
+# Expect: Users=492, Allocations=489, Frameworks=3222, Migrations=21, ForcedChanges=492
 ```
 
 ---
@@ -322,9 +323,13 @@ Data notes (Option A restore):
 
 - Employees log in with **ID number as both username and initial password**, and are forced
   to set a real password on first login.
-- The restored data includes 15 reports / 451 report rows from the pilot imports. If the
+- The restored data includes 16 reports / 451 report rows from the pilot imports
+  (December 2025 + January 2026, after §2.2a removes the July test reports). If the
   client wants a clean start for reports, run `scripts/purge_old_reports.sql` **after** an
   explicit decision on the cutoff month (the script defaults to dry-run).
+- The 2026-07-07 backup already includes the שמיים-חטיבות-ביניים onboarding
+  (56 employees + allocations, program "תוכנית שמיים - חטיבות ביניים", 78 frameworks) —
+  do not re-import that workbook on the server.
 - Program→values auto-fill associations (`ProjectProgram*` tables) are currently populated
   for project 1 only; other projects' associations are loaded via
   `/Admin/ProjectPrograms` or the questionnaire-catalog import.
