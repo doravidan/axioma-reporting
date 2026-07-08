@@ -111,6 +111,76 @@ public class MyAllocationsFlowTests : IDisposable
   }
 
   [Fact]
+  public async Task Employee_GetMyAllocations_ShowsPastReportHistory()
+  {
+    int reportId;
+    using (var scope = _factory.Services.CreateScope())
+    {
+      var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+      var pastMonth = new ReportingMonth
+      {
+        Id = 4042026,
+        Month = 4,
+        Year = 2026,
+        Description = "April 2026",
+        LastReportingDate = DateTime.UtcNow.AddDays(-20),
+        IsActive = false,
+        CreatedAt = DateTime.UtcNow
+      };
+      db.ReportingMonths.Add(pastMonth);
+      db.SaveChanges();
+
+      var report = new Report
+      {
+        UserId = 1,
+        ReportingMonthId = pastMonth.Id,
+        ReportingMonth = pastMonth,
+        StatusId = 4,
+        SubmittedAt = DateTime.UtcNow.AddDays(-10),
+        CreatedAt = DateTime.UtcNow.AddDays(-12)
+      };
+      db.Reports.Add(report);
+      db.SaveChanges();
+      reportId = report.Id;
+
+      db.ReportRows.Add(new ReportRow
+      {
+        ReportId = report.Id,
+        AllocationId = _allocationId,
+        SequenceNumber = 1,
+        MeetingDate = DateTime.UtcNow.AddDays(-15),
+        MeetingDuration = 1,
+        DistrictId = 1,
+        LocalityId = 1,
+        FrameworkId = 1,
+        EducationalProgramId = 1,
+        DomainId = 1,
+        Subject1Id = 1,
+        CreatedAt = DateTime.UtcNow.AddDays(-12)
+      });
+      db.SaveChanges();
+
+      var seededHistory = await Web.Controllers.ReportController.BuildPastReportListAsync(
+        db,
+        targetUserId: 1,
+        currentReportId: 0,
+        selectedAllocationId: _allocationId,
+        activeAllocationIds: new[] { _allocationId });
+      seededHistory.Should().ContainSingle(r => r.ReportId == reportId);
+    }
+
+    var client = await AccessControlTests.SignInAsAsync(_factory, TestData.EmployeeIdNumber, TestData.EmployeePassword);
+
+    var response = await client.GetAsync("/MyAllocations");
+    var body = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+    response.StatusCode.Should().Be(HttpStatusCode.OK);
+    body.Should().Contain("my-history-heading", "the monthly activity page should expose report history");
+    body.Should().Contain("April 2026", "previous reporting months with reports should be listed");
+    body.Should().Contain($"/Report?reportId={reportId}", "past reports should open from the history list");
+  }
+
+  [Fact]
   public async Task Employee_CanOpenOwnAllocationDetails_ReadOnly()
   {
     var client = await AccessControlTests.SignInAsAsync(_factory, TestData.EmployeeIdNumber, TestData.EmployeePassword);
@@ -189,6 +259,17 @@ public class MyAllocationsFlowTests : IDisposable
       existingMonth.IsActive = false;
     }
     db.SaveChanges();
+
+    if (!db.ReportStatuses.Any())
+    {
+      db.ReportStatuses.AddRange(
+        new ReportStatus { Id = 1, Name = "Draft" },
+        new ReportStatus { Id = 2, Name = "InEntry" },
+        new ReportStatus { Id = 3, Name = "PendingApproval" },
+        new ReportStatus { Id = 4, Name = "Approved" },
+        new ReportStatus { Id = 5, Name = "ReturnedForCorrection" });
+      db.SaveChanges();
+    }
 
     var month = new ReportingMonth
     {

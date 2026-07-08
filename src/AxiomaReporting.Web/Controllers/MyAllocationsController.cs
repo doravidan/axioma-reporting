@@ -42,6 +42,20 @@ public class MyAllocationsController : Controller
       .ToListAsync();
 
     var uploadAllocation = allocations.FirstOrDefault(a => a.AllowExcelUpload);
+    var allocationIds = allocations.Select(a => a.Id).ToList();
+    var currentReportId = activeMonth == null
+      ? 0
+      : await _db.Reports
+        .AsNoTracking()
+        .Where(r => r.UserId == userId && r.ReportingMonthId == activeMonth.Id && !r.IsArchived)
+        .Select(r => r.Id)
+        .FirstOrDefaultAsync();
+    var historyReports = await ReportController.BuildPastReportListAsync(
+      _db,
+      userId,
+      currentReportId,
+      selectedAllocationId: allocationIds.FirstOrDefault(),
+      activeAllocationIds: allocationIds);
 
     var vm = new Models.MyAllocationsViewModel
     {
@@ -50,7 +64,8 @@ public class MyAllocationsController : Controller
       // The Excel-upload tile is shown when ANY active allocation grants the right.
       AllowExcelUpload = uploadAllocation != null,
       ExcelUploadAllocationId = uploadAllocation?.Id,
-      Allocations = allocations
+      Allocations = allocations,
+      HistoryReports = historyReports
     };
 
     return View(vm);

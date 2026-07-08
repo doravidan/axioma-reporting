@@ -75,6 +75,11 @@ public class ReportController : Controller
     var targetUserId = requestedReport?.UserId ?? userId ?? _currentUser.UserId;
     if (!await CanViewEmployeeReportAsync(targetUserId)) return Forbid();
 
+    var currentActiveMonthId = await _db.ReportingMonths
+      .Where(m => m.IsActive)
+      .Select(m => (int?)m.Id)
+      .FirstOrDefaultAsync();
+
     var activeMonth = requestedReport?.ReportingMonth ?? await _db.ReportingMonths.FirstOrDefaultAsync(m => m.IsActive);
     if (activeMonth == null)
     {
@@ -92,14 +97,32 @@ public class ReportController : Controller
       .Where(a => a.UserId == targetUserId && a.IsActive)
       .ToListAsync();
 
-    if (allocations.Count == 0)
+    if (allocations.Count == 0 && requestedReport == null)
     {
       ViewBag.Error = "אין הקצאה פעילה לעובד זה";
       return View("NoAllocation");
     }
 
     Allocation selectedAllocation;
-    if (allocationId.HasValue)
+    if (requestedReport != null)
+    {
+      var reportAllocationId = allocationId;
+      if (!reportAllocationId.HasValue || reportAllocationId.Value <= 0)
+      {
+        reportAllocationId = await _db.ReportRows
+          .Where(r => r.ReportId == requestedReport.Id && r.AllocationId.HasValue)
+          .Select(r => r.AllocationId)
+          .FirstOrDefaultAsync();
+      }
+
+      selectedAllocation = allocations.FirstOrDefault(a => reportAllocationId.HasValue && a.Id == reportAllocationId.Value)
+        ?? (reportAllocationId.HasValue
+          ? await _db.Allocations.Include(a => a.Project).FirstOrDefaultAsync(a => a.Id == reportAllocationId.Value && a.UserId == targetUserId)
+          : null)
+        ?? allocations.FirstOrDefault()
+        ?? new Allocation { Id = reportAllocationId ?? 0, UserId = targetUserId, IsActive = false };
+    }
+    else if (allocationId.HasValue)
       selectedAllocation = allocations.FirstOrDefault(a => a.Id == allocationId.Value) ?? allocations[0];
     else if (allocations.Count == 1)
       selectedAllocation = allocations[0];
@@ -117,7 +140,8 @@ public class ReportController : Controller
     // צפייה בהיסטוריה: כשנפתח דיווח ספציפי (חודש קודם) מציגים את כל שורותיו,
     // גם אם נרשמו תחת הקצאה אחרת — אחרת דיווח היסטורי נראה ריק/חלקי כאשר
     // ההקצאה הנוכחית שונה מזו שבה דווח (תיקון לקוח 07/2026 #2).
-    var viewingRequestedReport = requestedReport != null;
+    var viewingHistoricalReport = requestedReport != null &&
+      (!currentActiveMonthId.HasValue || requestedReport.ReportingMonthId != currentActiveMonthId.Value);
     var rowsQuery = _db.ReportRows
       .Include(r => r.District)
       .Include(r => r.Locality)
@@ -133,7 +157,7 @@ public class ReportController : Controller
       .Include(r => r.GradeLevel)
       .Include(r => r.Class)
       .Where(r => r.ReportId == report.Id);
-    if (!viewingRequestedReport)
+    if (!viewingHistoricalReport)
       rowsQuery = rowsQuery.Where(r => r.AllocationId == selectedAllocation.Id);
     var rows = await rowsQuery
       .OrderBy(r => r.MeetingDate)

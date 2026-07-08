@@ -17,6 +17,15 @@
 
   string Whole(decimal? value) => value.HasValue ? decimal.Truncate(value.Value).ToString("0") : "-";
   string Daily(decimal? value) => value.HasValue ? value.Value.ToString("0.##") : "ללא הגבלה";
+  string StatusText(int? statusId, string? name) => statusId switch
+  {
+    1 => "טיוטה",
+    2 => "בהזנה",
+    3 => "ממתין לאישור",
+    4 => "מאושר",
+    5 => "הוחזר לתיקון",
+    _ => name ?? ""
+  };
 }
 
 @if (Model.ActiveMonth != null)
@@ -37,7 +46,7 @@ else
 }
 
 <div class="row g-4">
-  <div class="col-12 col-md-6">
+  <div class="col-12 col-md-4">
     <a class="myalloc-tile" asp-controller="Report" asp-action="Index"
        aria-label="עדכון פעילות חודשית">
       <span class="myalloc-tile-icon" aria-hidden="true">📋</span>
@@ -47,7 +56,7 @@ else
 
   @if (Model.AllowExcelUpload)
   {
-    <div class="col-12 col-md-6">
+    <div class="col-12 col-md-4">
       <a class="myalloc-tile" asp-controller="Report" asp-action="Index"
          asp-route-allocationId="@Model.ExcelUploadAllocationId"
          aria-label="העלאת אקסל חודשי">
@@ -56,7 +65,68 @@ else
       </a>
     </div>
   }
+
+  <div class="col-12 col-md-4">
+    <a class="myalloc-tile" href="#my-history-heading" aria-label="צפיה בהיסטוריה">
+      <span class="myalloc-tile-icon" aria-hidden="true">📚</span>
+      <span>צפיה בהיסטוריה</span>
+    </a>
+  </div>
 </div>
+
+<section class="mt-4" aria-labelledby="my-history-heading">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <h3 id="my-history-heading" class="mb-0">צפיה בהיסטוריה</h3>
+  </div>
+
+  @if (Model.HistoryReports.Count == 0)
+  {
+    <div class="alert alert-info" role="status" aria-live="polite">
+      אין דיווחים קודמים להצגה.
+    </div>
+  }
+  else
+  {
+    <div class="table-responsive">
+      <table class="table table-hover align-middle" aria-label="דיווחים קודמים">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">חודש</th>
+            <th scope="col">סטטוס</th>
+            <th scope="col">שורות</th>
+            <th scope="col">תאריך הגשה</th>
+            <th scope="col"><span class="visually-hidden">פעולות</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var report in Model.HistoryReports)
+          {
+            var badge = report.StatusId switch
+            {
+              4 => "bg-success",
+              3 => "bg-warning text-dark",
+              5 => "bg-danger",
+              _ => "bg-secondary"
+            };
+            <tr>
+              <td>@report.MonthDescription</td>
+              <td><span class="badge @badge">@StatusText(report.StatusId, report.StatusDescription)</span></td>
+              <td>@report.RowCount</td>
+              <td>@(report.SubmittedAt?.ToString("dd/MM/yyyy") ?? "-")</td>
+              <td>
+                <a asp-controller="Report" asp-action="Index"
+                   asp-route-reportId="@report.ReportId"
+                   asp-route-allocationId="@(report.AllocationId > 0 ? report.AllocationId : null)"
+                   class="btn btn-sm btn-outline-primary"
+                   aria-label="צפייה בדיווח @report.MonthDescription">צפייה</a>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
 
 @if (Model.AllocationCount == 0)
 {

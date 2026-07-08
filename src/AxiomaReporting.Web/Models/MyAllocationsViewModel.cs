@@ -1,4 +1,5 @@
 using AxiomaReporting.Core.Entities;
+using AxiomaReporting.Core.DTOs;
 
 namespace AxiomaReporting.Web.Models;
 
@@ -12,4 +13,5 @@ public class MyAllocationsViewModel
   public bool AllowExcelUpload { get; set; }
   public int? ExcelUploadAllocationId { get; set; }
   public List<Allocation> Allocations { get; set; } = new();
+  public List<PastReportListItem> HistoryReports { get; set; } = new();
 }
