@@ -396,15 +396,17 @@
     }
 
     // --- שיוך אוטומטי של ערכי טבלאות קוד לפי התוכנית שנבחרה (משוב בטא B21) ---
-    // בחירת תוכנית מוסיפה את הערכים המשויכים לה (נושאים, תחומים, תוכניות חינוכיות,
-    // קיום דיון) לבחירות בכרטיס השיוכים; ניתן לערוך/להסיר לאחר מכן (B6).
-    // מסגרות מוחרגות בכוונה — נקבעות רק לפי הקצאת העובד (QA #4).
+    // בחירת תוכנית מוסיפה את כל ברירות המחדל המשויכות לפרויקט+תוכנית (נושאים,
+    // תחומים, תוכניות חינוכיות, קיום דיון, שכבות ומסגרות — תיקון לקוח 07/2026 #3)
+    // לבחירות בכרטיס השיוכים; ניתן לערוך/להסיר לאחר מכן (B6).
     const valuesUrl = '@Url.Action("ValuesForProgram", "Employee")';
     const scopeTargets = {
       subjectIds: 'select[name="SubjectIds"]',
       domainIds: 'select[name="DomainIds"]',
       educationalProgramIds: 'select[name="EducationalProgramIds"]',
-      discussionCodeIds: 'select[name="DiscussionCodeIds"]'
+      discussionCodeIds: 'select[name="DiscussionCodeIds"]',
+      gradeLevelIds: 'select[name="GradeLevelIds"]',
+      frameworkIds: 'select[name="FrameworkIds"]'
     };
 
     function addSelections(selector, ids) {

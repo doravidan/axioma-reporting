@@ -1144,14 +1144,23 @@ public class EmployeeController : Controller
   // GET /Employee/ValuesForProgram?projectId=N&programId=M — the code-table values
   // associated with a (project, program) pair (K10 / משוב בטא B21): selecting a
   // program in the allocation form auto-populates the שיוכים selections from these.
-  // Frameworks are intentionally NOT included — per QA #4 they are scoped only by
-  // the employee's allocation, never by program.
+  // Covers ALL the program-scoped lists, including frameworks and grade levels
+  // (client fix 07/2026 #3 — supersedes the earlier QA #4 frameworks exclusion);
+  // the auto-filled values stay user-editable in the form.
   [HttpGet]
   [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
   public async Task<IActionResult> ValuesForProgram(int projectId, int programId)
   {
     if (projectId <= 0 || programId <= 0)
-      return Json(new { subjectIds = Array.Empty<int>(), domainIds = Array.Empty<int>(), educationalProgramIds = Array.Empty<int>(), discussionCodeIds = Array.Empty<int>() });
+      return Json(new
+      {
+        subjectIds = Array.Empty<int>(),
+        domainIds = Array.Empty<int>(),
+        educationalProgramIds = Array.Empty<int>(),
+        discussionCodeIds = Array.Empty<int>(),
+        gradeLevelIds = Array.Empty<int>(),
+        frameworkIds = Array.Empty<int>()
+      });
 
     var subjectIds = await _db.ProjectProgramSubjects
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
@@ -1165,8 +1174,14 @@ public class EmployeeController : Controller
     var discussionCodeIds = await _db.ProjectProgramDiscussionCodes
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.DiscussionCodeId).ToListAsync();
+    var gradeLevelIds = await _db.ProjectProgramGradeLevels
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.GradeLevelId).ToListAsync();
+    var frameworkIds = await _db.ProjectProgramFrameworks
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.FrameworkId).ToListAsync();
 
-    return Json(new { subjectIds, domainIds, educationalProgramIds, discussionCodeIds });
+    return Json(new { subjectIds, domainIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, frameworkIds });
   }
 
   internal static IOrderedQueryable<Allocation> ApplyAllocationSort(

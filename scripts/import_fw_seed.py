@@ -132,9 +132,10 @@ class Counters:
 
 
 class Importer:
-    def __init__(self, source_dir: Path, commit: bool):
+    def __init__(self, source_dir: Path, commit: bool, scope_only: bool = False):
         self.source_dir = source_dir
         self.commit = commit
+        self.scope_only = scope_only
         self.con = pyodbc.connect(CONN_STR)
         self.cur = self.con.cursor()
         self.c = Counters()
@@ -264,27 +265,45 @@ class Importer:
         employee_localities: dict[str, set[int]] = defaultdict(set)
         employee_districts: dict[str, set[int]] = defaultdict(set)
         if assignment_ws:
-            employee_frameworks, employee_localities, employee_districts = self.import_assignments_sheet(assignment_ws, path.name)
+            if self.scope_only:
+                # Frameworks are per-employee in this workbook → they are not program
+                # defaults; mark as such without writing anything.
+                employee_frameworks["__scope_only_marker__"] = set()
+            else:
+                employee_frameworks, employee_localities, employee_districts = self.import_assignments_sheet(assignment_ws, path.name)
 
-        if employees_ws:
-            self.import_employees_sheet(employees_ws, path.name)
-        else:
-            self.c.warn(f"{path.name}: לא נמצא גיליון מאגר עובדים")
+        if not self.scope_only:
+            if employees_ws:
+                self.import_employees_sheet(employees_ws, path.name)
+            else:
+                self.c.warn(f"{path.name}: לא נמצא גיליון מאגר עובדים")
 
+            if allocations_ws:
+                self.import_allocations_sheet(
+                    allocations_ws,
+                    path.name,
+                    code_values,
+                    global_framework_ids if not employee_frameworks else set(),
+                    framework_locality_ids if not employee_frameworks else set(),
+                    framework_district_ids if not employee_frameworks else set(),
+                    employee_frameworks,
+                    employee_localities,
+                    employee_districts,
+                )
+            else:
+                self.c.warn(f"{path.name}: לא נמצא גיליון הקצאות")
+
+        # ProjectProgram default-scope tables (client fix 07/2026 #3): the values a new
+        # allocation auto-fills after choosing project+program. Sourced from the same
+        # workbook: the code sheet for the value lists, the institution sheets for
+        # frameworks (skipped when frameworks are per-employee via an assignments sheet).
         if allocations_ws:
-            self.import_allocations_sheet(
+            self.import_project_program_scope(
                 allocations_ws,
                 path.name,
                 code_values,
                 global_framework_ids if not employee_frameworks else set(),
-                framework_locality_ids if not employee_frameworks else set(),
-                framework_district_ids if not employee_frameworks else set(),
-                employee_frameworks,
-                employee_localities,
-                employee_districts,
             )
-        else:
-            self.c.warn(f"{path.name}: לא נמצא גיליון הקצאות")
 
     def import_code_values(self, ws, context: str) -> None:
         self.collect_code_values(ws, context)
@@ -549,6 +568,64 @@ class Importer:
         self.c.add("Allocations.inserted")
         return allocation_id
 
+    def import_project_program_scope(
+        self,
+        ws,
+        context: str,
+        code_values: dict[str, set[int]],
+        framework_ids: set[int],
+    ) -> None:
+        header = find_header(ws, ["ת.ז", "קוד עובד", "פרוייקט", "תוכנית"])
+        if not header:
+            return
+        mapping = header_map(header[1])
+        pairs: set[tuple[int, int]] = set()
+        for row in rows_after(ws, header[0]):
+            project_name = clean(value_by_header(row, mapping, "פרוייקט"))
+            program_name = clean(value_by_header(row, mapping, "תוכנית"))
+            if not project_name and not program_name:
+                continue
+            project_id = self.project_id(project_name or HIGH_PROJECT)
+            program_id = self.program_id(program_name) if program_name else None
+            if project_id and program_id:
+                pairs.add((project_id, program_id))
+
+        scope_tables = {
+            "subjects": ("ProjectProgramSubjects", "SubjectId"),
+            "domains": ("ProjectProgramDomains", "DomainId"),
+            "educational_programs": ("ProjectProgramEducationalPrograms", "EducationalProgramId"),
+            "discussion_codes": ("ProjectProgramDiscussionCodes", "DiscussionCodeId"),
+            "grade_levels": ("ProjectProgramGradeLevels", "GradeLevelId"),
+        }
+        for project_id, program_id in pairs:
+            self.ensure_project_program(project_id, program_id)
+            for key, (table, col) in scope_tables.items():
+                for value_id in code_values[key]:
+                    self.ensure_pp_link(table, project_id, program_id, col, value_id)
+            for fid in framework_ids:
+                self.ensure_pp_link("ProjectProgramFrameworks", project_id, program_id, "FrameworkId", fid)
+        if pairs:
+            self.c.add("project_program_scopes.processed", len(pairs))
+
+    def ensure_pp_link(self, table: str, project_id: int, program_id: int, value_column: str, value_id: int | None) -> None:
+        if not value_id:
+            return
+        exists = self.one(
+            f"SELECT 1 FROM {table} WHERE ProjectId = ? AND ProgramId = ? AND {value_column} = ?",
+            project_id,
+            program_id,
+            value_id,
+        )
+        if exists:
+            return
+        self.cur.execute(
+            f"INSERT INTO {table} (ProjectId, ProgramId, {value_column}) VALUES (?, ?, ?)",
+            project_id,
+            program_id,
+            value_id,
+        )
+        self.c.add(f"{table}.inserted")
+
     def link_code_values(self, allocation_id: int, values: dict[str, set[int]]) -> None:
         # Only allocation-scoped lists are linked per allocation. כיתה and the three
         # מסקנה lists are global lookups and are intentionally NOT linked here.
@@ -588,6 +665,25 @@ class Importer:
         framework_ids: set[int] = set()
         locality_ids: set[int] = set()
         district_ids: set[int] = set()
+
+        if self.scope_only:
+            # Read-only pass: resolve existing framework ids for the scope tables and
+            # write NOTHING else (no institution upserts, no locality/district inserts) —
+            # so re-running never resurrects lookup variants a cleanup already removed.
+            for row in rows_after(ws, header[0]):
+                symbol = institution_symbol(value_by_header(row, mapping, "סמל מוסד"))
+                if not symbol:
+                    continue
+                found = self.cur.execute(
+                    "SELECT Id FROM Frameworks WHERE InstitutionSymbol = ?", str(symbol)
+                ).fetchall()
+                if found:
+                    framework_ids.update(int(r[0]) for r in found)
+                else:
+                    self.c.warn(f"{context}: מסגרת עם סמל {symbol} לא קיימת — דולגה (scope-only)")
+            self.c.add("institution_sheets.processed")
+            return framework_ids, locality_ids, district_ids
+
         for row in rows_after(ws, header[0]):
             symbol = institution_symbol(value_by_header(row, mapping, "סמל מוסד"))
             name = clean(value_by_header(row, mapping, "שם מוסד") or value_by_header(row, mapping, "שם המוסד") or value_by_header(row, mapping, "מסגרת חינוכית") or value_by_header(row, mapping, "שם המסגרת חינוכית"))
@@ -938,6 +1034,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-dir", default=str(SOURCE_DIR))
     parser.add_argument("--commit", action="store_true")
+    parser.add_argument(
+        "--scope-only",
+        action="store_true",
+        help="Only populate the ProjectProgram* default-scope tables; do not touch users/allocations.",
+    )
     args = parser.parse_args()
 
     source_dir = Path(args.source_dir)
@@ -945,9 +1046,10 @@ def main() -> int:
         print(f"Source directory not found: {source_dir}", file=sys.stderr)
         return 2
 
-    importer = Importer(source_dir, args.commit)
+    importer = Importer(source_dir, args.commit, scope_only=args.scope_only)
     try:
-        importer.import_auxiliary()
+        if not args.scope_only:
+            importer.import_auxiliary()
         importer.import_program_files()
         print("Mode:", "COMMIT" if args.commit else "DRY-RUN")
         for key in sorted(importer.c.values):

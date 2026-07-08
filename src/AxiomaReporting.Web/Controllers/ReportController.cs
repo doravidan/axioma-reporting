@@ -114,7 +114,11 @@ public class ReportController : Controller
     var report = requestedReport ?? await _statusService.GetOrCreateDraftAsync(targetUserId, activeMonth.Id);
     if (report == null) return StatusCode(500);
 
-    var rows = await _db.ReportRows
+    // צפייה בהיסטוריה: כשנפתח דיווח ספציפי (חודש קודם) מציגים את כל שורותיו,
+    // גם אם נרשמו תחת הקצאה אחרת — אחרת דיווח היסטורי נראה ריק/חלקי כאשר
+    // ההקצאה הנוכחית שונה מזו שבה דווח (תיקון לקוח 07/2026 #2).
+    var viewingRequestedReport = requestedReport != null;
+    var rowsQuery = _db.ReportRows
       .Include(r => r.District)
       .Include(r => r.Locality)
       .Include(r => r.Framework)
@@ -128,7 +132,10 @@ public class ReportController : Controller
       .Include(r => r.ConclusionLocation)
       .Include(r => r.GradeLevel)
       .Include(r => r.Class)
-      .Where(r => r.ReportId == report.Id && r.AllocationId == selectedAllocation.Id)
+      .Where(r => r.ReportId == report.Id);
+    if (!viewingRequestedReport)
+      rowsQuery = rowsQuery.Where(r => r.AllocationId == selectedAllocation.Id);
+    var rows = await rowsQuery
       .OrderBy(r => r.MeetingDate)
       .ThenBy(r => r.SequenceNumber)
       .ToListAsync();

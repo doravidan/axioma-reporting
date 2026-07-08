@@ -207,7 +207,15 @@
         <div class="col-md-3"><strong>קוד עובד:</strong> @employee?.EmployeeCode</div>
         <div class="col-md-3"><strong>חודש:</strong> @month?.Description</div>
         <div class="col-md-3"><strong>סטטוס:</strong> @StatusText(report?.StatusId, report?.Status?.Name)</div>
-        <div class="col-md-3"><strong>שורות בהקצאה:</strong> @Model.Count / @allocation?.MonthlyRowAllocation</div>
+        @if (month != null && !month.IsActive)
+        {
+          @* בצפייה בהיסטוריה מוצגות כל שורות הדיווח, מכל ההקצאות *@
+          <div class="col-md-3"><strong>שורות בדיווח:</strong> @Model.Count</div>
+        }
+        else
+        {
+          <div class="col-md-3"><strong>שורות בהקצאה:</strong> @Model.Count / @allocation?.MonthlyRowAllocation</div>
+        }
         <div class="col-md-6 text-start">
           @{
             var allocsList = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;

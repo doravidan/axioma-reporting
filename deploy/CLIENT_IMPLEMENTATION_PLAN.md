@@ -1,7 +1,7 @@
-# תוכנית יישום — מערכת דיווח פעילות חודשית (סייט&סאונד חינוך)
+﻿# תוכנית יישום — מערכת דיווח פעילות חודשית (סייט&סאונד חינוך)
 # Client Implementation Plan — Install & Go-Live
 
-**Version:** 2026-07-07 · **Delivery build:** git `master` (commit of 2026-07-07) · **Data snapshot:** 2026-07-07
+**Version:** 2026-07-08 · **Delivery build:** git `master` (commit of 2026-07-08) · **Data snapshot:** 2026-07-08
 
 This is the end-to-end plan for installing the system on the client's Windows server and
 taking it live. It orchestrates *what happens, in what order, who does it, and how we know
@@ -17,15 +17,16 @@ can execute top-to-bottom. Hebrew narrative companions: `docs/CLIENT_DELIVERY.md
 | # | Item | Where | Notes |
 |---|------|-------|-------|
 | 1 | Application source + publish script | GitHub `doravidan/axioma-reporting`, branch `master` | Built with `deploy/publish.ps1` → self-contained publish folder for IIS |
-| 2 | Full database backup (**structure + all data**) | `AxiomaReporting_delivery_2026-07-07.bak` (33 MB) | **Delivered out-of-band — contains employee PII, never in git.** Requires SQL Server 2022+ |
-| 3 | Version-independent data export (same content) | `AxiomaReporting_delivery_2026-07-07.bacpac` (0.7 MB) | For SQL Server 2019 servers; round-trip verified |
+| 2 | Full database backup (**structure + all data**) | `AxiomaReporting_delivery_2026-07-08.bak` (33 MB) | **Delivered out-of-band — contains employee PII, never in git.** Requires SQL Server 2022+ |
+| 3 | Version-independent data export (same content) | `AxiomaReporting_delivery_2026-07-08.bacpac` (0.7 MB) | For SQL Server 2019 servers; round-trip verified |
 | 4 | Schema-only script (empty-start fallback) | `database/schema.sql` in git | Idempotent; only if the client wants to start with no data |
 | 5 | Deploy runbook (commands + VERIFY steps) | `deploy/CODEX_DEPLOY_RUNBOOK.md` in git | The execution document for this plan |
 | 6 | Go-live scripts | `scripts/reset_passwords_to_id.py`, `scripts/purge_old_reports.sql` in git | Password normalization; optional pilot-report purge |
 
-### What the data snapshot contains (2026-07-07)
+### What the data snapshot contains (2026-07-08)
 
-- **492 employees** (including the שמיים-חטיבות-ביניים onboarding of 56 employees imported 2026-07-07), **489 allocations**, full lookup data: 3,222 frameworks, 4,297 institutions, 1,448 localities, 12 email templates, 21 EF migrations.
+- **492 employees** (including the שמיים-חטיבות-ביניים onboarding of 56 employees imported 2026-07-07), **489 allocations**, full lookup data: 3,222 frameworks, 4,297 institutions, 1,448 localities, 12 email templates, 22 EF migrations.
+- Client fixes of 2026-07-08: duplicate programs merged (17 clean programs), full per-program default-scope data for the allocation auto-fill, history view fix.
 - Pilot reports from December 2025 + January 2026 (16 reports / 451 rows) — kept until the client decides on a purge cutoff.
 - 5 July-2026 test reports — **deleted during go-live normalization** (runbook §2.2a).
 - Active reporting month: **יולי 2026** (deadline 31/07/2026).
@@ -93,7 +94,7 @@ Total hands-on time: **~half a day** for phases A–D, plus DNS/certificate lead
       (`reset_passwords_to_id.py` — dry-run first, then `--commit`).
    c. Force admin password rotation (`MustChangePassword = 1`).
    d. Confirm/replace the active reporting month for the actual go-live month.
-5. **VERIFY:** `Users=492, Allocations=489, Frameworks=3222, Migrations=21, ForcedChanges=492`.
+5. **VERIFY:** `Users=492, Allocations=489, Frameworks=3222, Migrations=22, ForcedChanges=492`.
 
 ### Phase C — Application + IIS (30–60 minutes) → runbook §3–§4
 
