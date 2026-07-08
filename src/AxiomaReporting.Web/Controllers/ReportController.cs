@@ -199,20 +199,74 @@ public class ReportController : Controller
 
     // דיווחים קודמים — כל הדוחות של העובד מחודשים אחרים, לצפייה (עריכה נחסמת
     // ממילא לפי מועד הסגירה והסטטוס של אותו חודש).
-    ViewBag.PastReports = await _db.Reports
-      .Where(r => r.UserId == targetUserId && r.Id != report.Id && !r.IsArchived)
-      .OrderByDescending(r => r.ReportingMonth!.Year)
-      .ThenByDescending(r => r.ReportingMonth!.Month)
-      .Select(r => new PastReportListItem(
-        r.Id,
-        r.ReportingMonth!.Description,
-        r.Status!.Name,
-        r.StatusId,
-        r.SubmittedAt,
-        _db.ReportRows.Count(row => row.ReportId == r.Id)))
-      .ToListAsync();
+    ViewBag.PastReports = await BuildPastReportListAsync(
+      _db,
+      targetUserId,
+      report.Id,
+      selectedAllocation.Id,
+      allocations.Select(a => a.Id).ToList());
 
     return View("Index", rows);
+  }
+
+  internal static async Task<List<PastReportListItem>> BuildPastReportListAsync(
+    AppDbContext db,
+    int targetUserId,
+    int currentReportId,
+    int selectedAllocationId,
+    IReadOnlyCollection<int> activeAllocationIds)
+  {
+    var reports = (await db.Reports
+      .AsNoTracking()
+      .Include(r => r.ReportingMonth)
+      .Include(r => r.Status)
+      .Where(r => r.UserId == targetUserId && r.Id != currentReportId && !r.IsArchived)
+      .ToListAsync())
+      .OrderByDescending(r => r.ReportingMonth!.Year)
+      .ThenByDescending(r => r.ReportingMonth!.Month)
+      .Select(r => new
+      {
+        r.Id,
+        MonthDescription = r.ReportingMonth!.Description,
+        StatusDescription = r.Status != null ? r.Status.Name : string.Empty,
+        r.StatusId,
+        r.SubmittedAt
+      })
+      .ToList();
+
+    if (reports.Count == 0) return new List<PastReportListItem>();
+
+    var reportIds = reports.Select(r => r.Id).ToList();
+    var allocationIds = activeAllocationIds.Where(id => id > 0).Distinct().ToHashSet();
+
+    var rowSummaries = await db.ReportRows
+      .AsNoTracking()
+      .Where(row => reportIds.Contains(row.ReportId) && row.AllocationId.HasValue)
+      .GroupBy(row => new { row.ReportId, AllocationId = row.AllocationId!.Value })
+      .Select(g => new { g.Key.ReportId, g.Key.AllocationId, RowCount = g.Count() })
+      .ToListAsync();
+
+    if (allocationIds.Count > 0)
+      rowSummaries = rowSummaries.Where(x => allocationIds.Contains(x.AllocationId)).ToList();
+
+    return reports.Select(r =>
+    {
+      var matchingRows = rowSummaries.Where(x => x.ReportId == r.Id).ToList();
+      var selectedRows = matchingRows.FirstOrDefault(x => x.AllocationId == selectedAllocationId);
+      var linkedRows = selectedRows ?? matchingRows
+        .OrderByDescending(x => x.RowCount)
+        .ThenBy(x => x.AllocationId)
+        .FirstOrDefault();
+
+      return new PastReportListItem(
+        r.Id,
+        linkedRows?.AllocationId ?? selectedAllocationId,
+        r.MonthDescription,
+        r.StatusDescription,
+        r.StatusId,
+        r.SubmittedAt,
+        linkedRows?.RowCount ?? 0);
+    }).ToList();
   }
 
   private static bool IsDeadlinePassed(ReportingMonth? month)

@@ -6,6 +6,7 @@ namespace AxiomaReporting.Core.DTOs;
 /// </summary>
 public record PastReportListItem(
   int ReportId,
+  int AllocationId,
   string MonthDescription,
   string StatusDescription,
   int StatusId,

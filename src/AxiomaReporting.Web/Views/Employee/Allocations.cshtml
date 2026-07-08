@@ -176,7 +176,7 @@
               <option value="" selected="@(!alloc.DailyEmploymentScope.HasValue)">ללא הגבלה</option>
               @for (var hour = 1; hour <= 9; hour++)
               {
-                <option value="@hour" selected="@(alloc.DailyEmploymentScope == hour)">עד @hour שעות</option>
+                <option value="@hour" selected="@(alloc.DailyEmploymentScope == hour)">עד @hour</option>
               }
             </select>
           </div>

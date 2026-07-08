@@ -11,6 +11,7 @@
   var scopeDiscussionCodes = ViewBag.ScopeDiscussionCodes as List<AxiomaReporting.Core.Entities.DiscussionCode> ?? new();
   var scopeGradeLevels = ViewBag.ScopeGradeLevels as List<AxiomaReporting.Core.Entities.GradeLevel> ?? new();
   var scopeClasses = ViewBag.ScopeClasses as List<AxiomaReporting.Core.Entities.SchoolClass> ?? new();
+  var scopeLocalityDistrictNationals = ViewBag.ScopeLocalityDistrictNationals as List<AxiomaReporting.Core.Entities.LocalityDistrictNational> ?? new();
 }
 
 <div class="container py-3">
@@ -141,14 +142,17 @@
               @foreach (var item in scopeClasses) { <option value="@item.Id">@item.Description</option> }
             </select>
           </div>
+          <div class="col-md-4">
+            <label class="form-label" for="scopeLocalityDistrictNationalIds">יישוב/מחוז/ארצי</label>
+            <select id="scopeLocalityDistrictNationalIds" name="localityDistrictNationalIds" multiple class="form-select">
+              @foreach (var item in scopeLocalityDistrictNationals) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
           <div class="col-md-8">
             <label class="form-label" for="scopeFrameworkIds">מסגרות</label>
             <select id="scopeFrameworkIds" name="frameworkIds" multiple class="form-select">
               @foreach (var item in scopeFrameworks) { <option value="@item.Id">@item.Label</option> }
             </select>
-            <div class="form-text">
-              שיוכי מסגרות אינם ממלאים את ההקצאה אוטומטית — מסגרת נקבעת לפי הקצאת העובד.
-            </div>
           </div>
           <div class="col-12">
             <button type="submit" class="btn btn-primary">שמור היקף</button>
@@ -170,7 +174,7 @@
       const projectSelect = document.getElementById('scopeProjectId');
       const programSelect = document.getElementById('scopeProgramId');
       const listsWrap = document.getElementById('scopeLists');
-      const listNames = ['subjectIds', 'domainIds', 'educationalProgramIds', 'discussionCodeIds', 'gradeLevelIds', 'classIds', 'frameworkIds'];
+      const listNames = ['subjectIds', 'domainIds', 'educationalProgramIds', 'discussionCodeIds', 'gradeLevelIds', 'classIds', 'localityDistrictNationalIds', 'frameworkIds'];
 
       function setMultiSelection(name, ids) {
         const sel = document.querySelector(`#scopeForm select[name='${name}']`);
@@ -178,8 +182,18 @@
         const wanted = new Set((ids || []).map(String));
         const inst = window._axChoices && window._axChoices.get(sel);
         if (inst) {
-          inst.removeActiveItems();
-          wanted.forEach(v => inst.setChoiceByValue(v));
+          const store = (inst._store && inst._store.choices)
+            || (inst._currentState && inst._currentState.choices)
+            || [];
+          const choices = store
+            .filter(c => c.value !== '' && !c.placeholder)
+            .map(c => ({
+              value: String(c.value),
+              label: c.label || c.value,
+              selected: wanted.has(String(c.value)),
+              disabled: !!c.disabled
+            }));
+          inst.setChoices(choices, 'value', 'label', true);
         } else {
           Array.from(sel.options).forEach(o => o.selected = wanted.has(o.value));
         }

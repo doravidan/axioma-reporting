@@ -1118,11 +1118,13 @@ public class EmployeeController : Controller
 
     var mapped = await db.ProjectPrograms
       .Where(pp => pp.ProjectId == projectId && pp.Program!.IsActive)
-      .OrderBy(pp => pp.Program!.Description)
-      .Select(pp => new ValueTuple<int, string>(pp.ProgramId, pp.Program!.Description))
+      .Select(pp => new { pp.ProgramId, Description = pp.Program!.Description })
+      .Distinct()
+      .OrderBy(pp => pp.Description)
       .ToListAsync();
 
-    if (mapped.Count > 0) return mapped;
+    if (mapped.Count > 0)
+      return mapped.Select(pp => new ValueTuple<int, string>(pp.ProgramId, pp.Description)).ToList();
 
     return await db.Programs
       .Where(p => p.IsActive)
@@ -1158,30 +1160,56 @@ public class EmployeeController : Controller
         domainIds = Array.Empty<int>(),
         educationalProgramIds = Array.Empty<int>(),
         discussionCodeIds = Array.Empty<int>(),
+        frameworkIds = Array.Empty<int>(),
         gradeLevelIds = Array.Empty<int>(),
-        frameworkIds = Array.Empty<int>()
+        classIds = Array.Empty<int>(),
+        localityDistrictNationalIds = Array.Empty<int>()
       });
 
     var subjectIds = await _db.ProjectProgramSubjects
+      .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.SubjectId).ToListAsync();
     var domainIds = await _db.ProjectProgramDomains
+      .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.DomainId).ToListAsync();
     var educationalProgramIds = await _db.ProjectProgramEducationalPrograms
+      .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.EducationalProgramId).ToListAsync();
     var discussionCodeIds = await _db.ProjectProgramDiscussionCodes
+      .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.DiscussionCodeId).ToListAsync();
-    var gradeLevelIds = await _db.ProjectProgramGradeLevels
-      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
-      .Select(x => x.GradeLevelId).ToListAsync();
     var frameworkIds = await _db.ProjectProgramFrameworks
+      .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.FrameworkId).ToListAsync();
+    var gradeLevelIds = await _db.ProjectProgramGradeLevels
+      .AsNoTracking()
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.GradeLevelId).ToListAsync();
+    var classIds = await _db.ProjectProgramClasses
+      .AsNoTracking()
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.ClassId).ToListAsync();
+    var localityDistrictNationalIds = await _db.ProjectProgramLocalityDistrictNationals
+      .AsNoTracking()
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.LocalityDistrictNationalId).ToListAsync();
 
-    return Json(new { subjectIds, domainIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, frameworkIds });
+    return Json(new
+    {
+      subjectIds,
+      domainIds,
+      educationalProgramIds,
+      discussionCodeIds,
+      frameworkIds,
+      gradeLevelIds,
+      classIds,
+      localityDistrictNationalIds
+    });
   }
 
   internal static IOrderedQueryable<Allocation> ApplyAllocationSort(

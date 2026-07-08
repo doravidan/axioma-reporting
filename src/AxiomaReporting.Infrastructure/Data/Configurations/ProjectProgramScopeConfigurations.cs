@@ -78,6 +78,16 @@ public class ProjectProgramClassConfiguration : IEntityTypeConfiguration<Project
   }
 }
 
+public class ProjectProgramLocalityDistrictNationalConfiguration : IEntityTypeConfiguration<ProjectProgramLocalityDistrictNational>
+{
+  public void Configure(EntityTypeBuilder<ProjectProgramLocalityDistrictNational> builder)
+  {
+    builder.ToTable("ProjectProgramLocalityDistrictNationals");
+    builder.HasKey(e => new { e.ProjectId, e.ProgramId, e.LocalityDistrictNationalId });
+    builder.HasOne(e => e.LocalityDistrictNational).WithMany().HasForeignKey(e => e.LocalityDistrictNationalId).OnDelete(DeleteBehavior.Cascade);
+  }
+}
+
 public class PrivacyPolicyVersionConfiguration : IEntityTypeConfiguration<PrivacyPolicyVersion>
 {
   public void Configure(EntityTypeBuilder<PrivacyPolicyVersion> builder)

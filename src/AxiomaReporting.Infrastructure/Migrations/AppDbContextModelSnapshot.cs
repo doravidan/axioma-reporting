@@ -1499,6 +1499,24 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.ToTable("ProjectProgramGradeLevels", (string)null);
                 });
 
+            modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramLocalityDistrictNational", b =>
+                {
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProgramId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LocalityDistrictNationalId")
+                        .HasColumnType("int");
+
+                    b.HasKey("ProjectId", "ProgramId", "LocalityDistrictNationalId");
+
+                    b.HasIndex("LocalityDistrictNationalId");
+
+                    b.ToTable("ProjectProgramLocalityDistrictNationals", (string)null);
+                });
+
             modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramSubject", b =>
                 {
                     b.Property<int>("ProjectId")
@@ -2956,6 +2974,17 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("GradeLevel");
+                });
+
+            modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramLocalityDistrictNational", b =>
+                {
+                    b.HasOne("AxiomaReporting.Core.Entities.LocalityDistrictNational", "LocalityDistrictNational")
+                        .WithMany()
+                        .HasForeignKey("LocalityDistrictNationalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("LocalityDistrictNational");
                 });
 
             modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramSubject", b =>

@@ -38,6 +38,7 @@ public class AppDbContext : DbContext
   public DbSet<ProjectProgramFramework> ProjectProgramFrameworks => Set<ProjectProgramFramework>();
   public DbSet<ProjectProgramGradeLevel> ProjectProgramGradeLevels => Set<ProjectProgramGradeLevel>();
   public DbSet<ProjectProgramClass> ProjectProgramClasses => Set<ProjectProgramClass>();
+  public DbSet<ProjectProgramLocalityDistrictNational> ProjectProgramLocalityDistrictNationals => Set<ProjectProgramLocalityDistrictNational>();
 
   // System tables
   public DbSet<ReportStatus> ReportStatuses => Set<ReportStatus>();

@@ -436,7 +436,7 @@
                 <td>@pr.RowCount</td>
                 <td>@(pr.SubmittedAt?.ToString("dd/MM/yyyy") ?? "—")</td>
                 <td>
-                  <a asp-action="Index" asp-route-reportId="@pr.ReportId" asp-route-allocationId="@allocationId"
+                  <a asp-action="Index" asp-route-reportId="@pr.ReportId" asp-route-allocationId="@pr.AllocationId"
                      class="btn btn-sm btn-outline-primary" aria-label="צפייה בדיווח @pr.MonthDescription">צפייה</a>
                 </td>
               </tr>

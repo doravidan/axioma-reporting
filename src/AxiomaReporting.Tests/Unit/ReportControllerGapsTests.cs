@@ -218,6 +218,62 @@ public class ReportControllerGapsTests : IDisposable
     _email.Sent.Should().BeEmpty();
   }
 
+  [Fact]
+  public async Task BuildPastReportList_UsesAllocationThatActuallyHasRows()
+  {
+    _db.Allocations.Add(new Allocation
+    {
+      Id = 2,
+      UserId = 1,
+      ProjectId = 2,
+      IsActive = true,
+      CreatedAt = DateTime.UtcNow
+    });
+    _db.ReportingMonths.Add(new ReportingMonth
+    {
+      Id = 2,
+      Description = "March",
+      Month = 3,
+      Year = 2026,
+      LastReportingDate = DateTime.Today.AddDays(-10),
+      IsActive = false,
+      CreatedAt = DateTime.UtcNow
+    });
+    _db.ReportStatuses.Add(new ReportStatus { Id = 4, Name = "Approved" });
+    _db.Reports.Add(new Report
+    {
+      Id = 2,
+      UserId = 1,
+      ReportingMonthId = 2,
+      StatusId = 4,
+      SubmittedAt = DateTime.UtcNow.AddDays(-5),
+      CreatedAt = DateTime.UtcNow.AddDays(-6)
+    });
+    _db.ReportRows.Add(new ReportRow
+    {
+      ReportId = 2,
+      AllocationId = 2,
+      SequenceNumber = 1,
+      MeetingDate = DateTime.Today.AddDays(-20),
+      MeetingDuration = 1,
+      DistrictId = 1, LocalityId = 1, FrameworkId = 1,
+      EducationalProgramId = 1, DomainId = 1, Subject1Id = 1,
+      CreatedAt = DateTime.UtcNow.AddDays(-6)
+    });
+    await _db.SaveChangesAsync();
+
+    var items = await ReportController.BuildPastReportListAsync(
+      _db,
+      targetUserId: 1,
+      currentReportId: 1,
+      selectedAllocationId: 1,
+      activeAllocationIds: new[] { 1, 2 });
+
+    var item = items.Should().ContainSingle(x => x.ReportId == 2).Subject;
+    item.AllocationId.Should().Be(2);
+    item.RowCount.Should().Be(1);
+  }
+
   // ---------- helpers ----------
 
   private ReportController BuildController(

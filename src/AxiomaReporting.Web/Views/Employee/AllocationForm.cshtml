@@ -261,6 +261,28 @@
           </div>
 
           <div class="col-md-6">
+            <label class="form-label" for="classIdsSelect">כיתות</label>
+            <select name="ClassIds" id="classIdsSelect" multiple class="form-select" size="5">
+              @foreach (var item in classes)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.ClassIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label" for="localityDistrictNationalIdsSelect">יישוב/מחוז/ארצי</label>
+            <select name="LocalityDistrictNationalIds" id="localityDistrictNationalIdsSelect" multiple class="form-select" size="5">
+              @foreach (var item in localityDistrictNationals)
+              {
+                <option value="@item.Id"
+                        selected="@(Model.LocalityDistrictNationalIds.Contains(item.Id))">@item.Description</option>
+              }
+            </select>
+          </div>
+
+          <div class="col-md-6">
             <label class="form-label">קודי דיון</label>
             <select name="DiscussionCodeIds" multiple class="form-select" size="5">
               @foreach (var item in discussionCodes)
@@ -367,6 +389,7 @@
         }));
 
         if (programsChoices) {
+          programsChoices.clearStore();
           programsChoices.setChoices(choices, 'value', 'label', true);
         } else {
           programsSelect.innerHTML = '';
@@ -405,8 +428,10 @@
       domainIds: 'select[name="DomainIds"]',
       educationalProgramIds: 'select[name="EducationalProgramIds"]',
       discussionCodeIds: 'select[name="DiscussionCodeIds"]',
+      frameworkIds: 'select[name="FrameworkIds"]',
       gradeLevelIds: 'select[name="GradeLevelIds"]',
-      frameworkIds: 'select[name="FrameworkIds"]'
+      classIds: 'select[name="ClassIds"]',
+      localityDistrictNationalIds: 'select[name="LocalityDistrictNationalIds"]'
     };
 
     function addSelections(selector, ids) {

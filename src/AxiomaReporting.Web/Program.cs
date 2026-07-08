@@ -209,13 +209,60 @@ static void SeedDemoData(AppDbContext db)
   var sectorB = EnsureLookup(db.Sectors, "ממלכתי דתי", now);
   var locality = EnsureLookup(db.Localities, "ירושלים", now);
   var framework = EnsureLookup(db.Frameworks, "מסגרת א", now);
+  var frameworkB = EnsureLookup(db.Frameworks, "מסגרת ב", now);
   var domain = EnsureLookup(db.Domains, "תחום א", now);
+  var domainB = EnsureLookup(db.Domains, "תחום ב", now);
   var subject = EnsureLookup(db.Subjects, "נושא א", now);
+  var subjectB = EnsureLookup(db.Subjects, "נושא ב", now);
   var educationalProgram = EnsureLookup(db.EducationalPrograms, "תוכנית חינוכית א", now);
+  var educationalProgramB = EnsureLookup(db.EducationalPrograms, "תוכנית חינוכית ב", now);
   var schoolClass = EnsureLookup(db.Classes, "כיתה א", now);
+  var schoolClassB = EnsureLookup(db.Classes, "כיתה ב", now);
   var gradeLevel = EnsureLookup(db.GradeLevels, "שכבה א", now);
+  var gradeLevelB = EnsureLookup(db.GradeLevels, "שכבה ב", now);
   var discussionCode = EnsureLookup(db.DiscussionCodes, "קיום דיון", now);
+  var discussionCodeB = EnsureLookup(db.DiscussionCodes, "דיון ב", now);
   var localityDistrictNational = EnsureLookup(db.LocalityDistrictNationals, "ישובי", now);
+  var localityDistrictNationalB = EnsureLookup(db.LocalityDistrictNationals, "מחוזי", now);
+  db.SaveChanges();
+
+  if (!db.ProjectPrograms.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id))
+    db.ProjectPrograms.Add(new ProjectProgram { ProjectId = project.Id, ProgramId = programA.Id });
+  if (!db.ProjectPrograms.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id))
+    db.ProjectPrograms.Add(new ProjectProgram { ProjectId = project.Id, ProgramId = programB.Id });
+
+  if (!db.ProjectProgramSubjects.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.SubjectId == subject.Id))
+    db.ProjectProgramSubjects.Add(new ProjectProgramSubject { ProjectId = project.Id, ProgramId = programA.Id, SubjectId = subject.Id });
+  if (!db.ProjectProgramSubjects.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.SubjectId == subjectB.Id))
+    db.ProjectProgramSubjects.Add(new ProjectProgramSubject { ProjectId = project.Id, ProgramId = programB.Id, SubjectId = subjectB.Id });
+  if (!db.ProjectProgramDomains.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.DomainId == domain.Id))
+    db.ProjectProgramDomains.Add(new ProjectProgramDomain { ProjectId = project.Id, ProgramId = programA.Id, DomainId = domain.Id });
+  if (!db.ProjectProgramDomains.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.DomainId == domainB.Id))
+    db.ProjectProgramDomains.Add(new ProjectProgramDomain { ProjectId = project.Id, ProgramId = programB.Id, DomainId = domainB.Id });
+  if (!db.ProjectProgramEducationalPrograms.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.EducationalProgramId == educationalProgram.Id))
+    db.ProjectProgramEducationalPrograms.Add(new ProjectProgramEducationalProgram { ProjectId = project.Id, ProgramId = programA.Id, EducationalProgramId = educationalProgram.Id });
+  if (!db.ProjectProgramEducationalPrograms.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.EducationalProgramId == educationalProgramB.Id))
+    db.ProjectProgramEducationalPrograms.Add(new ProjectProgramEducationalProgram { ProjectId = project.Id, ProgramId = programB.Id, EducationalProgramId = educationalProgramB.Id });
+  if (!db.ProjectProgramDiscussionCodes.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.DiscussionCodeId == discussionCode.Id))
+    db.ProjectProgramDiscussionCodes.Add(new ProjectProgramDiscussionCode { ProjectId = project.Id, ProgramId = programA.Id, DiscussionCodeId = discussionCode.Id });
+  if (!db.ProjectProgramDiscussionCodes.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.DiscussionCodeId == discussionCodeB.Id))
+    db.ProjectProgramDiscussionCodes.Add(new ProjectProgramDiscussionCode { ProjectId = project.Id, ProgramId = programB.Id, DiscussionCodeId = discussionCodeB.Id });
+  if (!db.ProjectProgramFrameworks.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.FrameworkId == framework.Id))
+    db.ProjectProgramFrameworks.Add(new ProjectProgramFramework { ProjectId = project.Id, ProgramId = programA.Id, FrameworkId = framework.Id });
+  if (!db.ProjectProgramFrameworks.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.FrameworkId == frameworkB.Id))
+    db.ProjectProgramFrameworks.Add(new ProjectProgramFramework { ProjectId = project.Id, ProgramId = programB.Id, FrameworkId = frameworkB.Id });
+  if (!db.ProjectProgramGradeLevels.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.GradeLevelId == gradeLevel.Id))
+    db.ProjectProgramGradeLevels.Add(new ProjectProgramGradeLevel { ProjectId = project.Id, ProgramId = programA.Id, GradeLevelId = gradeLevel.Id });
+  if (!db.ProjectProgramGradeLevels.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.GradeLevelId == gradeLevelB.Id))
+    db.ProjectProgramGradeLevels.Add(new ProjectProgramGradeLevel { ProjectId = project.Id, ProgramId = programB.Id, GradeLevelId = gradeLevelB.Id });
+  if (!db.ProjectProgramClasses.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.ClassId == schoolClass.Id))
+    db.ProjectProgramClasses.Add(new ProjectProgramClass { ProjectId = project.Id, ProgramId = programA.Id, ClassId = schoolClass.Id });
+  if (!db.ProjectProgramClasses.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.ClassId == schoolClassB.Id))
+    db.ProjectProgramClasses.Add(new ProjectProgramClass { ProjectId = project.Id, ProgramId = programB.Id, ClassId = schoolClassB.Id });
+  if (!db.ProjectProgramLocalityDistrictNationals.Any(x => x.ProjectId == project.Id && x.ProgramId == programA.Id && x.LocalityDistrictNationalId == localityDistrictNational.Id))
+    db.ProjectProgramLocalityDistrictNationals.Add(new ProjectProgramLocalityDistrictNational { ProjectId = project.Id, ProgramId = programA.Id, LocalityDistrictNationalId = localityDistrictNational.Id });
+  if (!db.ProjectProgramLocalityDistrictNationals.Any(x => x.ProjectId == project.Id && x.ProgramId == programB.Id && x.LocalityDistrictNationalId == localityDistrictNationalB.Id))
+    db.ProjectProgramLocalityDistrictNationals.Add(new ProjectProgramLocalityDistrictNational { ProjectId = project.Id, ProgramId = programB.Id, LocalityDistrictNationalId = localityDistrictNationalB.Id });
   db.SaveChanges();
 
   if (!db.Allocations.Any(a => a.UserId == employee.Id && a.ProjectId == project.Id))

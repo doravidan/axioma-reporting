@@ -183,6 +183,77 @@ public class EmployeeManagementPlaywrightTests : PlaywrightTestBase
     // ─── Accessibility Attributes ─────────────────────────────────────────────
 
     [Fact]
+    public async Task AllocationForm_SelectingPrograms_AutoFillsAllDefaultsAndPersists()
+    {
+        var userId = await CreateReportingEmployeeAsync("990003", "990000036");
+
+        await Page.GotoAsync($"/Employee/{userId}/Allocations/Create");
+        await Page.EvaluateAsync(@"() => {
+            const project = document.getElementById('projectIdSelect') || document.querySelector(""select[name='ProjectId']"");
+            const value = Array.from(project.options).find(o => o.value)?.value;
+            project.value = value;
+            project.dispatchEvent(new Event('change', { bubbles: true }));
+        }");
+
+        await Page.WaitForFunctionAsync(
+            $"() => {{ {SelectableValuesJs} return selectableValues(\"select[name='ProgramIds']\").length >= 2; }}",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+
+        await SelectFromChoicesListAsync("ProgramIds", 0);
+        await Page.WaitForFunctionAsync(
+            $"() => {{ {SelectedValuesJs} return selectedValues(\"select[name='SubjectIds']\").length > 0 && selectedValues(\"select[name='FrameworkIds']\").length > 0 && selectedValues(\"select[name='ClassIds']\").length > 0 && selectedValues(\"select[name='LocalityDistrictNationalIds']\").length > 0; }}",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+
+        var firstSubjectCount = await SelectedCountAsync("SubjectIds");
+        var firstFrameworkCount = await SelectedCountAsync("FrameworkIds");
+        var manualDistrict = await SelectFromChoicesListAsync("DistrictIds", 0);
+
+        await SelectFromChoicesListAsync("ProgramIds", 1);
+        await Page.WaitForFunctionAsync(
+            $"([subjectCount, frameworkCount]) => {{ {SelectedValuesJs} return selectedValues(\"select[name='SubjectIds']\").length > subjectCount && selectedValues(\"select[name='FrameworkIds']\").length > frameworkCount; }}",
+            new[] { firstSubjectCount, firstFrameworkCount },
+            new PageWaitForFunctionOptions { Timeout = 10_000 });
+
+        (await SelectedValuesAsync("DistrictIds")).Should().Contain(manualDistrict,
+            because: "adding a second program must not clear manual selections");
+
+        await SelectFromChoicesListAsync("SectorIds", 0);
+        await SelectFromChoicesListAsync("LocalityIds", 0);
+        await Page.Locator("input[name='AnnualEmploymentScope']").FillAsync("100");
+        await Page.Locator("input[name='MonthlyEmploymentScope']").FillAsync("20");
+        await Page.Locator("input[name='MonthlyRowAllocation']").FillAsync("10");
+        await Page.Locator("input[name='AnnualRowAllocation']").FillAsync("100");
+        await Page.Locator("input[name='OutputDurationValues'][value='1']").CheckAsync();
+
+        var savedSubjects = await SelectedValuesAsync("SubjectIds");
+        var savedFrameworks = await SelectedValuesAsync("FrameworkIds");
+        var savedClasses = await SelectedValuesAsync("ClassIds");
+        var savedLocations = await SelectedValuesAsync("LocalityDistrictNationalIds");
+
+        await Page.Locator("form button[type='submit']:has-text('שמור')").First.ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        await ThrowOnValidationErrorsAsync("creating allocation with program defaults");
+
+        var detailLinks = Page.Locator("a.detail-icon[href*='/allocations/']");
+        if (await detailLinks.CountAsync() == 0)
+            throw new Xunit.Sdk.XunitException($"Allocation was not saved or details link was not found. Url: {Page.Url}. Body: {await GetPageTextAsync()}");
+        var detailHref = await detailLinks.First.GetAttributeAsync("href");
+        detailHref.Should().NotBeNullOrEmpty();
+        await Page.GotoAsync(detailHref!);
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        Page.Url.Should().Contain("/Edit");
+
+        var reopenedPrograms = await SelectedValuesAsync("ProgramIds");
+        reopenedPrograms.Should().OnlyHaveUniqueItems();
+        (await SelectedValuesAsync("SubjectIds")).Should().BeEquivalentTo(savedSubjects);
+        (await SelectedValuesAsync("FrameworkIds")).Should().BeEquivalentTo(savedFrameworks);
+        (await SelectedValuesAsync("ClassIds")).Should().BeEquivalentTo(savedClasses);
+        (await SelectedValuesAsync("LocalityDistrictNationalIds")).Should().BeEquivalentTo(savedLocations);
+    }
+
+    [Fact]
     public async Task EmployeeList_TableHeaders_HaveScopeCol()
     {
         await Page.GotoAsync("/Employee/Index");
@@ -201,5 +272,95 @@ public class EmployeeManagementPlaywrightTests : PlaywrightTestBase
         await Page.GotoAsync("/Employee/Index");
         var skipLink = Page.Locator("a[href='#main-content']");
         (await skipLink.CountAsync()).Should().BeGreaterThan(0);
+    }
+
+    private async Task<string> CreateReportingEmployeeAsync(string employeeCode, string idNumber)
+    {
+        await Page.GotoAsync("/Employee/Create");
+        await Page.Locator("input[name='EmployeeCode']").FillAsync(employeeCode);
+        await Page.Locator("input[name='IdNumber']").FillAsync(idNumber);
+        await Page.Locator("input[name='FirstName']").FillAsync("בדיקה");
+        await Page.Locator("input[name='LastName']").FillAsync($"AutoFill {employeeCode}");
+        await SelectFirstRealOptionAsync("select[name='RoleId']");
+        await Page.Locator("select[name='UserRoleId']").SelectOptionAsync("6");
+        await SelectFirstRealOptionAsync("select[name='StatusId']");
+        var reporting = Page.Locator("input[name='IsReportingEmployee']");
+        if (await reporting.CountAsync() > 0 && !await reporting.First.IsCheckedAsync())
+            await reporting.First.CheckAsync();
+
+        await Page.Locator("form button[type='submit']:has-text('שמור')").First.ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        await ThrowOnValidationErrorsAsync($"creating employee {employeeCode}");
+
+        await Page.GotoAsync($"/Employee/Index?employeeCode={employeeCode}");
+        var editHref = await Page.Locator($"tr:has-text('{employeeCode}') a[href*='/Edit']").First.GetAttributeAsync("href");
+        editHref.Should().NotBeNullOrEmpty();
+        return System.Text.RegularExpressions.Regex.Match(editHref!, @"\d+").Value;
+    }
+
+    private const string SelectableValuesJs = @"
+        const selectableValues = (selector) => {
+            const sel = document.querySelector(selector);
+            if (!sel) return [];
+            const inst = window._axChoices && window._axChoices.get(sel);
+            if (inst) {
+                const store = (inst._store && inst._store.choices)
+                    || (inst._currentState && inst._currentState.choices) || [];
+                return store.filter(c => c.value !== '' && !c.disabled && !c.placeholder).map(c => String(c.value));
+            }
+            return Array.from(sel.options).filter(o => o.value).map(o => o.value);
+        };";
+
+    private const string SelectedValuesJs = @"
+        const selectedValues = (selector) => {
+            const sel = document.querySelector(selector);
+            if (!sel) return [];
+            const inst = window._axChoices && window._axChoices.get(sel);
+            if (inst) return inst.getValue(true).map(v => String(v));
+            return Array.from(sel.selectedOptions).map(o => String(o.value));
+        };";
+
+    private async Task<string> SelectFromChoicesListAsync(string selectName, int index)
+    {
+        return await Page.EvaluateAsync<string>($@"([name, index]) => {{
+            {SelectableValuesJs}
+            const selector = `select[name='${{name}}']`;
+            const sel = document.querySelector(selector);
+            const values = selectableValues(selector);
+            const value = values[index];
+            if (!sel || !value) return '';
+            const inst = window._axChoices && window._axChoices.get(sel);
+            if (inst) inst.setChoiceByValue(String(value));
+            else Array.from(sel.options).forEach(o => {{ if (o.value === String(value)) o.selected = true; }});
+            sel.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            return String(value);
+        }}", new object[] { selectName, index });
+    }
+
+    private async Task<int> SelectedCountAsync(string selectName) =>
+        (await SelectedValuesAsync(selectName)).Length;
+
+    private async Task<string[]> SelectedValuesAsync(string selectName) =>
+        await Page.EvaluateAsync<string[]>($@"(name) => {{
+            {SelectedValuesJs}
+            return selectedValues(`select[name='${{name}}']`);
+        }}", selectName);
+
+    private async Task SelectFirstRealOptionAsync(string selector)
+    {
+        var select = Page.Locator(selector);
+        if (await select.CountAsync() == 0) return;
+        var value = await select.First.EvaluateAsync<string?>(
+            "sel => Array.from(sel.options).find(o => o.value)?.value ?? null");
+        if (!string.IsNullOrEmpty(value))
+            await select.First.SelectOptionAsync(value);
+    }
+
+    private async Task ThrowOnValidationErrorsAsync(string context)
+    {
+        var errors = await Page.Locator(".text-danger, .validation-summary-errors li").AllInnerTextsAsync();
+        var joined = string.Join(" | ", errors.Select(e => e.Trim()).Where(e => e.Length > 0));
+        if (joined.Length > 0)
+            throw new Xunit.Sdk.XunitException($"Validation errors while {context}: {joined} (url: {Page.Url})");
     }
 }

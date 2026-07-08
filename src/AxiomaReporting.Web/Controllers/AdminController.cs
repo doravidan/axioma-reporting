@@ -756,6 +756,7 @@ public class AdminController : Controller
     ViewBag.ScopeDiscussionCodes = await _db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeGradeLevels = await _db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeClasses = await _db.Classes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeLocalityDistrictNationals = await _db.LocalityDistrictNationals.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
 
     return View();
   }
@@ -815,14 +816,15 @@ public class AdminController : Controller
       educationalProgramIds = await _db.ProjectProgramEducationalPrograms.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.EducationalProgramId).ToListAsync(),
       discussionCodeIds = await _db.ProjectProgramDiscussionCodes.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.DiscussionCodeId).ToListAsync(),
       gradeLevelIds = await _db.ProjectProgramGradeLevels.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.GradeLevelId).ToListAsync(),
-      classIds = await _db.ProjectProgramClasses.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.ClassId).ToListAsync()
+      classIds = await _db.ProjectProgramClasses.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.ClassId).ToListAsync(),
+      localityDistrictNationalIds = await _db.ProjectProgramLocalityDistrictNationals.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.LocalityDistrictNationalId).ToListAsync()
     });
   }
 
   [HttpPost, ValidateAntiForgeryToken]
   public async Task<IActionResult> SaveProjectProgramScope(int projectId, int programId,
     int[]? subjectIds, int[]? domainIds, int[]? frameworkIds, int[]? educationalProgramIds,
-    int[]? discussionCodeIds, int[]? gradeLevelIds, int[]? classIds)
+    int[]? discussionCodeIds, int[]? gradeLevelIds, int[]? classIds, int[]? localityDistrictNationalIds)
   {
     var exists = await _db.ProjectPrograms.AnyAsync(pp => pp.ProjectId == projectId && pp.ProgramId == programId);
     if (!exists)
@@ -852,10 +854,13 @@ public class AdminController : Controller
     await ReplaceScopeAsync(_db.ProjectProgramClasses,
       x => x.ProjectId == projectId && x.ProgramId == programId, classIds,
       id => new ProjectProgramClass { ProjectId = projectId, ProgramId = programId, ClassId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramLocalityDistrictNationals,
+      x => x.ProjectId == projectId && x.ProgramId == programId, localityDistrictNationalIds,
+      id => new ProjectProgramLocalityDistrictNational { ProjectId = projectId, ProgramId = programId, LocalityDistrictNationalId = id });
 
     await _db.SaveChangesAsync();
     await _auditLog.LogAsync("ProjectProgramScope.Update", nameof(ProjectProgram), $"{projectId}:{programId}",
-      after: new { projectId, programId, subjectIds, domainIds, frameworkIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, classIds });
+      after: new { projectId, programId, subjectIds, domainIds, frameworkIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, classIds, localityDistrictNationalIds });
 
     TempData["Success"] = "שיוכי הערכים לתוכנית נשמרו";
     return RedirectToAction(nameof(ProjectPrograms));
