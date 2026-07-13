@@ -199,7 +199,27 @@
     </div>
   }
 
+  @{
+    // כותרת פרויקט + תוכנית (בקשת לקוח 07/2026): שיהיה ברור לאיזה פרויקט
+    // ותוכנית מתבצע הדיווח. ההקצאה הנוכחית נלקחת מרשימת ההקצאות (כוללת תוכניות).
+    var allAllocations = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
+    var currentAllocation = allAllocations?.FirstOrDefault(a => a.Id == allocationId);
+    var headerPrograms = string.Join(", ", currentAllocation?.AllocationPrograms
+      .Select(x => x.Program?.Description)
+      .Where(d => !string.IsNullOrWhiteSpace(d)) ?? Enumerable.Empty<string?>());
+    var headerProject = currentAllocation?.Project?.Description ?? allocation?.Project?.Description ?? "";
+  }
   <div class="card mb-3">
+    @if (!string.IsNullOrEmpty(headerProject) || !string.IsNullOrEmpty(headerPrograms))
+    {
+      <div class="card-header">
+        <div class="fs-4 fw-bold">@(string.IsNullOrEmpty(headerPrograms) ? headerProject : headerPrograms)</div>
+        @if (!string.IsNullOrEmpty(headerPrograms) && !string.IsNullOrEmpty(headerProject))
+        {
+          <div class="text-muted">פרויקט: @headerProject</div>
+        }
+      </div>
+    }
     <div class="card-body">
       <div class="row g-2">
         <div class="col-md-3"><strong>עובד:</strong> @employee?.FirstName @employee?.LastName</div>
