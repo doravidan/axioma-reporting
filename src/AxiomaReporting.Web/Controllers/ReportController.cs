@@ -794,7 +794,12 @@ public class ReportController : Controller
       await System.IO.File.WriteAllBytesAsync(
         Path.Combine(errorsDir, $"{errorId}.pdf"),
         _pdfReportService.CreateErrorReport(result.Errors));
-      TempData["Errors"] = string.Join("|", result.Errors);
+      // מציגים על המסך עד 25 שגיאות; הרשימה המלאה זמינה ב-PDF המצורף.
+      const int maxOnScreenErrors = 25;
+      var onScreen = result.Errors.Take(maxOnScreenErrors).ToList();
+      if (result.Errors.Count > maxOnScreenErrors)
+        onScreen.Add($"…ועוד {result.Errors.Count - maxOnScreenErrors} שגיאות — הרשימה המלאה בקובץ ה-PDF");
+      TempData["Errors"] = string.Join("|", onScreen);
       TempData["ExcelErrorPdf"] = Url?.Content($"~/uploads/excel-errors/{errorId}.pdf")
         ?? $"/uploads/excel-errors/{errorId}.pdf";
 

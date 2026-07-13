@@ -42,6 +42,18 @@ builder.Services.AddControllersWithViews(options =>
   options.ModelBindingMessageProvider.SetMissingBindRequiredValueAccessor(field => $"חסר ערך חובה: {field}");
   options.ModelBindingMessageProvider.SetMissingKeyOrValueAccessor(() => "חסר ערך חובה");
   options.ModelBindingMessageProvider.SetValueIsInvalidAccessor(value => "הערך שנבחר אינו תקין");
+})
+// TempData בצד השרת (session) ולא בעוגיות: רשימת שגיאות ארוכה מייבוא אקסל
+// (79 שורות × כמה כללים) הגיעה ל~90KB עוגיות → כל בקשה עוקבת נכשלה ב-431
+// Request Header Fields Too Large — "מסך לבן" לכל האתר עד ניקוי עוגיות.
+.AddSessionStateTempDataProvider();
+
+builder.Services.AddSession(options =>
+{
+  options.IdleTimeout = TimeSpan.FromMinutes(
+    builder.Configuration.GetValue<int?>("Session:TimeoutMinutes") ?? 30);
+  options.Cookie.HttpOnly = true;
+  options.Cookie.IsEssential = true;
 });
 
 var useDemoInMemory = string.Equals(
@@ -141,6 +153,7 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
