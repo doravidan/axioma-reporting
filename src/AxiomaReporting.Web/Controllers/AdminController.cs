@@ -1755,6 +1755,53 @@ public class AdminController : Controller
 
   // --- Batch Report Import (multi-employee) — AX-018 extension ---
 
+  /// <summary>
+  /// תבנית להורדה עבור הייבוא המרוכז (בקשת לקוח 07/2026): כותרות בעברית בסדר
+  /// שהמנתח מזהה (זיהוי לפי שם כותרת, לא לפי מיקום) + שורת דוגמה. הערכים ממולאים
+  /// בעברית כפי שהם מופיעים בטבלאות המערכת.
+  /// </summary>
+  [HttpGet]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public IActionResult DownloadBatchReportTemplate()
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.Worksheets.Add("דיווחים");
+    ws.RightToLeft = true;
+
+    var headers = new[]
+    {
+      "מס\"ד", "קוד עובד", "שם המדווח", "סוג דיווח", "מחוז", "יישוב",
+      "שם המסגרת חינוכית", "תאריך המפגש", "משך המפגש", "תוכנית חינוכית",
+      "תחום", "נושא 1", "נושא 2", "קיום דיון", "מסגרת חינוכית (מסקנה)",
+      "יישוב/מחוז/ארצי", "שכבה", "כיתה", "הערות"
+    };
+    for (var i = 0; i < headers.Length; i++)
+    {
+      ws.Cell(1, i + 1).Value = headers[i];
+      ws.Cell(1, i + 1).Style.Font.Bold = true;
+    }
+
+    // שורת דוגמה — יש להחליף בערכי הדיווח בפועל.
+    ws.Cell(2, 1).Value = 1;
+    ws.Cell(2, 2).Value = "1234";
+    ws.Cell(2, 3).Value = "ישראל ישראלי";
+    ws.Cell(2, 5).Value = "ארצי";
+    ws.Cell(2, 6).Value = "ירושלים";
+    ws.Cell(2, 7).Value = "123456 שם בית הספר";
+    ws.Cell(2, 8).Value = DateTime.Today;
+    ws.Cell(2, 8).Style.DateFormat.Format = "dd/MM/yyyy";
+    ws.Cell(2, 9).Value = 1.0;
+    ws.Cell(2, 19).Value = "דוגמה — יש להחליף בערכי הדיווח; קוד עובד חובה בכל שורה, שאר הערכים בעברית כפי שמופיעים במסך הדיווח";
+    ws.Columns().AdjustToContents();
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return File(
+      stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "batch_report_import_template.xlsx");
+  }
+
   [HttpGet]
   public async Task<IActionResult> BatchReportImport()
   {

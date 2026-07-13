@@ -6,7 +6,10 @@
 <div class="container mt-3" dir="rtl">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h3>ייבוא דיווחים מרוכז — קובץ רב-עובדים</h3>
-    <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה</a>
+    <div class="d-flex gap-2">
+      <a asp-action="DownloadBatchReportTemplate" class="btn btn-outline-primary btn-sm">הורדת תבנית לייבוא</a>
+      <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה</a>
+    </div>
   </div>
 
   @if (TempData["Error"] != null)
