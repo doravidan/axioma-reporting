@@ -3,26 +3,29 @@
   var employee = ViewBag.Employee as AxiomaReporting.Core.Entities.User;
   var allocations = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
 
-  string AllocationLabel(AxiomaReporting.Core.Entities.Allocation alloc)
-  {
-    // הבחנה בין הקצאות לפי תוכנית — לעובד עם כמה הקצאות באותו פרויקט
-    // (תיקון לקוח 07/2026 #1).
-    var programs = alloc.AllocationPrograms
+  // הבחנה בין הקצאות לפי תוכנית — לעובד עם כמה הקצאות באותו פרויקט
+  // (תיקון לקוח 07/2026 #1).
+  string ProgramsLabel(AxiomaReporting.Core.Entities.Allocation alloc) =>
+    string.Join(", ", alloc.AllocationPrograms
       .Select(x => x.Program?.Description)
-      .Where(d => !string.IsNullOrWhiteSpace(d))
-      .ToList();
-    var project = alloc.Project?.Description ?? "";
-    return programs.Count > 0 ? $"{project} — {string.Join(", ", programs)}" : project;
-  }
+      .Where(d => !string.IsNullOrWhiteSpace(d)));
 }
 <div class="container mt-4">
   <h3>בחירת תוכנית לדיווח - @employee?.FirstName @employee?.LastName</h3>
   <div class="list-group mt-3">
     @foreach (var alloc in allocations ?? new List<AxiomaReporting.Core.Entities.Allocation>())
     {
+      var programs = ProgramsLabel(alloc);
+      var project = alloc.Project?.Description ?? "";
       <a asp-action="Index" asp-route-allocationId="@alloc.Id"
-         class="list-group-item list-group-item-action">
-        @AllocationLabel(alloc)
+         class="list-group-item list-group-item-action py-3"
+         aria-label="פתיחת דיווח עבור @(string.IsNullOrEmpty(programs) ? project : programs)">
+        @* הבלטת התוכנית והפרויקט (בקשת לקוח 07/2026): תוכנית גדולה ומודגשת, פרויקט מתחתיה *@
+        <div class="fs-4 fw-bold">@(string.IsNullOrEmpty(programs) ? project : programs)</div>
+        @if (!string.IsNullOrEmpty(programs))
+        {
+          <div class="fs-6 text-muted mt-1">@project</div>
+        }
       </a>
     }
   </div>
