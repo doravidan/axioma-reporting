@@ -1310,8 +1310,9 @@ public class AdminController : Controller
     }
 
     var now = DateTime.UtcNow;
-    int added = 0, skipped = 0;
+    int added = 0, skipped = 0, addedFrameworks = 0;
     var errors = new List<string>();
+    var pendingFrameworks = new HashSet<(string Symbol, int? StageId)>();
 
     using var stream = file!.OpenReadStream();
     using var wb = new XLWorkbook(stream);
@@ -1339,6 +1340,28 @@ public class AdminController : Controller
       var typeId = await FindEducationTypeIdAsync(ws.Cell(row, 6).GetString());
       var stageId = await FindEducationalStageIdAsync(ws.Cell(row, 7).GetString());
 
+      // סנכרון מסגרות: כל מוסד בקובץ חייב להופיע גם בטבלת המסגרות, אחרת אינו זמין
+      // בהקצאות ובדיווח (תיקון לקוח 07/2026 #8). מתבצע גם עבור מוסדות קיימים.
+      var symbolText = symbol.ToString();
+      if (pendingFrameworks.Add((symbolText, stageId)))
+      {
+        var frameworkExists = await _db.Frameworks.AnyAsync(f =>
+          f.InstitutionSymbol == symbolText &&
+          ((f.EducationalStageId == stageId) || (f.EducationalStageId == null && stageId == null)));
+        if (!frameworkExists)
+        {
+          _db.Frameworks.Add(new Framework
+          {
+            InstitutionSymbol = symbolText,
+            EducationalStageId = stageId,
+            Description = name,
+            IsActive = true,
+            CreatedAt = now
+          });
+          addedFrameworks++;
+        }
+      }
+
       if (await _db.Institutions.AnyAsync(i => i.InstitutionSymbol == symbol && i.EducationalStageId == stageId))
       {
         skipped++;
@@ -1362,7 +1385,7 @@ public class AdminController : Controller
 
     await _db.SaveChangesAsync();
     TempData["ImportResults"] = string.Join("|",
-      new[] { $"מוסדות: {added} נוספו, {skipped} קיימים (דולגו)" }.Concat(errors));
+      new[] { $"מוסדות: {added} נוספו, {skipped} קיימים (דולגו) | מסגרות: {addedFrameworks} נוספו" }.Concat(errors));
     TempData["Success"] = "ייבוא מוסדות הושלם";
     return RedirectToAction(nameof(DataMigration));
   }

@@ -308,6 +308,14 @@ public class ExcelImportValidationTests : IDisposable
             AllowExcelUpload = true,
             CreatedAt = DateTime.UtcNow
         });
+        // The importer resolves every lookup column (id or Hebrew description) and
+        // rejects ids that do not exist — the workbook's id=1 values need real rows.
+        _db.Districts.Add(new District { Id = 1, Description = "District A", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.Localities.Add(new Locality { Id = 1, Description = "Locality A", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.Frameworks.Add(new Framework { Id = 1, Description = "Framework A", InstitutionSymbol = "640086", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.EducationalPrograms.Add(new EducationalProgram { Id = 1, Description = "Education Program A", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.Domains.Add(new Domain { Id = 1, Description = "Domain A", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.Subjects.Add(new Subject { Id = 1, Description = "Subject A", IsActive = true, CreatedAt = DateTime.UtcNow });
         _db.SaveChanges();
     }
 }

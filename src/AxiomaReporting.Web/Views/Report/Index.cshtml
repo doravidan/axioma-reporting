@@ -207,22 +207,30 @@
         <div class="col-md-3"><strong>קוד עובד:</strong> @employee?.EmployeeCode</div>
         <div class="col-md-3"><strong>חודש:</strong> @month?.Description</div>
         <div class="col-md-3"><strong>סטטוס:</strong> @StatusText(report?.StatusId, report?.Status?.Name)</div>
-        @if (month != null && !month.IsActive)
-        {
-          @* בצפייה בהיסטוריה מוצגות כל שורות הדיווח, מכל ההקצאות *@
-          <div class="col-md-3"><strong>שורות בדיווח:</strong> @Model.Count</div>
+        @{
+          // תיקון לקוח 07/2026 #9: "מס' תפוקות מדווחות" (לשעבר "שורות בהקצאה") +
+          // "סה"כ ביצוע חודשי" — סכום משך התפוקה של השורות המוצגות; עיצוב מובחן.
+          var totalMonthlyOutput = Model.Sum(r => r.MeetingDuration);
+          var isPastView = month != null && !month.IsActive;
+          var reportedCountText = !isPastView && allocation?.MonthlyRowAllocation != null
+            ? $"{Model.Count} / {allocation.MonthlyRowAllocation}"
+            : Model.Count.ToString();
         }
-        else
-        {
-          <div class="col-md-3"><strong>שורות בהקצאה:</strong> @Model.Count / @allocation?.MonthlyRowAllocation</div>
-        }
+        <div class="col-md-3">
+          <strong>מס' תפוקות מדווחות:</strong>
+          <span class="badge bg-primary fs-6">@reportedCountText</span>
+        </div>
+        <div class="col-md-3">
+          <strong>סה"כ ביצוע חודשי:</strong>
+          <span class="badge bg-success fs-6">@totalMonthlyOutput.ToString("0.##")</span>
+        </div>
         <div class="col-md-6 text-start">
           @{
             var allocsList = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
           }
           @if (allocsList != null && allocsList.Count > 1)
           {
-            <a asp-action="Index" asp-route-userId="@employee?.Id" class="btn btn-outline-secondary btn-sm">שנה פרויקט</a>
+            <a asp-action="Index" asp-route-userId="@employee?.Id" class="btn btn-outline-secondary btn-sm">שנה תוכנית</a>
           }
         </div>
       </div>

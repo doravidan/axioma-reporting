@@ -96,7 +96,7 @@ public class ReportExcelImportService : IReportExcelImportService
 
         var row = clientHebrewFormat
           ? await ParseClientHebrewRowAsync(excelRow, reportId, allocationId)
-          : ParseRow(excelRow, reportId, allocationId);
+          : await ParseTemplateRowAsync(excelRow, reportId, allocationId);
         var allRows = importedRows.Concat(new[] { row }).ToList();
         var validation = await _validator.ValidateRowAsync(row, report.User, report.ReportingMonth, allRows);
         if (!validation.IsValid)
@@ -191,7 +191,10 @@ public class ReportExcelImportService : IReportExcelImportService
     if (rowText.Contains("תחום")) score++;
     if (rowText.Contains("נושא")) score++;
 
-    return score >= 4 && rowText.Contains("מחוז") && rowText.Contains("תאריך");
+    // "קוד עובד" is what distinguishes the multi-employee batch format from the
+    // personal upload template (whose headers are Hebrew too since client fix
+    // 07/2026 #3, but per-row without an employee-code column).
+    return score >= 4 && rowText.Contains("קוד עובד") && rowText.Contains("מחוז") && rowText.Contains("תאריך");
   }
 
   private static string NormalizeHebrewHeader(string? value)
@@ -218,7 +221,10 @@ public class ReportExcelImportService : IReportExcelImportService
            string.Equals(employeeCode, employee.IdNumber, StringComparison.OrdinalIgnoreCase);
   }
 
-  private static ReportRow ParseRow(IXLRow row, int reportId, int allocationId)
+  // הפורמט האישי (התבנית שהעובד מוריד): 16 עמודות לפי מיקום. מקבל גם ערכים
+  // בעברית (תיאור מהטבלאות) וגם מזהים מספריים — תיקון לקוח 07/2026 #4
+  // ("לא קלט את עמודת המחוז").
+  private async Task<ReportRow> ParseTemplateRowAsync(IXLRow row, int reportId, int allocationId)
   {
     return new ReportRow
     {
@@ -226,19 +232,19 @@ public class ReportExcelImportService : IReportExcelImportService
       AllocationId = allocationId,
       MeetingDate = ReadDate(row, 1),
       MeetingDuration = ReadDecimal(row, 2),
-      DistrictId = ReadRequiredInt(row, 3, "DistrictId"),
-      LocalityId = ReadRequiredInt(row, 4, "LocalityId"),
-      FrameworkId = ReadRequiredInt(row, 5, "FrameworkId"),
-      EducationalProgramId = ReadRequiredInt(row, 6, "EducationalProgramId"),
-      DomainId = ReadRequiredInt(row, 7, "DomainId"),
-      Subject1Id = ReadRequiredInt(row, 8, "Subject1Id"),
-      Subject2Id = ReadOptionalInt(row, 9),
-      DiscussionCodeId = ReadOptionalInt(row, 10),
-      ConclusionClassId = ReadOptionalInt(row, 11),
-      ConclusionFrameworkId = ReadOptionalInt(row, 12),
-      ConclusionLocationId = ReadOptionalInt(row, 13),
-      GradeLevelId = ReadOptionalInt(row, 14),
-      ClassId = ReadOptionalInt(row, 15),
+      DistrictId = await ResolveRequiredAsync(row, 3, "מחוז", _lookupResolver.ResolveDistrictAsync),
+      LocalityId = await ResolveRequiredAsync(row, 4, "יישוב", _lookupResolver.ResolveLocalityAsync),
+      FrameworkId = await ResolveRequiredFrameworkAsync(row, 5),
+      EducationalProgramId = await ResolveRequiredAsync(row, 6, "תוכנית חינוכית", _lookupResolver.ResolveEducationalProgramAsync),
+      DomainId = await ResolveRequiredAsync(row, 7, "תחום", _lookupResolver.ResolveDomainAsync),
+      Subject1Id = await ResolveRequiredAsync(row, 8, "נושא 1", _lookupResolver.ResolveSubjectAsync),
+      Subject2Id = await ResolveOptionalAsync(row, 9, _lookupResolver.ResolveSubjectAsync),
+      DiscussionCodeId = await ResolveOptionalAsync(row, 10, _lookupResolver.ResolveDiscussionCodeAsync),
+      ConclusionClassId = await ResolveOptionalAsync(row, 11, _lookupResolver.ResolveClassConclusionAsync),
+      ConclusionFrameworkId = await ResolveOptionalAsync(row, 12, _lookupResolver.ResolveFrameworkConclusionAsync),
+      ConclusionLocationId = await ResolveOptionalAsync(row, 13, _lookupResolver.ResolveLocalityDistrictNationalAsync),
+      GradeLevelId = await ResolveOptionalAsync(row, 14, _lookupResolver.ResolveGradeLevelAsync),
+      ClassId = await ResolveOptionalAsync(row, 15, _lookupResolver.ResolveClassAsync),
       Notes = row.Cell(16).GetString()
     };
   }
@@ -259,8 +265,9 @@ public class ReportExcelImportService : IReportExcelImportService
       Subject1Id = await ResolveRequiredAsync(row, 11, "נושא 1", _lookupResolver.ResolveSubjectAsync),
       Subject2Id = await ResolveOptionalAsync(row, 12, _lookupResolver.ResolveSubjectAsync),
       DiscussionCodeId = await ResolveOptionalAsync(row, 13, _lookupResolver.ResolveDiscussionCodeAsync),
-      ConclusionClassId = await ResolveOptionalAsync(row, 14, _lookupResolver.ResolveClassAsync),
-      ConclusionFrameworkId = await ResolveOptionalFrameworkAsync(row, 15),
+      // מסקנות כיתה/מסגרת נפתרות מטבלאות המסקנות הנפרדות — לא מכיתות/מסגרות בפועל.
+      ConclusionClassId = await ResolveOptionalAsync(row, 14, _lookupResolver.ResolveClassConclusionAsync),
+      ConclusionFrameworkId = await ResolveOptionalAsync(row, 15, _lookupResolver.ResolveFrameworkConclusionAsync),
       ConclusionLocationId = await ResolveOptionalAsync(row, 16, _lookupResolver.ResolveLocalityDistrictNationalAsync),
       GradeLevelId = await ResolveOptionalAsync(row, 17, _lookupResolver.ResolveGradeLevelAsync),
       ClassId = await ResolveOptionalAsync(row, 18, _lookupResolver.ResolveClassAsync),
@@ -279,19 +286,6 @@ public class ReportExcelImportService : IReportExcelImportService
   {
     if (row.Cell(column).TryGetValue<decimal>(out var value)) return value;
     throw new InvalidOperationException("MeetingDuration אינו מספר תקין");
-  }
-
-  private static int ReadRequiredInt(IXLRow row, int column, string name)
-  {
-    if (row.Cell(column).TryGetValue<int>(out var value) && value > 0) return value;
-    throw new InvalidOperationException($"{name} חסר או לא תקין");
-  }
-
-  private static int? ReadOptionalInt(IXLRow row, int column)
-  {
-    var cell = row.Cell(column);
-    if (cell.IsEmpty()) return null;
-    return cell.TryGetValue<int>(out var value) && value > 0 ? value : null;
   }
 
   private static async Task<int> ResolveRequiredAsync(
@@ -324,21 +318,42 @@ public class ReportExcelImportService : IReportExcelImportService
     throw new InvalidOperationException($"מסגרת לא נמצאה בטבלאות המערכת: '{value}'");
   }
 
-  private async Task<int?> ResolveOptionalFrameworkAsync(IXLRow row, int column)
-  {
-    var value = row.Cell(column).GetString();
-    if (string.IsNullOrWhiteSpace(value)) return null;
-    return await ResolveFrameworkValueAsync(value);
-  }
-
   private async Task<int?> ResolveFrameworkValueAsync(string? value)
   {
     var id = await _lookupResolver.ResolveFrameworkAsync(value);
     if (id.HasValue || string.IsNullOrWhiteSpace(value)) return id;
 
-    var leadingSymbol = new string(value.Trim().TakeWhile(char.IsDigit).ToArray());
-    return string.IsNullOrWhiteSpace(leadingSymbol)
-      ? null
-      : await _lookupResolver.ResolveFrameworkAsync(leadingSymbol);
+    var trimmed = value.Trim();
+
+    // Legacy: a symbol pasted with trailing text ("442889 מקיף ד").
+    var leadingSymbol = new string(trimmed.TakeWhile(char.IsDigit).ToArray());
+    if (!string.IsNullOrWhiteSpace(leadingSymbol))
+    {
+      id = await _lookupResolver.ResolveFrameworkAsync(leadingSymbol);
+      if (id.HasValue) return id;
+    }
+
+    // Composite UI label "יישוב — סמל — שם מסגרת" (the export/dropdown format the
+    // client copies from): resolve by the embedded institution symbol.
+    var embeddedSymbol = System.Text.RegularExpressions.Regex.Match(trimmed, @"\d{3,}");
+    if (embeddedSymbol.Success)
+    {
+      id = await _lookupResolver.ResolveFrameworkAsync(embeddedSymbol.Value);
+      if (id.HasValue) return id;
+    }
+
+    // The name segment after the final dash of the composite label.
+    var lastSegment = trimmed.Split('—', '-').LastOrDefault()?.Trim();
+    if (!string.IsNullOrWhiteSpace(lastSegment) && lastSegment != trimmed)
+    {
+      id = await _lookupResolver.ResolveFrameworkAsync(lastSegment);
+      if (id.HasValue) return id;
+    }
+
+    // Backward compatibility with the old numeric template: a plain framework row id.
+    return int.TryParse(trimmed, out var frameworkId) &&
+           await _db.Frameworks.AnyAsync(f => f.Id == frameworkId)
+      ? frameworkId
+      : null;
   }
 }

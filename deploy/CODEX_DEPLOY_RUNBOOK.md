@@ -17,7 +17,7 @@ Companion docs (Hebrew, more narrative): `docs/CLIENT_DELIVERY.md`, `docs/DEPLOY
 | `{{DOMAIN}}` | Public host name of the site | `reports.example.co.il` |
 | `{{DB_PASSWORD}}` | New strong password (16+ chars) for the `AxiomaWeb` SQL login | — |
 | `{{ADMIN_PASSWORD}}` | New strong password for the application `admin` user | 8+ chars, letters+digits |
-| `{{BAK_PATH}}` | Where the delivery backup file was copied on the server | `C:\deploy\AxiomaReporting_delivery_2026-07-08.bak` |
+| `{{BAK_PATH}}` | Where the delivery backup file was copied on the server | `C:\deploy\AxiomaReporting_delivery_2026-07-13.bak` |
 | `{{SMTP_*}}` | SMTP relay: server, port, user, password, from-address | configured later via the admin UI, not in files |
 
 ## Package contents
@@ -27,8 +27,8 @@ Companion docs (Hebrew, more narrative): `docs/CLIENT_DELIVERY.md`, `docs/DEPLOY
 | Source code (build on dev machine or on server) | `https://github.com/doravidan/axioma-reporting.git`, branch `master` | yes |
 | Publish script | `deploy/publish.ps1` | yes |
 | Full schema, idempotent (structure only) | `database/schema.sql` (~2,100 lines, generated from EF migrations) | yes |
-| **Full database backup — structure + all client data** (SQL 2022+ only) | `AxiomaReporting_delivery_2026-07-08.bak` (34 MB, taken 2026-07-08; includes the שמיים-חטיבות-ביניים onboarding + the duplicate-programs merge and program default-scope data) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
-| **Version-independent data export — same content, works on SQL 2019** | `AxiomaReporting_delivery_2026-07-08.bacpac` (0.7 MB, round-trip verified) | **NO — same PII rule; delivered separately.** |
+| **Full database backup — structure + all client data** (SQL 2022+ only) | `AxiomaReporting_delivery_2026-07-13.bak` (34 MB, taken 2026-07-13; includes the שמיים-חטיבות-ביניים onboarding + the duplicate-programs merge and program default-scope data) | **NO — contains PII; delivered separately alongside this repo. Never commit it.** |
+| **Version-independent data export — same content, works on SQL 2019** | `AxiomaReporting_delivery_2026-07-13.bacpac` (0.7 MB, round-trip verified) | **NO — same PII rule; delivered separately.** |
 | Password-normalization script (go-live step §2.2) | `scripts/reset_passwords_to_id.py` | yes |
 | This runbook | `deploy/CODEX_DEPLOY_RUNBOOK.md` | yes |
 
@@ -46,8 +46,8 @@ The `.bak` contains the fully imported client dataset. Expected row counts (used
 | EmailTemplates | 12 |
 | SystemConstants | 9 |
 | Programs | 17 (duplicates merged 2026-07-08) |
-| ProjectProgramSubjects | 7,197 |
-| `__EFMigrationsHistory` | 22 |
+| ProjectProgramSubjects | 7,784 |
+| `__EFMigrationsHistory` | 25 |
 
 ---
 
@@ -73,7 +73,7 @@ iisreset /restart
 # The delivery .bak was produced by SQL Server 2022 (16.0) and CANNOT be
 # restored on SQL 2019 or older (native backups never downgrade). On a
 # SQL 2019 server use §2 Option A2 — import the delivered
-# AxiomaReporting_delivery_2026-07-08.bacpac instead (identical data,
+# AxiomaReporting_delivery_2026-07-13.bacpac instead (identical data,
 # version-independent).
 # Install with the "Basic" preset; also install SSMS if a human will manage it.
 
@@ -113,7 +113,7 @@ sqlcmd -S .\SQLEXPRESS -E -Q "ALTER DATABASE AxiomaReporting SET RECOVERY SIMPLE
 
 A native `.bak` can never be restored onto an older SQL Server. If the server runs
 SQL 2019 (or anything older than 2022), import the delivered
-`AxiomaReporting_delivery_2026-07-08.bacpac` instead — identical content,
+`AxiomaReporting_delivery_2026-07-13.bacpac` instead — identical content,
 round-trip verified against the same row counts.
 
 ```powershell
@@ -128,7 +128,7 @@ sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE AxiomaReporting COLLATE Hebrew_CI_
 
 # 3) Import (replace the path with wherever the .bacpac was copied)
 & "C:\deploy\sqlpackage\sqlpackage.exe" /Action:Import `
-  /SourceFile:"C:\deploy\AxiomaReporting_delivery_2026-07-08.bacpac" `
+  /SourceFile:"C:\deploy\AxiomaReporting_delivery_2026-07-13.bacpac" `
   /TargetServerName:.\SQLEXPRESS /TargetDatabaseName:AxiomaReporting /TargetTrustServerCertificate:True
 ```
 
@@ -201,7 +201,7 @@ activate the correct month via `/Admin/ReportingMonths` after first login.
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -W -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM Users) AS Users, (SELECT COUNT(*) FROM Allocations) AS Allocations, (SELECT COUNT(*) FROM Frameworks) AS Frameworks, (SELECT COUNT(*) FROM __EFMigrationsHistory) AS Migrations, (SELECT COUNT(*) FROM Users WHERE MustChangePassword = 1) AS ForcedChanges"
-# Expect: Users=492, Allocations=489, Frameworks=3222, Migrations=22, ForcedChanges=492
+# Expect: Users=492, Allocations=489, Frameworks=3222, Migrations=25, ForcedChanges=492
 ```
 
 ---

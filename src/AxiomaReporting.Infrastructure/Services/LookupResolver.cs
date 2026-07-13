@@ -26,6 +26,8 @@ public interface ILookupResolver
   Task<int?> ResolveDiscussionCodeAsync(string? value, CancellationToken ct = default);
   Task<int?> ResolveLocalityDistrictNationalAsync(string? value, CancellationToken ct = default);
   Task<int?> ResolveReportTypeAsync(string? value, CancellationToken ct = default);
+  Task<int?> ResolveClassConclusionAsync(string? value, CancellationToken ct = default);
+  Task<int?> ResolveFrameworkConclusionAsync(string? value, CancellationToken ct = default);
 }
 
 public class LookupResolver : ILookupResolver
@@ -48,6 +50,8 @@ public class LookupResolver : ILookupResolver
   private Dictionary<string, int>? _discussionCodes;
   private Dictionary<string, int>? _localityDistrictNationals;
   private Dictionary<string, int>? _reportTypes;
+  private Dictionary<string, int>? _classConclusions;
+  private Dictionary<string, int>? _frameworkConclusions;
 
   public LookupResolver(AppDbContext db) { _db = db; }
 
@@ -117,6 +121,12 @@ public class LookupResolver : ILookupResolver
 
   public Task<int?> ResolveReportTypeAsync(string? value, CancellationToken ct = default) =>
     ResolveAsync(value, ct, () => _reportTypes, d => _reportTypes = d, _db.ReportTypes);
+
+  public Task<int?> ResolveClassConclusionAsync(string? value, CancellationToken ct = default) =>
+    ResolveAsync(value, ct, () => _classConclusions, d => _classConclusions = d, _db.ClassConclusions);
+
+  public Task<int?> ResolveFrameworkConclusionAsync(string? value, CancellationToken ct = default) =>
+    ResolveAsync(value, ct, () => _frameworkConclusions, d => _frameworkConclusions = d, _db.FrameworkConclusions);
 
   private static async Task<int?> ResolveAsync<T>(
     string? value,

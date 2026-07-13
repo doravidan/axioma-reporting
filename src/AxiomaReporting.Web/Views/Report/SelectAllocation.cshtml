@@ -2,15 +2,27 @@
   ViewData["Title"] = "בחירת הקצאה";
   var employee = ViewBag.Employee as AxiomaReporting.Core.Entities.User;
   var allocations = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
+
+  string AllocationLabel(AxiomaReporting.Core.Entities.Allocation alloc)
+  {
+    // הבחנה בין הקצאות לפי תוכנית — לעובד עם כמה הקצאות באותו פרויקט
+    // (תיקון לקוח 07/2026 #1).
+    var programs = alloc.AllocationPrograms
+      .Select(x => x.Program?.Description)
+      .Where(d => !string.IsNullOrWhiteSpace(d))
+      .ToList();
+    var project = alloc.Project?.Description ?? "";
+    return programs.Count > 0 ? $"{project} — {string.Join(", ", programs)}" : project;
+  }
 }
 <div class="container mt-4">
-  <h3>בחירת פרויקט לדיווח - @employee?.FirstName @employee?.LastName</h3>
+  <h3>בחירת תוכנית לדיווח - @employee?.FirstName @employee?.LastName</h3>
   <div class="list-group mt-3">
     @foreach (var alloc in allocations ?? new List<AxiomaReporting.Core.Entities.Allocation>())
     {
       <a asp-action="Index" asp-route-allocationId="@alloc.Id"
          class="list-group-item list-group-item-action">
-        @alloc.Project?.Description
+        @AllocationLabel(alloc)
       </a>
     }
   </div>

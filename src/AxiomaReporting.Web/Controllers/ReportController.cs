@@ -94,6 +94,7 @@ public class ReportController : Controller
 
     var allocations = await _db.Allocations
       .Include(a => a.Project)
+      .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)
       .Where(a => a.UserId == targetUserId && a.IsActive)
       .ToListAsync();
 
@@ -306,12 +307,14 @@ public class ReportController : Controller
     var ws = workbook.Worksheets.Add("דיווח");
     ws.RightToLeft = true;
 
+    // כותרות בעברית (תיקון לקוח 07/2026 #3); הערכים ממולאים בעברית כפי שהם מופיעים
+    // בטבלאות המערכת (מזהים מספריים עדיין נתמכים לתאימות לאחור).
     var headers = new[]
     {
-      "MeetingDate", "MeetingDuration", "DistrictId", "LocalityId", "FrameworkId",
-      "EducationalProgramId", "DomainId", "Subject1Id", "Subject2Id", "DiscussionCodeId",
-      "ConclusionClassId", "ConclusionFrameworkId", "ConclusionLocationId", "GradeLevelId",
-      "ClassId", "Notes"
+      "תאריך מפגש", "משך תפוקה", "מחוז", "יישוב", "מסגרת",
+      "תוכנית חינוכית", "תחום", "נושא 1", "נושא 2", "קיום דיון",
+      "מסקנות כיתה", "מסקנות מסגרת חינוכית", "יישוב/מחוז/ארצי", "שכבה",
+      "כיתה", "הערות"
     };
 
     for (var i = 0; i < headers.Length; i++)
@@ -323,7 +326,7 @@ public class ReportController : Controller
     ws.Cell(2, 1).Value = DateTime.Today;
     ws.Cell(2, 1).Style.DateFormat.Format = "dd/MM/yyyy";
     ws.Cell(2, 2).Value = 1.0;
-    ws.Cell(2, 16).Value = "דוגמה - יש להחליף בערכי הדיווח";
+    ws.Cell(2, 16).Value = "דוגמה - יש להחליף בערכי הדיווח; את הערכים ממלאים בעברית כפי שמופיעים במסך הדיווח";
     ws.Columns().AdjustToContents();
 
     using var stream = new MemoryStream();
@@ -686,11 +689,29 @@ public class ReportController : Controller
       .ToListAsync();
 
     var employeeIds = employees.Select(e => e.id).ToList();
-    var allocations = await _db.Allocations
+    // התווית כוללת את התוכניות — הבחנה בין כמה הקצאות של אותו עובד באותו פרויקט
+    // (תיקון לקוח 07/2026 #1).
+    var allocations = (await _db.Allocations
       .Where(a => a.IsActive && employeeIds.Contains(a.UserId))
       .OrderBy(a => a.Project!.Description)
-      .Select(a => new { id = a.Id, userId = a.UserId, projectName = a.Project != null ? a.Project.Description : "" })
-      .ToListAsync();
+      .Select(a => new
+      {
+        id = a.Id,
+        userId = a.UserId,
+        project = a.Project != null ? a.Project.Description : "",
+        programs = a.AllocationPrograms
+          .Select(x => x.Program!.Description)
+          .OrderBy(d => d)
+          .ToList()
+      })
+      .ToListAsync())
+      .Select(a => new
+      {
+        a.id,
+        a.userId,
+        projectName = a.programs.Count > 0 ? $"{a.project} — {string.Join(", ", a.programs)}" : a.project
+      })
+      .ToList();
 
     return Json(new { employees, allocations });
   }

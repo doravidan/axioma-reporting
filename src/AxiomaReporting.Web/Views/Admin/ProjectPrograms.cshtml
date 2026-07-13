@@ -182,18 +182,14 @@
         const wanted = new Set((ids || []).map(String));
         const inst = window._axChoices && window._axChoices.get(sel);
         if (inst) {
-          const store = (inst._store && inst._store.choices)
-            || (inst._currentState && inst._currentState.choices)
-            || [];
-          const choices = store
-            .filter(c => c.value !== '' && !c.placeholder)
-            .map(c => ({
-              value: String(c.value),
-              label: c.label || c.value,
-              selected: wanted.has(String(c.value)),
-              disabled: !!c.disabled
-            }));
-          inst.setChoices(choices, 'value', 'label', true);
+          // רענון בין תוכניות (תיקון לקוח 07/2026 #6): הסרה פרטנית של ערכים שאינם
+          // רצויים ואז בחירה של הרצויים. לא removeActiveItems() (מנתק את Choices
+          // מה-select לצמיתות) ולא setChoices בלבד (לא מנקה פריטים שנבחרו —
+          // הערכים מצטברים בין תוכניות).
+          inst.getValue(true).map(String)
+            .filter(v => !wanted.has(v))
+            .forEach(v => inst.removeActiveItemsByValue(v));
+          wanted.forEach(v => inst.setChoiceByValue(v));
         } else {
           Array.from(sel.options).forEach(o => o.selected = wanted.has(o.value));
         }

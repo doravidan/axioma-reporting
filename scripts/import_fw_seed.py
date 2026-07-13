@@ -513,17 +513,26 @@ class Importer:
             row_existing = None
 
         if not row_existing:
+            # Fallback matching may only reuse an allocation that has no program, or
+            # only this file's program. It must NEVER glue a second program onto an
+            # existing different-program allocation — each program gets its own
+            # allocation (client fix 07/2026: "2 הקצאות ב-2 תוכניות נפרדות").
             row_existing = self.cur.execute(
                 """
-                SELECT TOP 1 Id
-                FROM Allocations
-                WHERE UserId = ? AND ProjectId = ?
-                  AND (Notes LIKE ? OR Notes IS NULL)
-                ORDER BY Id
+                SELECT TOP 1 a.Id
+                FROM Allocations a
+                WHERE a.UserId = ? AND a.ProjectId = ?
+                  AND (a.Notes LIKE ? OR a.Notes IS NULL)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM AllocationPrograms ap
+                      WHERE ap.AllocationId = a.Id AND ap.ProgramId <> ?
+                  )
+                ORDER BY a.Id
                 """,
                 user_id,
                 project_id,
                 "%ייבוא FW%",
+                program_id or 0,
             ).fetchone()
 
         if row_existing:
@@ -933,7 +942,9 @@ def choose_all_sheets(wb, kind: str) -> list[Any]:
             result.append(ws)
         elif kind == "allocations" and "הקצאות" in name:
             result.append(ws)
-        elif kind == "code" and "ערכי טבלאות" in name:
+        elif kind == "code" and ("ערכי טבלאות" in name or "ערכי קוד" in name):
+            # שני ניסוחים בקבצי הלקוח: "ערכי טבלאות קוד" וגם "ערכי קוד"
+            # (חנוך לנער, מרכזי יחד — תיקון לקוח 07/2026 #7).
             result.append(ws)
         elif kind == "assignments" and ("שיוך" in name or "עפ עובד" in name or "לכל  עובד" in name or "לכל  עובדי" in name):
             header = find_header(ws, ["קוד עובד", "סמל מוסד"])

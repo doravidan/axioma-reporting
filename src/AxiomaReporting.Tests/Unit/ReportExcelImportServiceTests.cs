@@ -144,6 +144,38 @@ public class ReportExcelImportServiceTests : IDisposable
   }
 
   [Fact]
+  public async Task ImportAsync_TemplateWithHebrewValues_ResolvesDescriptionsAndCompositeFrameworkLabel()
+  {
+    // Regression (client fix 07/2026 #4): the personal template filled with Hebrew
+    // descriptions — including the composite framework label from the UI — must import.
+    using var workbook = new XLWorkbook();
+    var ws = workbook.AddWorksheet("דיווח");
+    ws.Cell(1, 1).Value = "תאריך מפגש";
+    ws.Cell(1, 2).Value = "משך תפוקה";
+    ws.Cell(1, 3).Value = "מחוז";
+    ws.Cell(1, 4).Value = "יישוב";
+    ws.Cell(1, 5).Value = "מסגרת";
+    ws.Cell(2, 1).Value = DateTime.Today.AddDays(-1);
+    ws.Cell(2, 2).Value = 1.5;
+    ws.Cell(2, 3).Value = "District A";
+    ws.Cell(2, 4).Value = "Locality A";
+    ws.Cell(2, 5).Value = "Locality A — 640086 — Framework A";
+    ws.Cell(2, 6).Value = "Education Program A";
+    ws.Cell(2, 7).Value = "Domain A";
+    ws.Cell(2, 8).Value = "Subject A";
+    ws.Cell(2, 16).Value = "hebrew template";
+
+    using var stream = ToStream(workbook);
+
+    var result = await _sut.ImportAsync(1, 1, stream, 1);
+
+    result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+    _db.ReportRows.Should().ContainSingle(r =>
+      r.DistrictId == 1 && r.LocalityId == 1 && r.FrameworkId == 1 &&
+      r.MeetingDuration == 1.5m && r.Notes == "hebrew template");
+  }
+
+  [Fact]
   public async Task ImportAsync_ClientHebrewWorkbook_FindsHeaderBelowRow2AndDoesNotImportHeaderRows()
   {
     using var workbook = new XLWorkbook();
