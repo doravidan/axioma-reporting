@@ -41,7 +41,7 @@ The `.bak` contains the fully imported client dataset. Expected row counts (used
 | Frameworks | 3,222 |
 | Institutions | 4,297 |
 | Localities | 1,448 |
-| Reports / ReportRows | 21 / 455 (incl. 5 July-2026 test reports — removed in §2.2) |
+| Reports / ReportRows | 29 / 552 (incl. 13 July-2026 test reports — removed in §2.2) |
 | ReportingMonths | 3 (יולי 2026 is the active month) |
 | EmailTemplates | 12 |
 | SystemConstants | 9 |
@@ -170,7 +170,7 @@ the December/January pilot reports stay pending the client's purge decision):
 
 ```powershell
 sqlcmd -S .\SQLEXPRESS -d AxiomaReporting -E -I -Q "SET QUOTED_IDENTIFIER ON; DECLARE @ids TABLE (Id int); INSERT INTO @ids SELECT r.Id FROM Reports r JOIN ReportingMonths m ON m.Id = r.ReportingMonthId WHERE m.Year = 2026 AND m.Month = 7; DELETE FROM DocumentAttachments WHERE ReportId IN (SELECT Id FROM @ids) OR ReportRowId IN (SELECT rr.Id FROM ReportRows rr WHERE rr.ReportId IN (SELECT Id FROM @ids)); DELETE FROM ReportRows WHERE ReportId IN (SELECT Id FROM @ids); DELETE FROM Reports WHERE Id IN (SELECT Id FROM @ids); SELECT @@ROWCOUNT AS deleted_reports"
-# Expect: deleted_reports = 5
+# Expect: deleted_reports = 13
 ```
 
 **b) Normalize every employee password to their ID number with a forced change

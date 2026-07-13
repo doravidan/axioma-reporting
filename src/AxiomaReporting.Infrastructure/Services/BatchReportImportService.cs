@@ -73,27 +73,31 @@ public class BatchReportImportService : IBatchReportImportService
   private readonly IReportValidationService _validator;
   private readonly IEmailService _emailService;
 
-  // Header aliases: canonical key => list of accepted header substrings (case-insensitive, after whitespace collapse).
-  private static readonly Dictionary<string, string[]> HeaderAliases = new(StringComparer.OrdinalIgnoreCase)
+  // Header aliases: canonical key => list of accepted header substrings (case-insensitive,
+  // after whitespace collapse). ORDERED array — matching priority matters: overlapping
+  // aliases ("שם המסגרת חינוכית" vs "מסגרת חינוכית") must be tested in this order, and a
+  // Dictionary's iteration order is not guaranteed (a wrong claim routed framework symbols
+  // into ConclusionFrameworkId and crashed the import on the FK — client test 07/2026).
+  private static readonly (string Key, string[] Aliases)[] HeaderAliases =
   {
-    ["EmployeeCode"] = new[] { "קוד עובד" },
-    ["ReporterName"] = new[] { "שם המדווח" },
-    ["ReportType"] = new[] { "סוג דיווח" },
-    ["District"] = new[] { "מחוז מאשר", "מחוז" },
-    ["Locality"] = new[] { "יישוב", "ישוב" },
-    ["Framework"] = new[] { "שם המסגרת חינוכית", "מסגרת חינוכית" },
-    ["MeetingDate"] = new[] { "תאריך המפגש", "תאריך מפגש" },
-    ["MeetingDuration"] = new[] { "משך המפגש" },
-    ["EducationalProgram"] = new[] { "תוכנית חינוכית" },
-    ["Domain"] = new[] { "תחום" },
-    ["Subject1"] = new[] { "נושא 1", "נושא1" },
-    ["Subject2"] = new[] { "נושא 2", "נושא2" },
-    ["DiscussionCode"] = new[] { "קיום דיון", "קוד דיון" },
-    ["ConclusionFramework"] = new[] { "מסגרת חינוכית" },
-    ["ConclusionLocation"] = new[] { "יישוב/מחוז/ארצי", "ישוב/מחוז/ארצי" },
-    ["GradeLevel"] = new[] { "שכבה" },
-    ["Class"] = new[] { "כיתה" },
-    ["Notes"] = new[] { "הערות" }
+    ("EmployeeCode", new[] { "קוד עובד" }),
+    ("ReporterName", new[] { "שם המדווח" }),
+    ("ReportType", new[] { "סוג דיווח" }),
+    ("District", new[] { "מחוז מאשר", "מחוז" }),
+    ("Locality", new[] { "יישוב", "ישוב" }),
+    ("Framework", new[] { "שם המסגרת חינוכית", "מסגרת חינוכית" }),
+    ("MeetingDate", new[] { "תאריך המפגש", "תאריך מפגש" }),
+    ("MeetingDuration", new[] { "משך המפגש" }),
+    ("EducationalProgram", new[] { "תוכנית חינוכית" }),
+    ("Domain", new[] { "תחום" }),
+    ("Subject1", new[] { "נושא 1", "נושא1" }),
+    ("Subject2", new[] { "נושא 2", "נושא2" }),
+    ("DiscussionCode", new[] { "קיום דיון", "קוד דיון" }),
+    ("ConclusionFramework", new[] { "מסגרת חינוכית" }),
+    ("ConclusionLocation", new[] { "יישוב/מחוז/ארצי", "ישוב/מחוז/ארצי" }),
+    ("GradeLevel", new[] { "שכבה" }),
+    ("Class", new[] { "כיתה" }),
+    ("Notes", new[] { "הערות" })
   };
 
   public BatchReportImportService(
@@ -249,7 +253,9 @@ public class BatchReportImportService : IBatchReportImportService
         var subject1Id = await _resolver.ResolveSubjectAsync(subject1Text, ct);
         var subject2Id = await _resolver.ResolveSubjectAsync(subject2Text, ct);
         var discussionCodeId = await _resolver.ResolveDiscussionCodeAsync(discussionCodeText, ct);
-        var conclusionFrameworkId = await _resolver.ResolveFrameworkAsync(conclusionFrameworkText, ct);
+        // מסקנת מסגרת נפתרת מטבלת המסקנות — לא ממסגרות בפועל (ה-FK מפנה
+        // ל-FrameworkConclusions; פתרון מול Frameworks הפיל את הייבוא כולו).
+        var conclusionFrameworkId = await _resolver.ResolveFrameworkConclusionAsync(conclusionFrameworkText, ct);
         var conclusionLocationId = await _resolver.ResolveLocalityDistrictNationalAsync(conclusionLocationText, ct);
         var gradeLevelId = await _resolver.ResolveGradeLevelAsync(gradeLevelText, ct);
         var classId = await _resolver.ResolveClassAsync(classText, ct);
