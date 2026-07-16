@@ -24,6 +24,7 @@ public class ReportExcelImportService : IReportExcelImportService
   private readonly IReportStatusService _statusService;
   private readonly AxiomaReporting.Core.Interfaces.IEmailService _emailService;
   private readonly ILookupResolver _lookupResolver;
+  private readonly Dictionary<int, List<Framework>> _allocationFrameworkCache = new();
 
   public ReportExcelImportService(
     AppDbContext db,
@@ -76,15 +77,20 @@ public class ReportExcelImportService : IReportExcelImportService
 
     var importedRows = new List<ReportRow>();
     var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
-    var clientHebrewHeaderRow = FindClientHebrewHeaderRow(ws);
+    var exportedReportHeaderRow = FindExportedReportHeaderRow(ws);
+    var exportedReportFormat = exportedReportHeaderRow > 0;
+    var clientHebrewHeaderRow = exportedReportFormat ? 0 : FindClientHebrewHeaderRow(ws);
     var clientHebrewFormat = clientHebrewHeaderRow > 0;
-    var firstDataRow = clientHebrewFormat ? clientHebrewHeaderRow + 1 : 2;
+    var firstDataRow = exportedReportFormat
+      ? exportedReportHeaderRow + 1
+      : clientHebrewFormat ? clientHebrewHeaderRow + 1 : 2;
     for (var rowNumber = firstDataRow; rowNumber <= lastRow; rowNumber++)
     {
       try
       {
         var excelRow = ws.Row(rowNumber);
-        if (IsEmptyDataRow(excelRow, clientHebrewFormat)) continue;
+        if (IsEmptyDataRow(excelRow, clientHebrewFormat, exportedReportFormat)) continue;
+        if (exportedReportFormat && IsExportedReportHeaderRow(excelRow)) continue;
         if (clientHebrewFormat && IsClientHebrewHeaderRow(excelRow)) continue;
 
         if (clientHebrewFormat && !IsRowForReportEmployee(excelRow, report.User))
@@ -94,9 +100,11 @@ public class ReportExcelImportService : IReportExcelImportService
           continue;
         }
 
-        var row = clientHebrewFormat
-          ? await ParseClientHebrewRowAsync(excelRow, reportId, allocationId)
-          : await ParseTemplateRowAsync(excelRow, reportId, allocationId);
+        var row = exportedReportFormat
+          ? await ParseExportedReportRowAsync(excelRow, reportId, allocationId)
+          : clientHebrewFormat
+            ? await ParseClientHebrewRowAsync(excelRow, reportId, allocationId)
+            : await ParseTemplateRowAsync(excelRow, reportId, allocationId);
         var allRows = importedRows.Concat(new[] { row }).ToList();
         var validation = await _validator.ValidateRowAsync(row, report.User, report.ReportingMonth, allRows);
         if (!validation.IsValid)
@@ -172,6 +180,39 @@ public class ReportExcelImportService : IReportExcelImportService
     return 0;
   }
 
+  private static int FindExportedReportHeaderRow(IXLWorksheet ws)
+  {
+    var lastRow = Math.Min(15, ws.LastRowUsed()?.RowNumber() ?? 0);
+    for (var rowNumber = 1; rowNumber <= lastRow; rowNumber++)
+    {
+      if (IsExportedReportHeaderRow(ws.Row(rowNumber)))
+        return rowNumber;
+    }
+
+    return 0;
+  }
+
+  private static bool IsExportedReportHeaderRow(IXLRow row)
+  {
+    var lastColumn = Math.Min(25, row.LastCellUsed()?.Address.ColumnNumber ?? 25);
+    var rowText = NormalizeHebrewHeader(string.Join("|", Enumerable.Range(1, lastColumn)
+      .Select(c => row.Cell(c).GetString())));
+
+    if (string.IsNullOrWhiteSpace(rowText) || rowText.Contains("קוד עובד")) return false;
+
+    var score = 0;
+    if (rowText.Contains("תאריך")) score++;
+    if (rowText.Contains("משך")) score++;
+    if (rowText.Contains("מחוז")) score++;
+    if (rowText.Contains("יישוב") || rowText.Contains("ישוב")) score++;
+    if (rowText.Contains("מסגרת")) score++;
+    if (rowText.Contains("תוכנית חינוכית") || rowText.Contains("תכנית חינוכית")) score++;
+    if (rowText.Contains("תחום")) score++;
+    if (rowText.Contains("נושא")) score++;
+
+    return score >= 6 && rowText.Contains("תאריך") && rowText.Contains("משך") && rowText.Contains("מחוז");
+  }
+
   private static bool IsClientHebrewHeaderRow(IXLRow row)
   {
     var lastColumn = Math.Min(25, row.LastCellUsed()?.Address.ColumnNumber ?? 25);
@@ -207,9 +248,11 @@ public class ReportExcelImportService : IReportExcelImportService
       .ToLowerInvariant();
   }
 
-  private static bool IsEmptyDataRow(IXLRow row, bool clientHebrewFormat)
+  private static bool IsEmptyDataRow(IXLRow row, bool clientHebrewFormat, bool exportedReportFormat)
   {
-    var columns = clientHebrewFormat ? Enumerable.Range(2, 18) : Enumerable.Range(1, 16);
+    var columns = exportedReportFormat
+      ? Enumerable.Range(1, 17)
+      : clientHebrewFormat ? Enumerable.Range(2, 18) : Enumerable.Range(1, 16);
     return columns.All(c => row.Cell(c).IsEmpty() || string.IsNullOrWhiteSpace(row.Cell(c).GetString()));
   }
 
@@ -234,7 +277,7 @@ public class ReportExcelImportService : IReportExcelImportService
       MeetingDuration = ReadDecimal(row, 2),
       DistrictId = await ResolveRequiredAsync(row, 3, "מחוז", _lookupResolver.ResolveDistrictAsync),
       LocalityId = await ResolveRequiredAsync(row, 4, "יישוב", _lookupResolver.ResolveLocalityAsync),
-      FrameworkId = await ResolveRequiredFrameworkAsync(row, 5),
+      FrameworkId = await ResolveRequiredFrameworkAsync(row, 5, allocationId),
       EducationalProgramId = await ResolveRequiredAsync(row, 6, "תוכנית חינוכית", _lookupResolver.ResolveEducationalProgramAsync),
       DomainId = await ResolveRequiredAsync(row, 7, "תחום", _lookupResolver.ResolveDomainAsync),
       Subject1Id = await ResolveRequiredAsync(row, 8, "נושא 1", _lookupResolver.ResolveSubjectAsync),
@@ -259,7 +302,7 @@ public class ReportExcelImportService : IReportExcelImportService
       MeetingDuration = ReadDecimal(row, 8),
       DistrictId = await ResolveRequiredAsync(row, 4, "מחוז", _lookupResolver.ResolveDistrictAsync),
       LocalityId = await ResolveRequiredAsync(row, 5, "יישוב", _lookupResolver.ResolveLocalityAsync),
-      FrameworkId = await ResolveRequiredFrameworkAsync(row, 6),
+      FrameworkId = await ResolveRequiredFrameworkAsync(row, 6, allocationId),
       EducationalProgramId = await ResolveRequiredAsync(row, 9, "תוכנית חינוכית", _lookupResolver.ResolveEducationalProgramAsync),
       DomainId = await ResolveRequiredAsync(row, 10, "תחום", _lookupResolver.ResolveDomainAsync),
       Subject1Id = await ResolveRequiredAsync(row, 11, "נושא 1", _lookupResolver.ResolveSubjectAsync),
@@ -272,6 +315,31 @@ public class ReportExcelImportService : IReportExcelImportService
       GradeLevelId = await ResolveOptionalAsync(row, 17, _lookupResolver.ResolveGradeLevelAsync),
       ClassId = await ResolveOptionalAsync(row, 18, _lookupResolver.ResolveClassAsync),
       Notes = row.Cell(19).GetString()
+    };
+  }
+
+  private async Task<ReportRow> ParseExportedReportRowAsync(IXLRow row, int reportId, int allocationId)
+  {
+    return new ReportRow
+    {
+      ReportId = reportId,
+      AllocationId = allocationId,
+      MeetingDate = ReadDate(row, 2),
+      MeetingDuration = ReadDecimal(row, 3),
+      DistrictId = await ResolveRequiredAsync(row, 4, "מחוז", _lookupResolver.ResolveDistrictAsync),
+      LocalityId = await ResolveRequiredAsync(row, 5, "יישוב", _lookupResolver.ResolveLocalityAsync),
+      FrameworkId = await ResolveRequiredFrameworkAsync(row, 6, allocationId),
+      EducationalProgramId = await ResolveRequiredAsync(row, 7, "תוכנית חינוכית", _lookupResolver.ResolveEducationalProgramAsync),
+      DomainId = await ResolveRequiredAsync(row, 8, "תחום", _lookupResolver.ResolveDomainAsync),
+      Subject1Id = await ResolveRequiredAsync(row, 9, "נושא 1", _lookupResolver.ResolveSubjectAsync),
+      Subject2Id = await ResolveOptionalAsync(row, 10, _lookupResolver.ResolveSubjectAsync),
+      DiscussionCodeId = await ResolveOptionalAsync(row, 11, _lookupResolver.ResolveDiscussionCodeAsync),
+      ConclusionClassId = await ResolveOptionalAsync(row, 12, _lookupResolver.ResolveClassConclusionAsync),
+      ConclusionFrameworkId = await ResolveOptionalAsync(row, 13, _lookupResolver.ResolveFrameworkConclusionAsync),
+      ConclusionLocationId = await ResolveOptionalAsync(row, 14, _lookupResolver.ResolveLocalityDistrictNationalAsync),
+      GradeLevelId = await ResolveOptionalAsync(row, 15, _lookupResolver.ResolveGradeLevelAsync),
+      ClassId = await ResolveOptionalAsync(row, 16, _lookupResolver.ResolveClassAsync),
+      Notes = row.Cell(17).GetString()
     };
   }
 
@@ -310,12 +378,45 @@ public class ReportExcelImportService : IReportExcelImportService
     return await resolver(value, default);
   }
 
-  private async Task<int> ResolveRequiredFrameworkAsync(IXLRow row, int column)
+  private async Task<int> ResolveRequiredFrameworkAsync(IXLRow row, int column, int allocationId)
   {
     var value = row.Cell(column).GetString();
-    var id = await ResolveFrameworkValueAsync(value);
+    var id = await ResolveAllocationFrameworkValueAsync(value, allocationId) ?? await ResolveFrameworkValueAsync(value);
     if (id.HasValue && id.Value > 0) return id.Value;
     throw new InvalidOperationException($"מסגרת לא נמצאה בטבלאות המערכת: '{value}'");
+  }
+
+  private async Task<int?> ResolveAllocationFrameworkValueAsync(string? value, int allocationId)
+  {
+    if (string.IsNullOrWhiteSpace(value)) return null;
+
+    if (!_allocationFrameworkCache.TryGetValue(allocationId, out var frameworks))
+    {
+      frameworks = await (
+        from allocationFramework in _db.Set<AllocationFramework>().AsNoTracking()
+        join framework in _db.Frameworks.AsNoTracking()
+          on allocationFramework.FrameworkId equals framework.Id
+        where allocationFramework.AllocationId == allocationId
+        select framework).ToListAsync();
+      _allocationFrameworkCache[allocationId] = frameworks;
+    }
+
+    if (frameworks.Count == 0) return null;
+
+    var trimmed = value.Trim();
+    var symbol = System.Text.RegularExpressions.Regex.Match(trimmed, @"\d{3,}").Value;
+    if (!string.IsNullOrWhiteSpace(symbol))
+    {
+      var symbolMatch = frameworks.FirstOrDefault(f =>
+        string.Equals(f.InstitutionSymbol?.Trim(), symbol, StringComparison.OrdinalIgnoreCase));
+      if (symbolMatch != null) return symbolMatch.Id;
+    }
+
+    var descriptionMatch = frameworks.FirstOrDefault(f =>
+      !string.IsNullOrWhiteSpace(f.Description) &&
+      (string.Equals(f.Description.Trim(), trimmed, StringComparison.OrdinalIgnoreCase) ||
+       trimmed.Contains(f.Description.Trim(), StringComparison.OrdinalIgnoreCase)));
+    return descriptionMatch?.Id;
   }
 
   private async Task<int?> ResolveFrameworkValueAsync(string? value)

@@ -128,27 +128,11 @@ public class BatchReportImportService : IBatchReportImportService
     using var workbook = new XLWorkbook(xlsxStream);
 
     // אומדן סך השורות לצורך אחוז ההתקדמות (נדגם מהדפדפן דרך BatchReportImportProgress).
+    // Scan the workbook once up front. The employee/report graphs are then loaded in
+    // batches instead of issuing the same queries for every spreadsheet row.
+    var importSheets = new List<(IXLWorksheet Sheet, int HeaderRow, Dictionary<string, int> HeaderMap, int LastRow)>();
+    var employeeCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     var estimatedTotalRows = 0;
-    foreach (var sheet in workbook.Worksheets)
-    {
-      var estimateHeader = FindHeaderRow(sheet);
-      if (estimateHeader < 0) continue;
-      estimatedTotalRows += Math.Max(0, (sheet.LastRowUsed()?.RowNumber() ?? estimateHeader) - estimateHeader);
-    }
-    BatchImportProgressStore.Start(progressId, estimatedTotalRows);
-
-    // Snapshot which (UserId) already had a report for this month BEFORE the import,
-    // so we can emit "עודכן דוח קיים" vs "שורה נוספה" descriptions per row.
-    var preExistingReportUserIds = await _db.Reports
-      .Where(rep => rep.ReportingMonthId == reportingMonthId)
-      .Select(rep => rep.UserId)
-      .ToListAsync(ct);
-    var preExistingReportUsers = new HashSet<int>(preExistingReportUserIds);
-
-    // Collect pending inserts per (UserId -> list of (row, fileRowNumber))
-    var pendingByUser = new Dictionary<int, List<(ReportRow Row, int FileRow, string EmployeeCode, string ReporterName, string AllocationLabel)>>();
-    var rejectionsByUser = new Dictionary<string, (int UserId, string ReporterName, int Count)>();
-
     foreach (var sheet in workbook.Worksheets)
     {
       var headerRow = FindHeaderRow(sheet);
@@ -158,6 +142,71 @@ public class BatchReportImportService : IBatchReportImportService
       if (!headerMap.ContainsKey("EmployeeCode")) continue;
 
       var lastRow = sheet.LastRowUsed()?.RowNumber() ?? headerRow;
+      importSheets.Add((sheet, headerRow, headerMap, lastRow));
+
+      for (var rowNumber = headerRow + 1; rowNumber <= lastRow; rowNumber++)
+      {
+        if (IsRowEmpty(sheet, rowNumber, headerMap)) continue;
+        estimatedTotalRows++;
+
+        var employeeCode = GetCellString(sheet, rowNumber, headerMap, "EmployeeCode");
+        if (!string.IsNullOrWhiteSpace(employeeCode))
+          employeeCodes.Add(employeeCode);
+      }
+    }
+    BatchImportProgressStore.Start(progressId, estimatedTotalRows);
+
+    var codeList = employeeCodes.ToList();
+    var users = new List<User>();
+    foreach (var codeBatch in codeList.Chunk(1000))
+    {
+      var batch = codeBatch.ToArray();
+      users.AddRange(await _db.Users
+        .Where(user => batch.Contains(user.EmployeeCode))
+        .AsSplitQuery()
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationDistricts)
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationLocalities)
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationFrameworks)
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationEducationalPrograms)
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationDomains)
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationSubjects)
+        .Include(user => user.Allocations).ThenInclude(allocation => allocation.AllocationDiscussionCodes)
+        .ToListAsync(ct));
+    }
+
+    var usersByEmployeeCode = users
+      .GroupBy(user => user.EmployeeCode, StringComparer.OrdinalIgnoreCase)
+      .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+    var importedUserIds = users.Select(user => user.Id).Distinct().ToList();
+    var reports = new List<Report>();
+    foreach (var userIdBatch in importedUserIds.Chunk(1000))
+    {
+      var batch = userIdBatch.ToArray();
+      reports.AddRange(await _db.Reports
+        .Where(report => report.ReportingMonthId == reportingMonthId && batch.Contains(report.UserId))
+        .Include(report => report.ReportRows)
+        .ToListAsync(ct));
+    }
+    var reportsByUser = reports
+      .GroupBy(report => report.UserId)
+      .ToDictionary(group => group.Key, group => group.First());
+    var preExistingReportUsers = reportsByUser.Keys.ToHashSet();
+    var validationRowsByUser = users.ToDictionary(
+      user => user.Id,
+      user => reportsByUser.TryGetValue(user.Id, out var report)
+        ? report.ReportRows.ToList()
+        : new List<ReportRow>());
+
+    // Collect pending inserts per (UserId -> list of (row, fileRowNumber))
+    var pendingByUser = new Dictionary<int, List<(ReportRow Row, int FileRow, string EmployeeCode, string ReporterName, string AllocationLabel)>>();
+    var rejectionsByUser = new Dictionary<string, (int UserId, string ReporterName, int Count)>();
+
+    foreach (var importSheet in importSheets)
+    {
+      var sheet = importSheet.Sheet;
+      var headerRow = importSheet.HeaderRow;
+      var headerMap = importSheet.HeaderMap;
+      var lastRow = importSheet.LastRow;
       for (var r = headerRow + 1; r <= lastRow; r++)
       {
         ct.ThrowIfCancellationRequested();
@@ -183,15 +232,7 @@ public class BatchReportImportService : IBatchReportImportService
           continue;
         }
 
-        var user = await _db.Users
-          .Include(u => u.Allocations)
-            .ThenInclude(a => a.AllocationDistricts)
-          .Include(u => u.Allocations).ThenInclude(a => a.AllocationLocalities)
-          .Include(u => u.Allocations).ThenInclude(a => a.AllocationFrameworks)
-          .Include(u => u.Allocations).ThenInclude(a => a.AllocationEducationalPrograms)
-          .FirstOrDefaultAsync(u => u.EmployeeCode == rawEmpCode, ct);
-
-        if (user == null)
+        if (!usersByEmployeeCode.TryGetValue(rawEmpCode, out var user))
         {
           result.Errors.Add(new BatchImportError
           {
@@ -321,21 +362,13 @@ public class BatchReportImportService : IBatchReportImportService
           Notes = string.IsNullOrWhiteSpace(notes) ? null : notes
         };
 
-        // Find / create report for this user+month
-        var report = await _db.Reports
-          .Include(rep => rep.ReportRows)
-          .FirstOrDefaultAsync(rep => rep.UserId == user.Id && rep.ReportingMonthId == reportingMonthId, ct);
-        var existingRows = report?.ReportRows.ToList() ?? new List<ReportRow>();
-
-        // Add the already-pending rows for this user to the validation context
-        if (pendingByUser.TryGetValue(user.Id, out var queued))
-          existingRows.AddRange(queued.Select(q => q.Row));
-
-        var validationRows = existingRows.Concat(new[] { candidate }).ToList();
+        var validationRows = validationRowsByUser[user.Id];
+        validationRows.Add(candidate);
         var validation = await _validator.ValidateRowAsync(candidate, user, month, validationRows);
 
         if (!validation.IsValid)
         {
+          validationRows.RemoveAt(validationRows.Count - 1);
           AddError(result, r, rawEmpCode, displayName, string.Join("; ", validation.Errors), raw);
           Increment(rejectionsByUser, rawEmpCode, user.Id, displayName);
           var joined = string.Join("; ", validation.Errors);
@@ -370,8 +403,7 @@ public class BatchReportImportService : IBatchReportImportService
       var rows = kvp.Value;
       if (!rows.Any()) continue;
 
-      var report = await _db.Reports
-        .FirstOrDefaultAsync(rep => rep.UserId == userId && rep.ReportingMonthId == reportingMonthId, ct);
+      reportsByUser.TryGetValue(userId, out var report);
 
       // Business rule #11: Excel upload may overwrite ONLY unapproved reports.
       // A report pending approval (3) or approved (4) must not be touched —
@@ -398,7 +430,7 @@ public class BatchReportImportService : IBatchReportImportService
           ImportedFromExcel = true
         };
         _db.Reports.Add(report);
-        await _db.SaveChangesAsync(ct);
+        reportsByUser[userId] = report;
       }
       else
       {
@@ -407,18 +439,16 @@ public class BatchReportImportService : IBatchReportImportService
         if (report.StatusId == 1) report.StatusId = 2;
       }
 
-      var nextSeq = (await _db.ReportRows
-        .Where(rr => rr.ReportId == report.Id)
-        .MaxAsync(rr => (int?)rr.SequenceNumber, ct) ?? 0) + 1;
+      var nextSeq = (report.ReportRows.Select(row => (int?)row.SequenceNumber).Max() ?? 0) + 1;
 
       var reportExistedBefore = preExistingReportUsers.Contains(userId);
 
       foreach (var pending in rows)
       {
-        pending.Row.ReportId = report.Id;
+        pending.Row.Report = report;
         pending.Row.SequenceNumber = nextSeq++;
         pending.Row.CreatedAt = DateTime.UtcNow;
-        _db.ReportRows.Add(pending.Row);
+        report.ReportRows.Add(pending.Row);
 
         if (reportExistedBefore)
         {

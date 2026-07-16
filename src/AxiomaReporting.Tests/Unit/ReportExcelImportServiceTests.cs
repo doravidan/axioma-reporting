@@ -98,6 +98,50 @@ public class ReportExcelImportServiceTests : IDisposable
   }
 
   [Fact]
+  public async Task ImportAsync_ExportedReportWorkbook_WithSerialColumn_ResolvesDescriptions()
+  {
+    _db.Frameworks.Add(new Framework
+    {
+      Id = 2,
+      Description = "Framework A",
+      InstitutionSymbol = "640086",
+      IsActive = true,
+      CreatedAt = DateTime.UtcNow
+    });
+    _db.Set<AllocationFramework>().Add(new AllocationFramework { AllocationId = 1, FrameworkId = 2 });
+    await _db.SaveChangesAsync();
+
+    using var workbook = new XLWorkbook();
+    var ws = workbook.AddWorksheet("Rows");
+    AddExportedReportHeader(ws);
+    ws.Cell(2, 1).Value = 47;
+    ws.Cell(2, 2).Value = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+    ws.Cell(2, 3).Value = 2;
+    ws.Cell(2, 4).Value = "District A";
+    ws.Cell(2, 5).Value = "Locality A";
+    ws.Cell(2, 6).Value = "Locality A — 640086 — Framework A";
+    ws.Cell(2, 7).Value = "Education Program A";
+    ws.Cell(2, 8).Value = "Domain A";
+    ws.Cell(2, 9).Value = "Subject A";
+    ws.Cell(2, 17).Value = "exported report format";
+    using var stream = ToStream(workbook);
+
+    var result = await _sut.ImportAsync(1, 1, stream, 1);
+
+    result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+    result.ImportedRows.Should().Be(1);
+    _db.ReportRows.Should().ContainSingle(r =>
+      r.MeetingDuration == 2 &&
+      r.DistrictId == 1 &&
+      r.LocalityId == 1 &&
+      r.FrameworkId == 2 &&
+      r.EducationalProgramId == 1 &&
+      r.DomainId == 1 &&
+      r.Subject1Id == 1 &&
+      r.Notes == "exported report format");
+  }
+
+  [Fact]
   public async Task ImportAsync_ClientHebrewWorkbook_StartsAtRow3AndResolvesDescriptions()
   {
     using var workbook = new XLWorkbook();
@@ -251,6 +295,19 @@ public class ReportExcelImportServiceTests : IDisposable
   {
     for (var i = 1; i <= 16; i++)
       ws.Cell(1, i).Value = $"Column{i}";
+  }
+
+  private static void AddExportedReportHeader(IXLWorksheet ws)
+  {
+    var headers = new[]
+    {
+      "מס\"ד", "תאריך", "משך תפוקה", "מחוז", "ישוב", "מסגרת חינוכית", "תוכנית חינוכית",
+      "תחום", "נושא 1", "נושא 2", "קיום דיון", "מסקנה-כיתה", "מסקנה-מסגרת",
+      "מסקנה-מיקום", "שכבה", "כיתה", "הערות"
+    };
+
+    for (var i = 0; i < headers.Length; i++)
+      ws.Cell(1, i + 1).Value = headers[i];
   }
 
   private static void AddClientHebrewHeader(IXLWorksheet ws, int row)

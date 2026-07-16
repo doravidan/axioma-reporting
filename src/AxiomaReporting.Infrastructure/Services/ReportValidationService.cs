@@ -39,6 +39,10 @@ public class ReportValidationService : IReportValidationService
   };
 
   private readonly AppDbContext _db;
+  private readonly Dictionary<int, Allocation?> _allocationScopeCache = new();
+  private HashSet<string>? _requiredFieldsCache;
+  private decimal? _maxDailyHoursDefaultCache;
+  private double? _notesSimilarityThresholdCache;
 
   public ReportValidationService(AppDbContext db) { _db = db; }
 
@@ -142,24 +146,45 @@ public class ReportValidationService : IReportValidationService
     return result;
   }
 
+  private async Task<Allocation?> GetAllocationWithScopeAsync(int allocationId)
+  {
+    if (_allocationScopeCache.TryGetValue(allocationId, out var cached))
+      return cached;
+
+    var allocation = await _db.Allocations.FindAsync(allocationId);
+    if (allocation == null)
+    {
+      _allocationScopeCache[allocationId] = null;
+      return null;
+    }
+
+    var entry = _db.Entry(allocation);
+    if (!entry.Collection(item => item.AllocationDistricts).IsLoaded)
+      await entry.Collection(item => item.AllocationDistricts).LoadAsync();
+    if (!entry.Collection(item => item.AllocationLocalities).IsLoaded)
+      await entry.Collection(item => item.AllocationLocalities).LoadAsync();
+    if (!entry.Collection(item => item.AllocationFrameworks).IsLoaded)
+      await entry.Collection(item => item.AllocationFrameworks).LoadAsync();
+    if (!entry.Collection(item => item.AllocationEducationalPrograms).IsLoaded)
+      await entry.Collection(item => item.AllocationEducationalPrograms).LoadAsync();
+    if (!entry.Collection(item => item.AllocationDomains).IsLoaded)
+      await entry.Collection(item => item.AllocationDomains).LoadAsync();
+    if (!entry.Collection(item => item.AllocationSubjects).IsLoaded)
+      await entry.Collection(item => item.AllocationSubjects).LoadAsync();
+    if (!entry.Collection(item => item.AllocationDiscussionCodes).IsLoaded)
+      await entry.Collection(item => item.AllocationDiscussionCodes).LoadAsync();
+
+    _allocationScopeCache[allocationId] = allocation;
+    return allocation;
+  }
+
   private async Task ValidateAllocationScopeAsync(ValidationResult result, ReportRow row)
   {
     if (!row.AllocationId.HasValue) return;
 
-    // Only the allocation-scoped fields are validated against the allocation's
-    // junctions. כיתה, שכבה and the three מסקנה lists are global lookups (shown to
-    // every report), so they are NOT scope-checked here. AsSplitQuery avoids a
-    // cartesian blow-up across the remaining collection includes.
-    var allocation = await _db.Allocations
-      .AsSplitQuery()
-      .Include(a => a.AllocationDistricts)
-      .Include(a => a.AllocationLocalities)
-      .Include(a => a.AllocationFrameworks)
-      .Include(a => a.AllocationEducationalPrograms)
-      .Include(a => a.AllocationDomains)
-      .Include(a => a.AllocationSubjects)
-      .Include(a => a.AllocationDiscussionCodes)
-      .FirstOrDefaultAsync(a => a.Id == row.AllocationId.Value);
+    // Batch imports preload these collections. Interactive requests load each
+    // missing collection once and reuse it for all subsequent row validations.
+    var allocation = await GetAllocationWithScopeAsync(row.AllocationId.Value);
 
     if (allocation == null)
     {
@@ -196,7 +221,7 @@ public class ReportValidationService : IReportValidationService
     decimal? limit = null;
     if (row.AllocationId.HasValue)
     {
-      var allocation = await _db.Allocations.FindAsync(row.AllocationId.Value);
+      var allocation = await GetAllocationWithScopeAsync(row.AllocationId.Value);
       if (allocation != null && !allocation.DailyEmploymentScope.HasValue)
         return;
       limit = allocation?.DailyEmploymentScope;
@@ -204,9 +229,13 @@ public class ReportValidationService : IReportValidationService
 
     if (!limit.HasValue)
     {
-      var maxHoursConstant = await _db.SystemConstants
-        .FirstOrDefaultAsync(c => c.Key == "MaxDailyHoursDefault");
-      limit = decimal.TryParse(maxHoursConstant?.Value, out var maxHours) ? maxHours : 9m;
+      if (!_maxDailyHoursDefaultCache.HasValue)
+      {
+        var maxHoursConstant = await _db.SystemConstants
+          .FirstOrDefaultAsync(c => c.Key == "MaxDailyHoursDefault");
+        _maxDailyHoursDefaultCache = decimal.TryParse(maxHoursConstant?.Value, out var maxHours) ? maxHours : 9m;
+      }
+      limit = _maxDailyHoursDefaultCache.Value;
     }
 
     var dailyTotal = rowsInDailyScope.Sum(r => r.MeetingDuration) + row.MeetingDuration;
@@ -219,7 +248,7 @@ public class ReportValidationService : IReportValidationService
   {
     if (!row.AllocationId.HasValue) return;
 
-    var allocation = await _db.Allocations.FindAsync(row.AllocationId.Value);
+    var allocation = await GetAllocationWithScopeAsync(row.AllocationId.Value);
     if (allocation?.MonthlyEmploymentScope == null) return;
 
     var monthlyTotal = allRowsInReport
@@ -234,7 +263,7 @@ public class ReportValidationService : IReportValidationService
   {
     if (!row.AllocationId.HasValue) return;
 
-    var allocation = await _db.Allocations.FindAsync(row.AllocationId.Value);
+    var allocation = await GetAllocationWithScopeAsync(row.AllocationId.Value);
     if (string.IsNullOrWhiteSpace(allocation?.OutputDuration)) return;
 
     var tokens = allocation.OutputDuration
@@ -298,9 +327,15 @@ public class ReportValidationService : IReportValidationService
   {
     if (string.IsNullOrEmpty(row.Notes)) return;
 
-    var thresholdConstant = await _db.SystemConstants
-      .FirstOrDefaultAsync(c => c.Key == "NotesSimilarityThresholdPercent");
-    var threshold = double.TryParse(thresholdConstant?.Value, out var t) ? t : 90.0;
+    if (!_notesSimilarityThresholdCache.HasValue)
+    {
+      var thresholdConstant = await _db.SystemConstants
+        .FirstOrDefaultAsync(c => c.Key == "NotesSimilarityThresholdPercent");
+      _notesSimilarityThresholdCache = double.TryParse(thresholdConstant?.Value, out var configuredThreshold)
+        ? configuredThreshold
+        : 90.0;
+    }
+    var threshold = _notesSimilarityThresholdCache.Value;
 
     foreach (var other in allRowsInReport.Where(r => r != row && !string.IsNullOrEmpty(r.Notes)))
     {
@@ -315,17 +350,24 @@ public class ReportValidationService : IReportValidationService
 
   private async Task<HashSet<string>> GetRequiredFieldsAsync()
   {
+    if (_requiredFieldsCache != null)
+      return _requiredFieldsCache;
+
     var configured = await _db.SystemConstants
       .Where(c => c.Key == RequiredReportFieldsKey)
       .Select(c => c.Value)
       .FirstOrDefaultAsync();
 
     if (string.IsNullOrWhiteSpace(configured))
-      return new HashSet<string>(DefaultRequiredFields, StringComparer.OrdinalIgnoreCase);
+    {
+      _requiredFieldsCache = new HashSet<string>(DefaultRequiredFields, StringComparer.OrdinalIgnoreCase);
+      return _requiredFieldsCache;
+    }
 
-    return configured
+    _requiredFieldsCache = configured
       .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
       .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    return _requiredFieldsCache;
   }
 
   private static double NotesSimilarity(string a, string b)
