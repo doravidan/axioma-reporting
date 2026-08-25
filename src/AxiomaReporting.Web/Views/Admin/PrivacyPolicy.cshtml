@@ -1,3 +1,4 @@
+@inject AxiomaReporting.Web.Security.IHtmlContentSanitizer HtmlSanitizer
 @{
   ViewData["Title"] = "ניהול מדיניות פרטיות";
   var versions = ViewBag.Versions as List<AxiomaReporting.Core.Entities.PrivacyPolicyVersion>
@@ -60,7 +61,7 @@
             <td>@($"{version.PublishedByUser?.FirstName} {version.PublishedByUser?.LastName}".Trim())</td>
             <td>
               <div id="@previewId" class="border rounded p-2 bg-light" style="max-height:160px;overflow:auto;min-width:280px">
-                @Html.Raw(version.BodyHtml)
+                @Html.Raw(HtmlSanitizer.Sanitize(version.BodyHtml))
               </div>
             </td>
             <td>

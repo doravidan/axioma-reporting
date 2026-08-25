@@ -915,8 +915,7 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.HasIndex("EducationalStageId");
 
                     b.HasIndex("InstitutionSymbol", "EducationalStageId")
-                        .IsUnique()
-                        .HasFilter("[EducationalStageId] IS NOT NULL");
+                        .IsUnique();
 
                     b.ToTable("Frameworks", (string)null);
                 });
@@ -1031,8 +1030,10 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.Property<int?>("EducationalStageId")
                         .HasColumnType("int");
 
-                    b.Property<int>("InstitutionSymbol")
-                        .HasColumnType("int");
+                    b.Property<string>("InstitutionSymbol")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -1066,9 +1067,8 @@ namespace AxiomaReporting.Infrastructure.Migrations
 
                     b.HasIndex("TypeId");
 
-                    b.HasIndex("InstitutionSymbol", "EducationalStageId")
-                        .IsUnique()
-                        .HasFilter("[EducationalStageId] IS NOT NULL");
+                    b.HasIndex("InstitutionSymbol")
+                        .IsUnique();
 
                     b.ToTable("Institutions", (string)null);
                 });
@@ -1499,6 +1499,24 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.ToTable("ProjectProgramGradeLevels", (string)null);
                 });
 
+            modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramLocality", b =>
+                {
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProgramId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LocalityId")
+                        .HasColumnType("int");
+
+                    b.HasKey("ProjectId", "ProgramId", "LocalityId");
+
+                    b.HasIndex("LocalityId");
+
+                    b.ToTable("ProjectProgramLocalities", (string)null);
+                });
+
             modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramLocalityDistrictNational", b =>
                 {
                     b.Property<int>("ProjectId")
@@ -1633,7 +1651,8 @@ namespace AxiomaReporting.Infrastructure.Migrations
                     b.HasIndex("StatusId");
 
                     b.HasIndex("UserId", "ReportingMonthId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[IsArchived] = 0");
 
                     b.ToTable("Reports", (string)null);
                 });
@@ -2974,6 +2993,17 @@ namespace AxiomaReporting.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("GradeLevel");
+                });
+
+            modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramLocality", b =>
+                {
+                    b.HasOne("AxiomaReporting.Core.Entities.Locality", "Locality")
+                        .WithMany()
+                        .HasForeignKey("LocalityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Locality");
                 });
 
             modelBuilder.Entity("AxiomaReporting.Core.Entities.ProjectProgramLocalityDistrictNational", b =>

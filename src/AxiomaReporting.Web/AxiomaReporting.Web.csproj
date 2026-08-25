@@ -10,6 +10,7 @@
     <PackageReference Include="ExcelDataReader" Version="3.8.0" />
     <PackageReference Include="ExcelDataReader.DataSet" Version="3.8.0" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
+    <PackageReference Include="HtmlSanitizer" Version="8.0.865" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="6.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="6.*">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -24,6 +25,11 @@
     <!-- Servers ship the .NET 8 Hosting Bundle only; let the net6.0 app roll
          forward instead of requiring the EOL .NET 6 runtime on the box. -->
     <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>

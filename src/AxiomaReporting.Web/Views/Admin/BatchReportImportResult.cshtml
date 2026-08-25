@@ -6,7 +6,7 @@
 
 <div class="container mt-3" dir="rtl">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3>תוצאות ייבוא דיווחים מרוכז</h3>
+    <h3>@(r.IsPreview ? "תוצאות בדיקה מקדימה — ללא שמירה" : "תוצאות ייבוא דיווחים מרוכז")</h3>
     <div class="d-flex gap-2">
       <a asp-action="BatchReportImport" class="btn btn-outline-secondary btn-sm">חזרה</a>
       @if (r.Errors.Any())
@@ -16,6 +16,13 @@
       }
     </div>
   </div>
+
+  @if (r.IsPreview)
+  {
+    <div class="alert alert-info" role="status">
+      לא נשמרו נתונים. יש לבדוק את ההקצאה והתוכנית המוצגות לכל שורה, ולאחר מכן להעלות שוב ולבחור "ייבא ושמור".
+    </div>
+  }
 
   <div class="card mb-3">
     <div class="card-body">
@@ -29,7 +36,7 @@
           <div class="fs-5">@r.TotalRowsRead</div>
         </div>
         <div class="col-md-2">
-          <div class="text-muted small">שורות שנקלטו</div>
+          <div class="text-muted small">@(r.IsPreview ? "שורות שצפויות להיקלט" : "שורות שנקלטו")</div>
           <div class="fs-5 text-success">@r.RowsImported</div>
         </div>
         <div class="col-md-2">
@@ -55,6 +62,9 @@
               <th scope="col">מס' שורה בקובץ</th>
               <th scope="col">קוד עובד</th>
               <th scope="col">שם המדווח</th>
+              <th scope="col">מזהה הקצאה</th>
+              <th scope="col">פרויקט</th>
+              <th scope="col">תוכנית הקצאה</th>
               <th scope="col">תיאור</th>
             </tr>
           </thead>
@@ -73,6 +83,9 @@
                 <td>@rr.FileRowNumber</td>
                 <td>@rr.EmployeeCode</td>
                 <td>@rr.ReporterName</td>
+                <td>@(rr.AllocationId?.ToString() ?? "—")</td>
+                <td>@(rr.ProjectName ?? "—")</td>
+                <td>@(rr.ProgramNames ?? "—")</td>
                 <td>@rr.ResultDescription</td>
               </tr>
             }

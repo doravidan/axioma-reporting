@@ -99,6 +99,7 @@ public class DashboardReportDetailRow
   public string ProjectName { get; set; } = string.Empty;
   public string DistrictName { get; set; } = string.Empty;
   public string LocalityName { get; set; } = string.Empty;
+  public int FrameworkId { get; set; }
   public string FrameworkName { get; set; } = string.Empty;
   public string EducationalProgramName { get; set; } = string.Empty;
   public string DomainName { get; set; } = string.Empty;
@@ -122,12 +123,22 @@ public interface IDashboardFilterService
 {
   Task<(List<DashboardReportRow> Rows, int TotalCount)> GetReportsAsync(
     DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole);
+  Task<List<DashboardReportRow>> GetAllReportsAsync(
+    DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole);
   Task<(List<DashboardReportDetailRow> Rows, int TotalCount)> GetReportRowsAsync(
+    DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole);
+  Task<List<DashboardReportDetailRow>> GetAllReportRowsAsync(
     DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole);
   Task<List<District>> GetFilteredDistrictsAsync(int currentUserId, UserRoleEnum role);
   Task<List<Sector>> GetFilteredSectorsAsync(int currentUserId, UserRoleEnum role, int? districtId = null);
   Task<List<Program>> GetFilteredProgramsAsync(int currentUserId, UserRoleEnum role, int? districtId = null);
+  Task<List<int>> GetAccessibleEmployeeIdsAsync(int currentUserId, UserRoleEnum role);
+  Task<List<int>> GetAccessibleAllocationIdsAsync(int currentUserId, UserRoleEnum role, bool includeInactive = true);
   Task<bool> CanAccessReportAsync(int reportId, int currentUserId, UserRoleEnum currentUserRole);
+  Task<bool> CanManageWholeReportAsync(int reportId, int currentUserId, UserRoleEnum currentUserRole);
+  Task<List<int>> GetManageableReportIdsAsync(
+    IReadOnlyCollection<int> reportIds, int currentUserId, UserRoleEnum currentUserRole,
+    CancellationToken ct = default);
   Task<FilterOptionsDto> GetCompatibleOptionsAsync(
     DashboardFilter currentSelection, int currentUserId, UserRoleEnum currentUserRole);
 }
@@ -138,6 +149,13 @@ public class DashboardFilterService : IDashboardFilterService
 
   public DashboardFilterService(AppDbContext db) { _db = db; }
 
+  public Task<List<int>> GetAccessibleEmployeeIdsAsync(int currentUserId, UserRoleEnum role) =>
+    GetScopedUserIdsAsync(currentUserId, role);
+
+  public Task<List<int>> GetAccessibleAllocationIdsAsync(
+    int currentUserId, UserRoleEnum role, bool includeInactive = true) =>
+    GetScopedAllocationIdsAsync(currentUserId, role, includeInactive);
+
   public async Task<(List<DashboardReportRow> Rows, int TotalCount)> GetReportsAsync(
     DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole)
   {
@@ -145,33 +163,32 @@ public class DashboardFilterService : IDashboardFilterService
     filter.PageSize = filter.PageSize is < 1 or > 10000 ? 25 : filter.PageSize;
 
     var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
-    var allocationIds = await GetMatchingAllocationIdsAsync(filter, scopedUserIds);
-    var employeeIds = await _db.Allocations
-      .Where(a => allocationIds.Contains(a.Id))
-      .Select(a => a.UserId)
-      .Distinct()
-      .ToListAsync();
-
-    var employeeQuery = _db.Users
-      .Where(u => u.IsReportingEmployee && u.StatusId == 1 && employeeIds.Contains(u.Id));
-
-    if (!string.IsNullOrWhiteSpace(filter.EmployeeCode))
-      employeeQuery = employeeQuery.Where(u => u.EmployeeCode.Contains(filter.EmployeeCode));
-    if (!string.IsNullOrWhiteSpace(filter.IdNumber))
-      employeeQuery = employeeQuery.Where(u => u.IdNumber.Contains(filter.IdNumber));
-    if (!string.IsNullOrWhiteSpace(filter.EmployeeName))
-      employeeQuery = employeeQuery.Where(u => (u.FirstName + " " + u.LastName).Contains(filter.EmployeeName));
-
-    employeeIds = await employeeQuery.Select(u => u.Id).ToListAsync();
+    var allocationIds = await GetMatchingAllocationIdsAsync(
+      filter, currentUserId, currentUserRole, includeInactive: true);
 
     if (filter.StatusId == 0)
-      return await GetMissingReportsAsync(filter, allocationIds, employeeIds);
+    {
+      var activeAllocationIds = await GetMatchingAllocationIdsAsync(
+        filter, currentUserId, currentUserRole, includeInactive: false);
+      var activeEmployeeIds = await _db.Allocations
+        .Where(a => activeAllocationIds.Contains(a.Id))
+        .Select(a => a.UserId)
+        .Distinct()
+        .ToListAsync();
+      activeEmployeeIds = await ApplyEmployeeFilters(_db.Users
+          .Where(u => u.IsReportingEmployee && u.StatusId == 1 && activeEmployeeIds.Contains(u.Id)), filter)
+        .Select(u => u.Id)
+        .ToListAsync();
+      return await GetMissingReportsAsync(filter, activeAllocationIds, activeEmployeeIds);
+    }
 
     var reports = _db.Reports
       .Include(r => r.User)
       .Include(r => r.Status)
       .Include(r => r.ReportingMonth)
-      .Where(r => employeeIds.Contains(r.UserId));
+      .Where(r => scopedUserIds.Contains(r.UserId));
+
+    reports = ApplyReportEmployeeFilters(reports, filter);
 
     if (!(filter.IncludeArchived && CanIncludeArchived(currentUserRole)))
       reports = reports.Where(r => !r.IsArchived);
@@ -181,7 +198,8 @@ public class DashboardFilterService : IDashboardFilterService
     if (filter.StatusId.HasValue)
       reports = reports.Where(r => r.StatusId == filter.StatusId.Value);
 
-    if (HasAllocationDimensionFilter(filter))
+    var restrictRowsToScope = MustRestrictRowsToAllocationScope(currentUserRole);
+    if (HasAllocationDimensionFilter(filter) || restrictRowsToScope)
       reports = reports.Where(r => r.ReportRows.Any(rr =>
         rr.AllocationId.HasValue && allocationIds.Contains(rr.AllocationId.Value)));
 
@@ -192,7 +210,7 @@ public class DashboardFilterService : IDashboardFilterService
       .ToListAsync();
 
     var rows = reportList
-      .SelectMany(report => ToDashboardRows(report, filter, allocationIds))
+      .SelectMany(report => ToDashboardRows(report, filter, allocationIds, restrictRowsToScope))
       .ToList();
 
     var total = rows.Count;
@@ -205,18 +223,146 @@ public class DashboardFilterService : IDashboardFilterService
     return (rows, total);
   }
 
+  public async Task<List<DashboardReportRow>> GetAllReportsAsync(
+    DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole)
+  {
+    var originalPage = filter.Page;
+    var originalPageSize = filter.PageSize;
+    try
+    {
+      filter.Page = 1;
+      filter.PageSize = 10000;
+      var all = new List<DashboardReportRow>();
+      var total = 0;
+      do
+      {
+        var batch = await GetReportsAsync(filter, currentUserId, currentUserRole);
+        total = batch.TotalCount;
+        if (batch.Rows.Count == 0) break;
+        all.AddRange(batch.Rows);
+        filter.Page++;
+      } while (all.Count < total);
+      return all;
+    }
+    finally
+    {
+      filter.Page = originalPage;
+      filter.PageSize = originalPageSize;
+    }
+  }
+
   public async Task<bool> CanAccessReportAsync(int reportId, int currentUserId, UserRoleEnum currentUserRole)
   {
-    var report = await _db.Reports.FindAsync(reportId);
+    var report = await _db.Reports.AsNoTracking().FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return false;
+    if (currentUserRole == UserRoleEnum.SystemAdmin) return true;
     if (currentUserRole == UserRoleEnum.Employee)
       return !report.IsArchived && report.UserId == currentUserId;
     if (report.IsArchived && !CanIncludeArchived(currentUserRole)) return false;
-    if (currentUserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
-      return true;
 
-    var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
-    return scopedUserIds.Contains(report.UserId);
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(
+      currentUserId, currentUserRole, includeInactive: true);
+    var hasRows = await _db.ReportRows.AsNoTracking().AnyAsync(rr => rr.ReportId == reportId);
+    if (hasRows)
+      return await _db.ReportRows.AsNoTracking().AnyAsync(rr =>
+        rr.ReportId == reportId && rr.AllocationId.HasValue &&
+        scopedAllocationIds.Contains(rr.AllocationId.Value));
+
+    return await _db.Allocations.AsNoTracking().AnyAsync(a =>
+      scopedAllocationIds.Contains(a.Id) && a.UserId == report.UserId);
+  }
+
+  public async Task<bool> CanManageWholeReportAsync(
+    int reportId, int currentUserId, UserRoleEnum currentUserRole)
+  {
+    var report = await _db.Reports.AsNoTracking()
+      .Where(r => r.Id == reportId)
+      .Select(r => new { r.Id, r.UserId, r.IsArchived })
+      .FirstOrDefaultAsync();
+    if (report == null) return false;
+    if (currentUserRole == UserRoleEnum.SystemAdmin) return true;
+    if (currentUserRole == UserRoleEnum.Employee)
+      return !report.IsArchived && report.UserId == currentUserId;
+
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(
+      currentUserId, currentUserRole, includeInactive: true);
+    var rowAllocationIds = await _db.ReportRows.AsNoTracking()
+      .Where(rr => rr.ReportId == reportId)
+      .Select(rr => rr.AllocationId)
+      .ToListAsync();
+
+    if (rowAllocationIds.Count == 0)
+      return await _db.Allocations.AsNoTracking().AnyAsync(a =>
+        scopedAllocationIds.Contains(a.Id) && a.UserId == report.UserId);
+
+    return rowAllocationIds.All(id => id.HasValue && scopedAllocationIds.Contains(id.Value));
+  }
+
+  public async Task<List<int>> GetManageableReportIdsAsync(
+    IReadOnlyCollection<int> reportIds, int currentUserId, UserRoleEnum currentUserRole,
+    CancellationToken ct = default)
+  {
+    var ids = reportIds.Where(id => id > 0).Distinct().OrderBy(id => id).ToArray();
+    if (ids.Length == 0) return new List<int>();
+
+    var reports = new List<(int Id, int UserId, bool IsArchived)>();
+    foreach (var chunk in ids.Chunk(500))
+    {
+      var batch = chunk.ToArray();
+      reports.AddRange(await _db.Reports.AsNoTracking()
+        .Where(r => batch.Contains(r.Id))
+        .Select(r => new ValueTuple<int, int, bool>(r.Id, r.UserId, r.IsArchived))
+        .ToListAsync(ct));
+    }
+
+    if (currentUserRole == UserRoleEnum.SystemAdmin)
+      return reports.Select(r => r.Id).OrderBy(id => id).ToList();
+
+    if (currentUserRole == UserRoleEnum.Employee)
+      return reports
+        .Where(r => !r.IsArchived && r.UserId == currentUserId)
+        .Select(r => r.Id)
+        .OrderBy(id => id)
+        .ToList();
+
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(
+      currentUserId, currentUserRole, includeInactive: true);
+    var scopedAllocationIdSet = scopedAllocationIds.ToHashSet();
+    var rowsByReport = new Dictionary<int, List<int?>>();
+    foreach (var chunk in ids.Chunk(500))
+    {
+      var batch = chunk.ToArray();
+      var pairs = await _db.ReportRows.AsNoTracking()
+        .Where(rr => batch.Contains(rr.ReportId))
+        .Select(rr => new { rr.ReportId, rr.AllocationId })
+        .ToListAsync(ct);
+      foreach (var pair in pairs)
+      {
+        if (!rowsByReport.TryGetValue(pair.ReportId, out var allocationIds))
+        {
+          allocationIds = new List<int?>();
+          rowsByReport[pair.ReportId] = allocationIds;
+        }
+        allocationIds.Add(pair.AllocationId);
+      }
+    }
+
+    var scopedUserIds = (await _db.Allocations.AsNoTracking()
+      .Where(a => scopedAllocationIds.Contains(a.Id))
+      .Select(a => a.UserId)
+      .Distinct()
+      .ToListAsync(ct)).ToHashSet();
+
+    return reports
+      .Where(report =>
+      {
+        if (!rowsByReport.TryGetValue(report.Id, out var allocationIds) || allocationIds.Count == 0)
+          return scopedUserIds.Contains(report.UserId);
+        return allocationIds.All(id => id.HasValue && scopedAllocationIdSet.Contains(id.Value));
+      })
+      .Select(r => r.Id)
+      .OrderBy(id => id)
+      .ToList();
   }
 
   private static bool CanIncludeArchived(UserRoleEnum role) =>
@@ -229,26 +375,31 @@ public class DashboardFilterService : IDashboardFilterService
     filter.PageSize = filter.PageSize is < 1 or > 10000 ? 25 : filter.PageSize;
 
     var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
-    var allocationIds = await GetMatchingAllocationIdsAsync(filter, scopedUserIds);
-    var employeeQuery = _db.Users
-      .Where(u => scopedUserIds.Contains(u.Id) && u.IsReportingEmployee && u.StatusId == 1);
-
-    if (!string.IsNullOrWhiteSpace(filter.EmployeeCode))
-      employeeQuery = employeeQuery.Where(u => u.EmployeeCode.Contains(filter.EmployeeCode));
-    if (!string.IsNullOrWhiteSpace(filter.IdNumber))
-      employeeQuery = employeeQuery.Where(u => u.IdNumber.Contains(filter.IdNumber));
-    if (!string.IsNullOrWhiteSpace(filter.EmployeeName))
-      employeeQuery = employeeQuery.Where(u => (u.FirstName + " " + u.LastName).Contains(filter.EmployeeName));
-
-    var activeEmployeeIds = await employeeQuery.Select(u => u.Id).ToListAsync();
+    var allocationIds = await GetMatchingAllocationIdsAsync(
+      filter, currentUserId, currentUserRole, includeInactive: true);
 
     if (filter.StatusId == 0)
-      return await GetMissingReportDetailRowsAsync(filter, allocationIds, activeEmployeeIds);
+    {
+      var activeAllocationIds = await GetMatchingAllocationIdsAsync(
+        filter, currentUserId, currentUserRole, includeInactive: false);
+      var activeEmployeeIds = await _db.Allocations
+        .Where(a => activeAllocationIds.Contains(a.Id))
+        .Select(a => a.UserId)
+        .Distinct()
+        .ToListAsync();
+      activeEmployeeIds = await ApplyEmployeeFilters(_db.Users
+          .Where(u => u.IsReportingEmployee && u.StatusId == 1 && activeEmployeeIds.Contains(u.Id)), filter)
+        .Select(u => u.Id)
+        .ToListAsync();
+      return await GetMissingReportDetailRowsAsync(filter, activeAllocationIds, activeEmployeeIds);
+    }
 
     var reports = _db.Reports
       .Include(r => r.User)
       .Include(r => r.ReportingMonth)
-      .Where(r => activeEmployeeIds.Contains(r.UserId));
+      .Where(r => scopedUserIds.Contains(r.UserId));
+
+    reports = ApplyReportEmployeeFilters(reports, filter);
 
     if (!(filter.IncludeArchived && CanIncludeArchived(currentUserRole)))
       reports = reports.Where(r => !r.IsArchived);
@@ -281,7 +432,7 @@ public class DashboardFilterService : IDashboardFilterService
       .Include(rr => rr.ReportType)
       .Where(rr => matchingReportIds.Contains(rr.ReportId));
 
-    if (HasAllocationDimensionFilter(filter))
+    if (HasAllocationDimensionFilter(filter) || MustRestrictRowsToAllocationScope(currentUserRole))
       rows = rows.Where(rr => rr.AllocationId.HasValue && allocationIds.Contains(rr.AllocationId.Value));
 
     if (filter.DistrictId.HasValue)
@@ -349,6 +500,7 @@ public class DashboardFilterService : IDashboardFilterService
         ProjectName = rr.Allocation != null && rr.Allocation.Project != null ? rr.Allocation.Project.Description : string.Empty,
         DistrictName = rr.District != null ? rr.District.Description : string.Empty,
         LocalityName = rr.Locality != null ? rr.Locality.Description : string.Empty,
+        FrameworkId = rr.FrameworkId,
         FrameworkName = rr.Framework != null ? rr.Framework.Description : string.Empty,
         EducationalProgramName = rr.EducationalProgram != null ? rr.EducationalProgram.Description : string.Empty,
         DomainName = rr.Domain != null ? rr.Domain.Description : string.Empty,
@@ -370,7 +522,41 @@ public class DashboardFilterService : IDashboardFilterService
       })
       .ToListAsync();
 
+    var frameworkLabels = await FrameworkLabelService.BuildLabelsAsync(
+      _db, pageRows.Select(r => r.FrameworkId).Distinct().ToList());
+    foreach (var row in pageRows)
+      if (frameworkLabels.TryGetValue(row.FrameworkId, out var label))
+        row.FrameworkName = label;
+
     return (pageRows, total);
+  }
+
+  public async Task<List<DashboardReportDetailRow>> GetAllReportRowsAsync(
+    DashboardFilter filter, int currentUserId, UserRoleEnum currentUserRole)
+  {
+    var originalPage = filter.Page;
+    var originalPageSize = filter.PageSize;
+    try
+    {
+      filter.Page = 1;
+      filter.PageSize = 10000;
+      var all = new List<DashboardReportDetailRow>();
+      var total = 0;
+      do
+      {
+        var batch = await GetReportRowsAsync(filter, currentUserId, currentUserRole);
+        total = batch.TotalCount;
+        if (batch.Rows.Count == 0) break;
+        all.AddRange(batch.Rows);
+        filter.Page++;
+      } while (all.Count < total);
+      return all;
+    }
+    finally
+    {
+      filter.Page = originalPage;
+      filter.PageSize = originalPageSize;
+    }
   }
 
   private async Task<(List<DashboardReportDetailRow> Rows, int TotalCount)> GetMissingReportDetailRowsAsync(
@@ -432,16 +618,19 @@ public class DashboardFilterService : IDashboardFilterService
   {
     currentSelection ??= new DashboardFilter();
     var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, currentUserRole);
+    var scopedActiveAllocationIds = await GetScopedAllocationIdsAsync(
+      currentUserId, currentUserRole, includeInactive: false);
 
     // Load all reports in scope (join to report rows for allocation dimensions)
     var reportBase = _db.Reports
       .Include(r => r.ReportingMonth)
       .Include(r => r.User)
-      .Where(r => scopedUserIds.Contains(r.UserId));
+      .Where(r => scopedUserIds.Contains(r.UserId) && !r.IsArchived);
 
     async Task<List<int>> AllocationIdsForAsync(int? districtId, int? sectorId, int? programId)
     {
-      var q = _db.Allocations.Where(a => a.IsActive && scopedUserIds.Contains(a.UserId));
+      var q = _db.Allocations.Where(a =>
+        a.IsActive && scopedActiveAllocationIds.Contains(a.Id));
       if (districtId.HasValue)
       {
         var dId = districtId.Value;
@@ -762,10 +951,10 @@ public class DashboardFilterService : IDashboardFilterService
   }
 
   private IEnumerable<DashboardReportRow> ToDashboardRows(
-    Report report, DashboardFilter filter, List<int> allocationIds)
+    Report report, DashboardFilter filter, List<int> allocationIds, bool restrictRowsToScope)
   {
     var reportRows = report.ReportRows.AsEnumerable();
-    if (HasAllocationDimensionFilter(filter))
+    if (HasAllocationDimensionFilter(filter) || restrictRowsToScope)
       reportRows = reportRows.Where(rr =>
         rr.AllocationId.HasValue && allocationIds.Contains(rr.AllocationId.Value));
 
@@ -814,9 +1003,15 @@ public class DashboardFilterService : IDashboardFilterService
     };
   }
 
-  private async Task<List<int>> GetMatchingAllocationIdsAsync(DashboardFilter filter, List<int> scopedUserIds)
+  private async Task<List<int>> GetMatchingAllocationIdsAsync(
+    DashboardFilter filter,
+    int currentUserId,
+    UserRoleEnum role,
+    bool includeInactive)
   {
-    var q = _db.Allocations.Where(a => a.IsActive && scopedUserIds.Contains(a.UserId));
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(
+      currentUserId, role, includeInactive);
+    var q = _db.Allocations.Where(a => scopedAllocationIds.Contains(a.Id));
 
     if (filter.DistrictId.HasValue)
     {
@@ -844,20 +1039,41 @@ public class DashboardFilterService : IDashboardFilterService
 
   private async Task<List<int>> GetScopedUserIdsAsync(int currentUserId, UserRoleEnum role)
   {
-    if (role is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
+    if (role == UserRoleEnum.SystemAdmin)
       return await _db.Users.Select(u => u.Id).ToListAsync();
     if (role == UserRoleEnum.Employee)
       return new List<int> { currentUserId };
 
+    var allocationIds = await GetScopedAllocationIdsAsync(currentUserId, role, includeInactive: true);
+    return await _db.Allocations
+      .Where(a => allocationIds.Contains(a.Id))
+      .Select(a => a.UserId)
+      .Distinct()
+      .ToListAsync();
+  }
+
+  private async Task<List<int>> GetScopedAllocationIdsAsync(
+    int currentUserId, UserRoleEnum role, bool includeInactive)
+  {
+    var allocations = _db.Allocations.AsNoTracking().AsQueryable();
+    if (!includeInactive)
+      allocations = allocations.Where(a => a.IsActive);
+
+    if (role == UserRoleEnum.SystemAdmin)
+      return await allocations.Select(a => a.Id).ToListAsync();
+    if (role == UserRoleEnum.Employee)
+      return await allocations.Where(a => a.UserId == currentUserId).Select(a => a.Id).ToListAsync();
+
     var assignments = await _db.InspectorAssignments
+      .AsNoTracking()
       .Where(a => a.InspectorUserId == currentUserId)
       .ToListAsync();
     if (!assignments.Any()) return new List<int>();
 
-    var allUserIds = new HashSet<int>();
+    var allAllocationIds = new HashSet<int>();
     foreach (var assignment in assignments)
     {
-      var q = _db.Allocations.Where(a => a.IsActive);
+      var q = allocations;
 
       if (assignment.DistrictId.HasValue)
       {
@@ -880,18 +1096,18 @@ public class DashboardFilterService : IDashboardFilterService
           .Any(p => p.AllocationId == a.Id && p.ProgramId == pId));
       }
 
-      foreach (var uid in await q.Select(a => a.UserId).ToListAsync())
-        allUserIds.Add(uid);
+      foreach (var id in await q.Select(a => a.Id).ToListAsync())
+        allAllocationIds.Add(id);
     }
 
-    return allUserIds.ToList();
+    return allAllocationIds.ToList();
   }
 
   public async Task<List<District>> GetFilteredDistrictsAsync(int currentUserId, UserRoleEnum role)
   {
-    var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, role);
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(currentUserId, role, includeInactive: false);
     var districtIds = _db.Set<AllocationDistrict>()
-      .Where(ad => scopedUserIds.Contains(ad.Allocation!.UserId))
+      .Where(ad => scopedAllocationIds.Contains(ad.AllocationId))
       .Select(ad => ad.DistrictId);
 
     return await _db.Districts
@@ -903,8 +1119,8 @@ public class DashboardFilterService : IDashboardFilterService
   public async Task<List<Sector>> GetFilteredSectorsAsync(
     int currentUserId, UserRoleEnum role, int? districtId = null)
   {
-    var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, role);
-    var allocations = _db.Allocations.Where(a => a.IsActive && scopedUserIds.Contains(a.UserId));
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(currentUserId, role, includeInactive: false);
+    var allocations = _db.Allocations.Where(a => scopedAllocationIds.Contains(a.Id));
     if (districtId.HasValue)
     {
       var dId = districtId.Value;
@@ -925,8 +1141,8 @@ public class DashboardFilterService : IDashboardFilterService
   public async Task<List<Program>> GetFilteredProgramsAsync(
     int currentUserId, UserRoleEnum role, int? districtId = null)
   {
-    var scopedUserIds = await GetScopedUserIdsAsync(currentUserId, role);
-    var allocations = _db.Allocations.Where(a => a.IsActive && scopedUserIds.Contains(a.UserId));
+    var scopedAllocationIds = await GetScopedAllocationIdsAsync(currentUserId, role, includeInactive: false);
+    var allocations = _db.Allocations.Where(a => scopedAllocationIds.Contains(a.Id));
     if (districtId.HasValue)
     {
       var dId = districtId.Value;
@@ -946,6 +1162,34 @@ public class DashboardFilterService : IDashboardFilterService
 
   private static bool HasAllocationDimensionFilter(DashboardFilter filter) =>
     filter.DistrictId.HasValue || filter.SectorId.HasValue || filter.ProgramId.HasValue;
+
+  private static bool MustRestrictRowsToAllocationScope(UserRoleEnum role) =>
+    role is UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator or
+      UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval;
+
+  private static IQueryable<User> ApplyEmployeeFilters(IQueryable<User> users, DashboardFilter filter)
+  {
+    if (!string.IsNullOrWhiteSpace(filter.EmployeeCode))
+      users = users.Where(u => u.EmployeeCode.Contains(filter.EmployeeCode));
+    if (!string.IsNullOrWhiteSpace(filter.IdNumber))
+      users = users.Where(u => u.IdNumber.Contains(filter.IdNumber));
+    if (!string.IsNullOrWhiteSpace(filter.EmployeeName))
+      users = users.Where(u => (u.FirstName + " " + u.LastName).Contains(filter.EmployeeName));
+    return users;
+  }
+
+  private static IQueryable<Report> ApplyReportEmployeeFilters(
+    IQueryable<Report> reports, DashboardFilter filter)
+  {
+    if (!string.IsNullOrWhiteSpace(filter.EmployeeCode))
+      reports = reports.Where(r => r.User!.EmployeeCode.Contains(filter.EmployeeCode));
+    if (!string.IsNullOrWhiteSpace(filter.IdNumber))
+      reports = reports.Where(r => r.User!.IdNumber.Contains(filter.IdNumber));
+    if (!string.IsNullOrWhiteSpace(filter.EmployeeName))
+      reports = reports.Where(r =>
+        (r.User!.FirstName + " " + r.User.LastName).Contains(filter.EmployeeName));
+    return reports;
+  }
 
   private static IOrderedQueryable<Report> ApplyReportSort(
     IQueryable<Report> reports, string? sortBy, bool sortDesc)

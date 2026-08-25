@@ -206,7 +206,12 @@
                 @foreach (var file in attachments)
                 {
                   <tr>
-                    <td><a href="@file.FilePath" target="_blank">@file.FileName</a></td>
+                    <td>
+                      <a asp-action="DownloadAttachment"
+                         asp-route-id="@Model.Id"
+                         asp-route-attachmentId="@file.Id"
+                         target="_blank">@file.FileName</a>
+                    </td>
                     <td>@(string.IsNullOrWhiteSpace(file.Description) ? "-" : file.Description)</td>
                     <td>@(Math.Round(file.FileSize / 1024m, 1)) KB</td>
                     <td>@file.UploadedAt.ToString("dd/MM/yyyy HH:mm")</td>

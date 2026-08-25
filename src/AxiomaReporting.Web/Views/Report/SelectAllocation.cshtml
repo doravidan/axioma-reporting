@@ -2,6 +2,10 @@
   ViewData["Title"] = "בחירת הקצאה";
   var employee = ViewBag.Employee as AxiomaReporting.Core.Entities.User;
   var allocations = ViewBag.Allocations as List<AxiomaReporting.Core.Entities.Allocation>;
+  bool selectionForExcelUpload = ViewBag.SelectionForExcelUpload ?? false;
+  int? reportId = ViewBag.ReportId as int?;
+  string? returnUrl = ViewBag.ReturnUrl as string;
+  var reportingMonth = ViewBag.ActiveMonth as AxiomaReporting.Core.Entities.ReportingMonth;
 
   // הבחנה בין הקצאות לפי תוכנית — לעובד עם כמה הקצאות באותו פרויקט
   // (תיקון לקוח 07/2026 #1).
@@ -11,13 +15,18 @@
       .Where(d => !string.IsNullOrWhiteSpace(d)));
 }
 <div class="container mt-4">
-  <h3>בחירת תוכנית לדיווח - @employee?.FirstName @employee?.LastName</h3>
+  <h3>@(selectionForExcelUpload ? "בחירת הקצאה להעלאת Excel" : "בחירת תוכנית לדיווח") - @employee?.FirstName @employee?.LastName</h3>
+  <p class="text-muted">יש לבחור את ההקצאה במפורש. הדיווח וההרשאות ייטענו לפי מזהה ההקצאה שנבחר.</p>
   <div class="list-group mt-3">
     @foreach (var alloc in allocations ?? new List<AxiomaReporting.Core.Entities.Allocation>())
     {
       var programs = ProgramsLabel(alloc);
       var project = alloc.Project?.Description ?? "";
       <a asp-action="Index" asp-route-allocationId="@alloc.Id"
+         asp-route-userId="@employee?.Id"
+         asp-route-reportId="@reportId"
+         asp-route-returnUrl="@returnUrl"
+         asp-route-excelUpload="@selectionForExcelUpload"
          class="list-group-item list-group-item-action py-3"
          aria-label="פתיחת דיווח עבור @(string.IsNullOrEmpty(programs) ? project : programs)">
         @* הבלטת התוכנית והפרויקט (בקשת לקוח 07/2026): תוכנית גדולה ומודגשת, פרויקט מתחתיה *@
@@ -26,6 +35,15 @@
         {
           <div class="fs-6 text-muted mt-1">@project</div>
         }
+        <div class="small mt-2 d-flex flex-wrap gap-2">
+          <span class="badge bg-success">פעילה</span>
+          <span class="badge @(alloc.AllowExcelUpload ? "bg-primary" : "bg-secondary")">
+            @(alloc.AllowExcelUpload ? "העלאת Excel מותרת" : "העלאת Excel אינה מותרת")
+          </span>
+          <span class="text-muted">תקופת דיווח: @(reportingMonth?.Description ?? "לא הוגדרה")</span>
+          <span class="text-muted">תקופת תוקף הקצאה: לא הוגדרה במודל הנתונים</span>
+          <span class="text-muted">מזהה הקצאה: @alloc.Id</span>
+        </div>
       </a>
     }
   </div>

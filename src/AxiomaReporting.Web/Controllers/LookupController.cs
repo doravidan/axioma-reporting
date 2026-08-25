@@ -54,6 +54,61 @@ public class LookupController : Controller
   }
 
   [HttpGet]
+  [Route("Lookup/ExportAll")]
+  [Authorize(Policy = PolicyNames.CanManageLookups)]
+  public async Task<IActionResult> ExportAllExcel()
+  {
+    using var workbook = new XLWorkbook();
+
+    foreach (var table in TableDisplayNames)
+    {
+      var worksheet = AddWorksheet(workbook, table.Value);
+      WriteLookupHeaders(worksheet);
+
+      var items = await GetTableDataAsync(table.Key, search: null);
+      var row = 2;
+      foreach (var item in items.OrderBy(x => x.Id))
+      {
+        worksheet.Cell(row, 1).Value = item.Id;
+        worksheet.Cell(row, 2).Value = item.Description;
+        worksheet.Cell(row, 3).Value = item.IsActive;
+        row++;
+      }
+
+      FormatLookupWorksheet(worksheet);
+    }
+
+    var frameworksWorksheet = AddWorksheet(workbook, "מסגרות חינוכיות");
+    var frameworkHeaders = new[] { "Id", "Description", "IsActive", "InstitutionSymbol", "EducationalStage" };
+    for (var column = 0; column < frameworkHeaders.Length; column++)
+      frameworksWorksheet.Cell(1, column + 1).Value = frameworkHeaders[column];
+
+    var frameworks = await _db.Frameworks
+      .AsNoTracking()
+      .Include(x => x.EducationalStage)
+      .OrderBy(x => x.Id)
+      .ToListAsync();
+    var frameworkRow = 2;
+    foreach (var framework in frameworks)
+    {
+      frameworksWorksheet.Cell(frameworkRow, 1).Value = framework.Id;
+      frameworksWorksheet.Cell(frameworkRow, 2).Value = framework.Description;
+      frameworksWorksheet.Cell(frameworkRow, 3).Value = framework.IsActive;
+      frameworksWorksheet.Cell(frameworkRow, 4).Value = framework.InstitutionSymbol;
+      frameworksWorksheet.Cell(frameworkRow, 5).Value = framework.EducationalStage?.Description;
+      frameworkRow++;
+    }
+    FormatLookupWorksheet(frameworksWorksheet);
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return File(
+      stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"lookup_tables_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+  }
+
+  [HttpGet]
   [Route("Lookup/{tableName}")]
   [Authorize(Policy = PolicyNames.CanManageLookups)]
   public async Task<IActionResult> List(string tableName, string? search = null, int page = 1, int pageSize = 20)
@@ -207,7 +262,44 @@ public class LookupController : Controller
   {
     if (!string.IsNullOrWhiteSpace(search))
       query = query.Where(x => EF.Functions.Like(x.Description, $"%{search}%"));
-    return await query.OrderBy(x => x.Description).ToListAsync();
+    return await query.AsNoTracking().OrderBy(x => x.Description).ToListAsync();
+  }
+
+  private static IXLWorksheet AddWorksheet(XLWorkbook workbook, string requestedName)
+  {
+    const string invalidCharacters = "\\/?:*[]";
+    var sanitized = new string(requestedName
+      .Select(character => invalidCharacters.Contains(character) ? '-' : character)
+      .ToArray());
+    if (sanitized.Length > 31) sanitized = sanitized[..31];
+
+    var name = sanitized;
+    var suffix = 2;
+    while (workbook.Worksheets.Any(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+    {
+      var suffixText = $" ({suffix++})";
+      name = $"{sanitized[..Math.Min(sanitized.Length, 31 - suffixText.Length)]}{suffixText}";
+    }
+
+    var worksheet = workbook.Worksheets.Add(name);
+    worksheet.RightToLeft = true;
+    return worksheet;
+  }
+
+  private static void WriteLookupHeaders(IXLWorksheet worksheet)
+  {
+    worksheet.Cell(1, 1).Value = "Id";
+    worksheet.Cell(1, 2).Value = "Description";
+    worksheet.Cell(1, 3).Value = "IsActive";
+  }
+
+  private static void FormatLookupWorksheet(IXLWorksheet worksheet)
+  {
+    worksheet.Row(1).Style.Font.Bold = true;
+    worksheet.Row(1).Style.Fill.BackgroundColor = XLColor.LightBlue;
+    worksheet.SheetView.FreezeRows(1);
+    worksheet.RangeUsed()?.SetAutoFilter();
+    worksheet.Columns().AdjustToContents(1d, 60d);
   }
 
   private async Task<int?> CreateItemAsync(string tableName, string description) =>
@@ -371,7 +463,7 @@ public class LookupController : Controller
   {
     var inst = await _db.Institutions.FindAsync(id);
     if (inst == null) return null;
-    var symbol = inst.InstitutionSymbol.ToString();
+    var symbol = inst.InstitutionSymbol;
     var stageId = inst.EducationalStageId;
     if (await _db.Frameworks.AnyAsync(f => f.InstitutionSymbol == symbol && f.EducationalStageId == stageId))
       return "מסגרות";

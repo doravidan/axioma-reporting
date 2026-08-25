@@ -51,6 +51,7 @@ public abstract class PlaywrightTestBase : IAsyncLifetime
         await Page.Locator("input[name='IdNumber']").FillAsync(idNumber);
         await Page.Locator("input[name='Password']").FillAsync(password);
         await Page.Locator("button[type='submit']").ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
 
         // Handle TFA code page if TFA is enabled in this environment
         if (Page.Url.Contains("/Account/TwoFactor", StringComparison.OrdinalIgnoreCase))
@@ -65,7 +66,10 @@ public abstract class PlaywrightTestBase : IAsyncLifetime
 
             var acceptBtn = Page.Locator("button[type='submit'], input[type='submit']").First;
             if (await acceptBtn.IsVisibleAsync())
+            {
                 await acceptBtn.ClickAsync();
+                await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+            }
         }
 
         // Handle mandatory password change
@@ -76,7 +80,17 @@ public abstract class PlaywrightTestBase : IAsyncLifetime
             await Page.Locator("input[name='NewPassword']").FillAsync(newPw);
             await Page.Locator("input[name='ConfirmPassword']").FillAsync(newPw);
             await Page.Locator("main button[type='submit']").ClickAsync();
+            await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
         }
+
+        // Do not let callers inspect a transient post-login/interstitial DOM.
+        if (await Page.Locator("form[action*='Logout']").CountAsync() == 0)
+        {
+            await Page.GotoAsync("/");
+            await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        }
+        if (await Page.Locator("form[action*='Logout']").CountAsync() == 0)
+            throw new Xunit.Sdk.XunitException($"Login did not reach an authenticated page (url: {Page.Url}).");
     }
 
     protected async Task<string> GetPageTextAsync() =>

@@ -212,6 +212,15 @@ public class FullApplicationQaPlaywrightTests : PlaywrightTestBase
         await reportLink.ClickAsync();
         await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
         await AssertCurrentPageHealthyAsync();
+        if (await Page.Locator("a[href*='DownloadExcelTemplate']").CountAsync() == 0)
+        {
+            var demoAllocation = Page.Locator("a.list-group-item")
+                .Filter(new LocatorFilterOptions { HasText = "תוכנית א" });
+            (await demoAllocation.CountAsync()).Should().Be(1,
+                because: "employees with several allocations must choose one explicitly");
+            await demoAllocation.ClickAsync();
+            await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        }
         (await Page.Locator("a[href*='DownloadExcelTemplate']").CountAsync()).Should().BeGreaterThan(0);
 
         await Page.GotoAsync("/MyAllocations");

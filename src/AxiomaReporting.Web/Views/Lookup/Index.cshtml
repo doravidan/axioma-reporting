@@ -3,7 +3,12 @@
   var tables = ViewBag.Tables as Dictionary<string, string>;
 }
 <div class="container-fluid mt-3">
-  <h2 class="mb-4">ניהול טבלאות עזר</h2>
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <h2 class="mb-0">ניהול טבלאות עזר</h2>
+    <a asp-action="ExportAllExcel" class="btn btn-success">
+      ייצוא מלא של טבלאות העזר
+    </a>
+  </div>
   <div class="row">
     @foreach (var table in tables!)
     {

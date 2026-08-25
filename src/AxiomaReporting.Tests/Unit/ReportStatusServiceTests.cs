@@ -36,6 +36,21 @@ public class ReportStatusServiceTests : IDisposable
   }
 
   [Fact]
+  public async Task GetOrCreateDraftAsync_IgnoresArchivedHeaderAndCreatesFreshActiveReport()
+  {
+    var archived = AddReport(statusId: 2);
+    archived.IsArchived = true;
+    await _db.SaveChangesAsync();
+
+    var active = await _sut.GetOrCreateDraftAsync(1, 1);
+
+    active.Should().NotBeNull();
+    active!.Id.Should().NotBe(archived.Id);
+    active.IsArchived.Should().BeFalse();
+    _db.Reports.Count(r => r.UserId == 1 && r.ReportingMonthId == 1).Should().Be(2);
+  }
+
+  [Fact]
   public async Task SaveDraftAsync_MovesDraftToInEntryOnly()
   {
     var draft = AddReport(statusId: 1);
@@ -77,24 +92,24 @@ public class ReportStatusServiceTests : IDisposable
     (await _sut.SubmitReportAsync(999, 1)).Should().BeFalse();
     (await _sut.ApproveReportAsync(999, 1)).Should().BeFalse();
     (await _sut.RejectReportAsync(999, 1, "x")).Should().BeFalse();
-    (await _sut.ReopenReportAsync(999, 1)).Should().BeFalse();
+    (await _sut.ReopenReportAsync(999, 1, "test reason")).Should().BeFalse();
   }
 
   [Fact]
-  public async Task ReopenReportAsync_ReturnsApprovedReportToEditingAndNotifies()
+  public async Task ReopenReportAsync_ReturnsApprovedReportToSubmittedAndAuditsReason()
   {
     var approved = AddReport(statusId: 4);
     approved.ApprovedAt = DateTime.UtcNow;
     approved.ApprovedBy = 2;
     await _db.SaveChangesAsync();
 
-    (await _sut.ReopenReportAsync(approved.Id, 2)).Should().BeTrue();
+    (await _sut.ReopenReportAsync(approved.Id, 2, "business correction")).Should().BeTrue();
 
-    approved.StatusId.Should().Be(5, because: "reopened reports return to הוחזר-לתיקון so the owner can edit");
+    approved.StatusId.Should().Be(3, because: "approved reports return to the safe submitted target");
     approved.ApprovedAt.Should().BeNull();
     approved.ApprovedBy.Should().BeNull();
-    approved.RejectionReason.Should().NotBeNullOrEmpty();
-    _email.Sent.Should().ContainSingle(e => e.TemplateType == "ReportRejected");
+    approved.RejectionReason.Should().BeNull();
+    _email.Sent.Should().BeEmpty();
   }
 
   [Fact]
@@ -105,9 +120,9 @@ public class ReportStatusServiceTests : IDisposable
     var returned = AddReport(statusId: 5, id: 3);
     await _db.SaveChangesAsync();
 
-    (await _sut.ReopenReportAsync(draft.Id, 2)).Should().BeFalse();
-    (await _sut.ReopenReportAsync(pending.Id, 2)).Should().BeFalse();
-    (await _sut.ReopenReportAsync(returned.Id, 2)).Should().BeFalse();
+    (await _sut.ReopenReportAsync(draft.Id, 2, "reason")).Should().BeFalse();
+    (await _sut.ReopenReportAsync(pending.Id, 2, "reason")).Should().BeFalse();
+    (await _sut.ReopenReportAsync(returned.Id, 2, "reason")).Should().BeFalse();
 
     draft.StatusId.Should().Be(1);
     pending.StatusId.Should().Be(3);

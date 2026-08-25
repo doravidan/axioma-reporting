@@ -1,3 +1,4 @@
+@inject AxiomaReporting.Web.Security.IHtmlContentSanitizer HtmlSanitizer
 @{
     ViewData["Title"] = "מדיניות פרטיות";
     var published = ViewBag.PublishedVersion as AxiomaReporting.Core.Entities.PrivacyPolicyVersion;
@@ -11,7 +12,7 @@
     <div class="small text-muted mb-3">
       גרסה @published.VersionNumber | בתוקף מתאריך @published.EffectiveFrom.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
     </div>
-    <div class="card"><div class="card-body">@Html.Raw(published.BodyHtml)</div></div>
+    <div class="card"><div class="card-body">@Html.Raw(HtmlSanitizer.Sanitize(published.BodyHtml))</div></div>
     return;
   }
 

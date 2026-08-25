@@ -11,13 +11,17 @@
   var scopeDiscussionCodes = ViewBag.ScopeDiscussionCodes as List<AxiomaReporting.Core.Entities.DiscussionCode> ?? new();
   var scopeGradeLevels = ViewBag.ScopeGradeLevels as List<AxiomaReporting.Core.Entities.GradeLevel> ?? new();
   var scopeClasses = ViewBag.ScopeClasses as List<AxiomaReporting.Core.Entities.SchoolClass> ?? new();
+  var scopeLocalities = ViewBag.ScopeLocalities as List<AxiomaReporting.Core.Entities.Locality> ?? new();
   var scopeLocalityDistrictNationals = ViewBag.ScopeLocalityDistrictNationals as List<AxiomaReporting.Core.Entities.LocalityDistrictNational> ?? new();
 }
 
 <div class="container py-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>ניהול תוכניות והיקפים לפי פרויקט</h2>
-    <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה</a>
+    <div class="d-flex flex-wrap gap-2">
+      <a asp-action="ExportProjectProgramScopesExcel" class="btn btn-success btn-sm">ייצוא שיוכי ערכים</a>
+      <a asp-action="DataMigration" class="btn btn-outline-secondary btn-sm">חזרה</a>
+    </div>
   </div>
 
   <div class="alert alert-info" role="alert">
@@ -143,6 +147,12 @@
             </select>
           </div>
           <div class="col-md-4">
+            <label class="form-label" for="scopeLocalityIds">יישובים</label>
+            <select id="scopeLocalityIds" name="localityIds" multiple class="form-select">
+              @foreach (var item in scopeLocalities) { <option value="@item.Id">@item.Description</option> }
+            </select>
+          </div>
+          <div class="col-md-4">
             <label class="form-label" for="scopeLocalityDistrictNationalIds">יישוב/מחוז/ארצי</label>
             <select id="scopeLocalityDistrictNationalIds" name="localityDistrictNationalIds" multiple class="form-select">
               @foreach (var item in scopeLocalityDistrictNationals) { <option value="@item.Id">@item.Description</option> }
@@ -174,7 +184,7 @@
       const projectSelect = document.getElementById('scopeProjectId');
       const programSelect = document.getElementById('scopeProgramId');
       const listsWrap = document.getElementById('scopeLists');
-      const listNames = ['subjectIds', 'domainIds', 'educationalProgramIds', 'discussionCodeIds', 'gradeLevelIds', 'classIds', 'localityDistrictNationalIds', 'frameworkIds'];
+      const listNames = ['subjectIds', 'domainIds', 'educationalProgramIds', 'discussionCodeIds', 'gradeLevelIds', 'classIds', 'localityIds', 'localityDistrictNationalIds', 'frameworkIds'];
 
       function setMultiSelection(name, ids) {
         const sel = document.querySelector(`#scopeForm select[name='${name}']`);

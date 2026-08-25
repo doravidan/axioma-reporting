@@ -8,6 +8,8 @@ using AxiomaReporting.Infrastructure.Validators;
 using AxiomaReporting.Web.Authorization;
 using AxiomaReporting.Web.Helpers;
 using AxiomaReporting.Web.Models;
+using AxiomaReporting.Web.Security;
+using AxiomaReporting.Web.Services;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +25,7 @@ public class EmployeeController : Controller
     new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx" };
   private const long MaxAttachmentBytes = 10 * 1024 * 1024;
   private const int MaxAttachmentDescriptionLength = 1000;
+  private const int MaxAllocationFormValueCount = 10_000;
 
   private readonly IEmployeeService _employeeService;
   private readonly ICurrentUserService _currentUser;
@@ -260,7 +263,7 @@ public class EmployeeController : Controller
   // and records an AuditLog row. The user is forced to ChangePassword on next login.
   [HttpPost]
   [ValidateAntiForgeryToken]
-  [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
+  [Authorize(Policy = PolicyNames.AdminOrPM)]
   public async Task<IActionResult> ResetPassword(int id)
   {
     var user = await _db.Users.FindAsync(id);
@@ -305,7 +308,7 @@ public class EmployeeController : Controller
 
   [HttpPost]
   [ValidateAntiForgeryToken]
-  [Authorize(Policy = PolicyNames.AdminPMOrCoordinator)]
+  [Authorize(Policy = PolicyNames.AdminOrPM)]
   public async Task<IActionResult> UnlockAccount(int id)
   {
     var user = await _db.Users.FindAsync(id);
@@ -358,7 +361,17 @@ public class EmployeeController : Controller
       return RedirectToAction(nameof(Edit), new { id });
     }
 
-    var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "employees");
+    await using var source = file.OpenReadStream();
+    var validation = await AttachmentFileSecurity.ValidateAsync(source, extension, HttpContext.RequestAborted);
+    if (!validation.IsValid)
+    {
+      TempData["Error"] = "תוכן הקובץ אינו תואם לסוג הקובץ שנבחר";
+      return RedirectToAction(nameof(Edit), new { id });
+    }
+
+    var contentRoot = Directory.GetCurrentDirectory();
+    const string storageCategory = "employee-attachments";
+    var uploadsDir = AttachmentFileSecurity.GetPrivateUploadDirectory(contentRoot, storageCategory);
     Directory.CreateDirectory(uploadsDir);
     var storedFileName = $"{Guid.NewGuid()}{extension}";
     var filePath = Path.Combine(uploadsDir, storedFileName);
@@ -369,16 +382,16 @@ public class EmployeeController : Controller
     }
 
     await using (var stream = new FileStream(filePath, FileMode.CreateNew))
-      await file.CopyToAsync(stream);
+      await source.CopyToAsync(stream, HttpContext.RequestAborted);
 
     _db.DocumentAttachments.Add(new DocumentAttachment
     {
       UserId = id,
-      FileName = Path.GetFileName(file.FileName),
+      FileName = AttachmentFileSecurity.SafeOriginalFileName(file.FileName),
       Description = attachmentDescription,
-      FilePath = $"/uploads/employees/{storedFileName}",
+      FilePath = AttachmentFileSecurity.GetStoredPrivatePath(storageCategory, storedFileName),
       FileSize = file.Length,
-      MimeType = file.ContentType,
+      MimeType = validation.ContentType,
       UploadedAt = DateTime.UtcNow,
       UploadedBy = _currentUser.UserId
     });
@@ -397,17 +410,40 @@ public class EmployeeController : Controller
       .FirstOrDefaultAsync(a => a.Id == attachmentId && a.UserId == id);
     if (attachment == null) return NotFound();
 
-    var fullPath = Path.Combine(
-      Directory.GetCurrentDirectory(),
-      "wwwroot",
-      attachment.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-    if (System.IO.File.Exists(fullPath))
+    var fullPath = AttachmentFileSecurity.ResolveStoredPath(Directory.GetCurrentDirectory(), attachment.FilePath);
+    if (fullPath != null && System.IO.File.Exists(fullPath))
       System.IO.File.Delete(fullPath);
 
     _db.DocumentAttachments.Remove(attachment);
     await _db.SaveChangesAsync();
     TempData["Success"] = "המסמך נמחק";
     return RedirectToAction(nameof(Edit), new { id });
+  }
+
+  [HttpGet]
+  public async Task<IActionResult> DownloadAttachment(int id, int attachmentId, bool download = false)
+  {
+    var attachment = await _db.DocumentAttachments.AsNoTracking()
+      .FirstOrDefaultAsync(a => a.Id == attachmentId && a.UserId == id &&
+                                a.ReportId == null && a.ReportRowId == null);
+    if (attachment == null) return NotFound();
+
+    var filePath = AttachmentFileSecurity.ResolveStoredPath(Directory.GetCurrentDirectory(), attachment.FilePath);
+    if (filePath == null || !System.IO.File.Exists(filePath)) return NotFound();
+
+    await using var stream = System.IO.File.OpenRead(filePath);
+    var validation = await AttachmentFileSecurity.ValidateAsync(
+      stream, Path.GetExtension(attachment.FileName), HttpContext.RequestAborted);
+    var forceDownload = download || !validation.IsValid ||
+                        !AttachmentFileSecurity.CanDisplayInline(attachment.FileName);
+    var contentType = validation.IsValid ? validation.ContentType : "application/octet-stream";
+
+    Response.Headers["Cache-Control"] = "no-store, private";
+    Response.Headers["X-Content-Type-Options"] = "nosniff";
+    if (!forceDownload)
+      Response.Headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
+
+    return PhysicalFile(filePath, contentType, forceDownload ? attachment.FileName : null);
   }
 
   [HttpPost]
@@ -497,6 +533,7 @@ public class EmployeeController : Controller
   // POST /Employee/{id}/Allocations/Create
   [HttpPost]
   [ValidateAntiForgeryToken]
+  [RequestFormLimits(ValueCountLimit = MaxAllocationFormValueCount)]
   [Route("Employee/{id}/Allocations/Create")]
   public async Task<IActionResult> CreateAllocation(int id, AllocationDto dto, bool continueAdding = false)
   {
@@ -586,6 +623,7 @@ public class EmployeeController : Controller
   // POST /Employee/{id}/Allocations/{allocationId}/Edit
   [HttpPost]
   [ValidateAntiForgeryToken]
+  [RequestFormLimits(ValueCountLimit = MaxAllocationFormValueCount)]
   [Route("Employee/{id}/Allocations/{allocationId}/Edit")]
   public async Task<IActionResult> EditAllocation(int id, int allocationId, AllocationDto dto)
   {
@@ -612,11 +650,14 @@ public class EmployeeController : Controller
   // POST /Employee/{id}/Allocations/{allocationId}/Delete
   [HttpPost]
   [ValidateAntiForgeryToken]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
   [Route("Employee/{id}/Allocations/{allocationId}/Delete")]
   public async Task<IActionResult> DeleteAllocation(int id, int allocationId)
   {
-    await _employeeService.DeleteAllocationAsync(allocationId);
-    TempData["Success"] = "ההקצאה הושבתה בהצלחה";
+    var deleted = await _employeeService.DeleteAllocationAsync(allocationId, id);
+    if (!deleted) return NotFound();
+
+    TempData["Success"] = "ההקצאה נמחקה בהצלחה. דיווחים קודמים נשמרו.";
     return RedirectToAction(nameof(Allocations), new { id });
   }
 
@@ -744,68 +785,67 @@ public class EmployeeController : Controller
 
   // GET /Employee/ExportExcel
   [HttpGet]
-  public async Task<IActionResult> ExportExcel(string? search, int? statusId, int? roleId, int? projectId)
+  public async Task<IActionResult> ExportExcel(EmployeeListFilterModel filter)
   {
-    var employees = await _employeeService.GetAllAsync(search, statusId, roleId);
-    if (projectId.HasValue)
-      employees = employees.Where(e => e.Allocations.Any(a => a.ProjectId == projectId.Value)).ToList();
+    filter.Normalize();
+    var employees = await _employeeService.GetAllAsync(filter.Search, filter.StatusId, filter.RoleId);
+    employees = ApplyEmployeeFilters(employees, filter);
+    employees = ApplyEmployeeSort(employees, filter.SortBy, filter.SortDesc);
 
     using var workbook = new XLWorkbook();
-    var ws = workbook.Worksheets.Add("עובדים");
-
-    // Header row
-    ws.Cell(1, 1).Value = "קוד עובד";
-    ws.Cell(1, 2).Value = "מספר זהות";
-    ws.Cell(1, 3).Value = "שם פרטי";
-    ws.Cell(1, 4).Value = "שם משפחה";
-    ws.Cell(1, 5).Value = "תפקיד";
-    ws.Cell(1, 6).Value = "סטטוס";
-    ws.Cell(1, 7).Value = "עובד מדווח";
-    ws.Cell(1, 8).Value = "מייל";
-    ws.Cell(1, 9).Value = "טלפון";
-    ws.Cell(1, 10).Value = "דיווח עתידי";
-    ws.Cell(1, 11).Value = "פרויקטים";
-    ws.Cell(1, 12).Value = "מחוזות";
-    ws.Cell(1, 13).Value = "תוכניות";
-    ws.Cell(1, 14).Value = "מגזרים";
-    ws.Cell(1, 15).Value = "הערות";
-
-    var headerRow = ws.Row(1);
-    headerRow.Style.Font.Bold = true;
-    headerRow.Style.Fill.BackgroundColor = XLColor.LightBlue;
-
-    // Data rows
-    int row = 2;
-    foreach (var emp in employees)
-    {
-      ws.Cell(row, 1).Value = emp.EmployeeCode;
-      ws.Cell(row, 2).Value = emp.IdNumber;
-      ws.Cell(row, 3).Value = emp.FirstName;
-      ws.Cell(row, 4).Value = emp.LastName;
-      ws.Cell(row, 5).Value = emp.UserRole?.DescriptionHebrew ?? emp.UserRole?.Name ?? string.Empty;
-      ws.Cell(row, 6).Value = emp.Status?.DescriptionHebrew ?? emp.Status?.Name ?? string.Empty;
-      ws.Cell(row, 7).Value = emp.IsReportingEmployee ? "כן" : "לא";
-      ws.Cell(row, 8).Value = emp.Email;
-      ws.Cell(row, 9).Value = emp.Phone;
-      ws.Cell(row, 10).Value = emp.AllowFutureReporting ? "כן" : "לא";
-      ws.Cell(row, 11).Value = string.Join(", ", emp.Allocations.Select(a => a.Project?.Description).Where(x => x != null).Distinct());
-      ws.Cell(row, 12).Value = string.Join(", ", emp.Allocations.SelectMany(a => a.AllocationDistricts).Select(x => x.District?.Description).Where(x => x != null).Distinct());
-      ws.Cell(row, 13).Value = string.Join(", ", emp.Allocations.SelectMany(a => a.AllocationPrograms).Select(x => x.Program?.Description).Where(x => x != null).Distinct());
-      ws.Cell(row, 14).Value = string.Join(", ", emp.Allocations.SelectMany(a => a.AllocationSectors).Select(x => x.Sector?.Description).Where(x => x != null).Distinct());
-      ws.Cell(row, 15).Value = emp.Notes;
-      row++;
-    }
-
-    ws.Columns().AdjustToContents();
+    await AddEmployeeExportWorksheetsAsync(workbook, employees);
 
     using var stream = new MemoryStream();
     workbook.SaveAs(stream);
     stream.Seek(0, SeekOrigin.Begin);
 
-    var fileName = $"employees_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+    var fileName = $"employees_allocations_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
     return File(stream.ToArray(),
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       fileName);
+  }
+
+  private async Task AddEmployeeExportWorksheetsAsync(
+    XLWorkbook workbook,
+    IReadOnlyCollection<User> employees)
+  {
+    var employeeIds = employees.Select(e => e.Id).ToList();
+    var allocations = employeeIds.Count == 0
+      ? new List<Allocation>()
+      : await _db.Allocations
+        .AsNoTracking()
+        .AsSplitQuery()
+        .Include(a => a.Project)
+        .Include(a => a.ReportType)
+        .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
+        .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)
+        .Include(a => a.AllocationSectors).ThenInclude(x => x.Sector)
+        .Include(a => a.AllocationLocalities).ThenInclude(x => x.Locality)
+        .Include(a => a.AllocationFrameworks).ThenInclude(x => x.Framework)
+        .Include(a => a.AllocationSubjects).ThenInclude(x => x.Subject)
+        .Include(a => a.AllocationDomains).ThenInclude(x => x.Domain)
+        .Include(a => a.AllocationEducationalPrograms).ThenInclude(x => x.EducationalProgram)
+        .Include(a => a.AllocationClasses).ThenInclude(x => x.SchoolClass)
+        .Include(a => a.AllocationGradeLevels).ThenInclude(x => x.GradeLevel)
+        .Include(a => a.AllocationDiscussionCodes).ThenInclude(x => x.DiscussionCode)
+        .Include(a => a.AllocationLocalityDistrictNationals).ThenInclude(x => x.LocalityDistrictNational)
+        .Where(a => employeeIds.Contains(a.UserId))
+        .OrderBy(a => a.UserId)
+        .ThenBy(a => a.Project!.Description)
+        .ThenBy(a => a.Id)
+        .ToListAsync();
+
+    var frameworkIds = allocations
+      .SelectMany(a => a.AllocationFrameworks)
+      .Select(x => x.FrameworkId)
+      .Distinct()
+      .ToList();
+    var frameworkLabels = await FrameworkLabelService.BuildLabelsAsync(_db, frameworkIds);
+    EmployeeAllocationWorksheetWriter.AddEmployeeExportWorksheets(
+      workbook,
+      employees,
+      allocations,
+      frameworkLabels);
   }
 
   private async Task PopulateFormDropdownsAsync()
@@ -1163,6 +1203,7 @@ public class EmployeeController : Controller
         frameworkIds = Array.Empty<int>(),
         gradeLevelIds = Array.Empty<int>(),
         classIds = Array.Empty<int>(),
+        localityIds = Array.Empty<int>(),
         localityDistrictNationalIds = Array.Empty<int>()
       });
 
@@ -1194,6 +1235,10 @@ public class EmployeeController : Controller
       .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
       .Select(x => x.ClassId).ToListAsync();
+    var localityIds = await _db.ProjectProgramLocalities
+      .AsNoTracking()
+      .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
+      .Select(x => x.LocalityId).ToListAsync();
     var localityDistrictNationalIds = await _db.ProjectProgramLocalityDistrictNationals
       .AsNoTracking()
       .Where(x => x.ProjectId == projectId && x.ProgramId == programId)
@@ -1208,6 +1253,7 @@ public class EmployeeController : Controller
       frameworkIds,
       gradeLevelIds,
       classIds,
+      localityIds,
       localityDistrictNationalIds
     });
   }

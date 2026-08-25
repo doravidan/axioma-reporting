@@ -56,8 +56,14 @@ internal sealed class FakeAuditLogService : IAuditLogService
 
 internal sealed class StubBatchReportImportService : IBatchReportImportService
 {
-  public Task<BatchImportResult> ImportAsync(Stream xlsxStream, int reportingMonthId, int uploaderUserId, CancellationToken ct = default, string? progressId = null) =>
-    Task.FromResult(new BatchImportResult());
+  public Task<BatchImportResult> ImportAsync(
+    Stream xlsxStream,
+    int reportingMonthId,
+    int uploaderUserId,
+    CancellationToken ct = default,
+    string? progressId = null,
+    bool previewOnly = false) =>
+    Task.FromResult(new BatchImportResult { IsPreview = previewOnly });
 }
 
 internal sealed class StubTempDataProvider : ITempDataProvider

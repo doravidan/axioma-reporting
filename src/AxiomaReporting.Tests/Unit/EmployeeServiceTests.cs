@@ -112,8 +112,9 @@ public class EmployeeServiceTests : IDisposable
       .ContainSingle(x => x.AllocationId == allocation.Id && x.LocalityDistrictNationalId == 1);
 
     (await _sut.GetAllocationsAsync(2)).Should().ContainSingle();
-    (await _sut.DeleteAllocationAsync(999)).Should().BeFalse();
-    (await _sut.DeleteAllocationAsync(allocation.Id)).Should().BeTrue();
+    (await _sut.DeleteAllocationAsync(999, 2)).Should().BeFalse();
+    (await _sut.DeleteAllocationAsync(allocation.Id, 999)).Should().BeFalse();
+    (await _sut.DeleteAllocationAsync(allocation.Id, 2)).Should().BeTrue();
     (await _sut.GetAllocationsAsync(2)).Should().BeEmpty();
   }
 

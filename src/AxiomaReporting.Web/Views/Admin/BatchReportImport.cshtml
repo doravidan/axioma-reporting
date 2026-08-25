@@ -22,6 +22,8 @@
     <ul class="mb-0 mt-2 small">
       <li>קובץ אקסל (xlsx) יחיד המכיל דיווחים של מספר עובדים.</li>
       <li>שורת כותרת מזוהה אוטומטית לפי הכותרת "קוד עובד".</li>
+      <li>כאשר לעובד מספר הקצאות, יש למלא "מזהה הקצאה" או "תוכנית הקצאה". המערכת לא תבחר לפי סדר הרשומות.</li>
+      <li>מומלץ להפעיל תחילה "בדיקה מקדימה"; פעולה זו אינה שומרת נתונים.</li>
       <li>לכל שורה תקינה תיקלט פעילות חודשית לעובד המתאים, וההודעה "דיווח התקבל" תישלח לכתובת הדוא"ל שלו.</li>
       <li>שורות שגויות לא תיקלטנה. רשימת השגיאות תוצג על המסך וניתנת להורדה כ-PDF.</li>
     </ul>
@@ -53,7 +55,11 @@
           <input type="file" id="file" name="file" accept=".xlsx" class="form-control" required />
         </div>
         <input type="hidden" id="progressId" name="progressId" />
-        <button type="submit" id="importSubmitBtn" class="btn btn-primary">ייבא דיווחים</button>
+        <div class="d-flex gap-2 flex-wrap">
+          <button type="submit" name="previewOnly" value="true" id="previewSubmitBtn" class="btn btn-outline-primary">בדיקה מקדימה ללא שמירה</button>
+          <button type="submit" name="previewOnly" value="false" id="importSubmitBtn" class="btn btn-primary"
+                  onclick="return confirm('הייבוא ישמור את כל השורות התקינות. להמשיך?')">ייבא ושמור דיווחים</button>
+        </div>
       </form>
 
       @* פס התקדמות בזמן הייבוא — נדגם מהשרת בזמן שה-POST רץ (יישור לגרסת השרת) *@
@@ -81,6 +87,7 @@
         const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random().toString(16).slice(2);
         document.getElementById('progressId').value = id;
         document.getElementById('importSubmitBtn').disabled = true;
+        document.getElementById('previewSubmitBtn').disabled = true;
         document.getElementById('importProgressWrap').style.display = 'block';
 
         pollTimer = setInterval(async function () {

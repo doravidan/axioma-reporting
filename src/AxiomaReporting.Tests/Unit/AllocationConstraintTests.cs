@@ -165,7 +165,7 @@ public class AllocationConstraintTests : IDisposable
         created.IsActive.Should().BeTrue();
 
         // Act
-        var deleted = await _sut.DeleteAllocationAsync(created.Id);
+        var deleted = await _sut.DeleteAllocationAsync(created.Id, created.UserId);
 
         // Assert — IsActive = false (soft delete), record still present
         deleted.Should().BeTrue();
@@ -178,8 +178,19 @@ public class AllocationConstraintTests : IDisposable
     [Fact]
     public async Task DeleteAllocationAsync_NonExistentAllocation_ReturnsFalse()
     {
-        var result = await _sut.DeleteAllocationAsync(999);
+        var result = await _sut.DeleteAllocationAsync(999, 100);
         result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteAllocationAsync_DifferentEmployee_ReturnsFalse()
+    {
+        var created = await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
+
+        var result = await _sut.DeleteAllocationAsync(created.Id, userId: 999);
+
+        result.Should().BeFalse();
+        (await _db.Allocations.FindAsync(created.Id))!.IsActive.Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------
@@ -192,7 +203,7 @@ public class AllocationConstraintTests : IDisposable
         // Arrange — create two allocations then soft-delete one
         var a1 = await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 100));
         var a2 = await _sut.CreateAllocationAsync(MakeDto(userId: 100, projectId: 200));
-        await _sut.DeleteAllocationAsync(a1.Id);  // soft-delete a1
+        await _sut.DeleteAllocationAsync(a1.Id, a1.UserId);  // soft-delete a1
 
         // Act
         var active = await _sut.GetAllocationsAsync(userId: 100);

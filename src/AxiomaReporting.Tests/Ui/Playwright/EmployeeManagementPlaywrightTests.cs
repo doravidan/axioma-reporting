@@ -195,26 +195,29 @@ public class EmployeeManagementPlaywrightTests : PlaywrightTestBase
             project.dispatchEvent(new Event('change', { bubbles: true }));
         }");
 
-        await Page.WaitForFunctionAsync(
-            $"() => {{ {SelectableValuesJs} return selectableValues(\"select[name='ProgramIds']\").length >= 2; }}",
-            null,
-            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        await WaitUntilAsync(
+            async () => await SelectableCountAsync("ProgramIds") >= 2,
+            "programs were not loaded for the selected project");
 
         await SelectFromChoicesListAsync("ProgramIds", 0);
-        await Page.WaitForFunctionAsync(
-            $"() => {{ {SelectedValuesJs} return selectedValues(\"select[name='SubjectIds']\").length > 0 && selectedValues(\"select[name='FrameworkIds']\").length > 0 && selectedValues(\"select[name='ClassIds']\").length > 0 && selectedValues(\"select[name='LocalityDistrictNationalIds']\").length > 0; }}",
-            null,
-            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        await WaitUntilAsync(
+            async () =>
+                await SelectedCountAsync("SubjectIds") > 0
+                && await SelectedCountAsync("FrameworkIds") > 0
+                && await SelectedCountAsync("ClassIds") > 0
+                && await SelectedCountAsync("LocalityDistrictNationalIds") > 0,
+            "the first program defaults were not applied");
 
         var firstSubjectCount = await SelectedCountAsync("SubjectIds");
         var firstFrameworkCount = await SelectedCountAsync("FrameworkIds");
         var manualDistrict = await SelectFromChoicesListAsync("DistrictIds", 0);
 
         await SelectFromChoicesListAsync("ProgramIds", 1);
-        await Page.WaitForFunctionAsync(
-            $"([subjectCount, frameworkCount]) => {{ {SelectedValuesJs} return selectedValues(\"select[name='SubjectIds']\").length > subjectCount && selectedValues(\"select[name='FrameworkIds']\").length > frameworkCount; }}",
-            new[] { firstSubjectCount, firstFrameworkCount },
-            new PageWaitForFunctionOptions { Timeout = 10_000 });
+        await WaitUntilAsync(
+            async () =>
+                await SelectedCountAsync("SubjectIds") > firstSubjectCount
+                && await SelectedCountAsync("FrameworkIds") > firstFrameworkCount,
+            "the second program defaults were not merged");
 
         (await SelectedValuesAsync("DistrictIds")).Should().Contain(manualDistrict,
             because: "adding a second program must not clear manual selections");
@@ -340,11 +343,32 @@ public class EmployeeManagementPlaywrightTests : PlaywrightTestBase
     private async Task<int> SelectedCountAsync(string selectName) =>
         (await SelectedValuesAsync(selectName)).Length;
 
+    private async Task<int> SelectableCountAsync(string selectName) =>
+        await Page.EvaluateAsync<int>($@"(name) => {{
+            {SelectableValuesJs}
+            return selectableValues(`select[name='${{name}}']`).length;
+        }}", selectName);
+
     private async Task<string[]> SelectedValuesAsync(string selectName) =>
         await Page.EvaluateAsync<string[]>($@"(name) => {{
             {SelectedValuesJs}
             return selectedValues(`select[name='${{name}}']`);
         }}", selectName);
+
+    private static async Task WaitUntilAsync(
+        Func<Task<bool>> predicate,
+        string failureMessage,
+        int timeoutMilliseconds = 10_000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await predicate()) return;
+            await Task.Delay(50);
+        }
+
+        throw new Xunit.Sdk.XunitException(failureMessage);
+    }
 
     private async Task SelectFirstRealOptionAsync(string selector)
     {

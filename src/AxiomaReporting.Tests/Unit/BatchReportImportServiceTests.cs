@@ -4,6 +4,7 @@ using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Tests.TestSupport;
 using ClosedXML.Excel;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace AxiomaReporting.Tests.Unit;
@@ -138,9 +139,131 @@ public class BatchReportImportServiceTests : IDisposable
     _db.ReportRows.Should().BeEmpty();
   }
 
+  [Fact]
+  public void DownloadBatchReportTemplate_PlacesClassConclusionInRequestedColumnOrder()
+  {
+    var controller = AdminControllerFactory.Create(_db);
+
+    var file = controller.DownloadBatchReportTemplate()
+      .Should().BeOfType<FileContentResult>().Subject;
+    using var workbook = new XLWorkbook(new MemoryStream(file.FileContents));
+    var sheet = workbook.Worksheet("דיווחים");
+    var headers = sheet.Row(1).CellsUsed().Select(cell => cell.GetString()).ToList();
+
+    headers.Should().HaveCount(23);
+    headers.Should().ContainInOrder("מזהה הקצאה", "פרויקט הקצאה", "תוכנית הקצאה");
+    headers.Should().ContainInOrder(
+      "קיום דיון",
+      "מסקנות כיתה",
+      "מסגרת חינוכית (מסקנה)");
+    sheet.Cell(2, 23).GetString().Should().StartWith("דוגמה");
+  }
+
+  [Fact]
+  public async Task ImportAsync_ClassConclusionHeader_MapsToClassConclusionLookup()
+  {
+    using var stream = BuildWorkbook(new[]
+    {
+      Row(1, "EMP001", "ישראל ישראלי", DateTime.Today.AddDays(-1), 2,
+        conclusionClass: "המשך ליווי", conclusionFramework: "המשך מסגרת")
+    });
+
+    var result = await _sut.ImportAsync(stream, reportingMonthId: 1, uploaderUserId: 99);
+
+    result.ErrorRowsCount.Should().Be(0);
+    result.RowsImported.Should().Be(1);
+    var imported = _db.ReportRows.Single();
+    imported.FrameworkId.Should().Be(1, "the educational framework column must remain distinct");
+    imported.ConclusionClassId.Should().Be(7);
+    imported.ConclusionFrameworkId.Should().Be(8,
+      "the framework conclusion header must remain distinct from the educational framework");
+  }
+
+  [Fact]
+  public async Task ImportAsync_LegacyTemplateWithoutConclusionColumns_RemainsSupported()
+  {
+    using var stream = BuildWorkbook(new[]
+    {
+      Row(1, "EMP001", "ישראל ישראלי", DateTime.Today.AddDays(-1), 2, notes: "קובץ ישן")
+    }, includeConclusionColumns: false);
+
+    var result = await _sut.ImportAsync(stream, reportingMonthId: 1, uploaderUserId: 99);
+
+    result.ErrorRowsCount.Should().Be(0);
+    result.RowsImported.Should().Be(1);
+    _db.ReportRows.Single().Notes.Should().Be("קובץ ישן");
+  }
+
+  [Fact]
+  public async Task ImportAsync_MultipleMatchingAllocations_RejectsAmbiguityInsteadOfChoosingFirst()
+  {
+    _db.Allocations.Add(new Allocation
+    {
+      Id = 11, UserId = 1, ProjectId = 1, IsActive = true,
+      AllowExcelUpload = true, CreatedAt = DateTime.UtcNow,
+      MonthlyEmploymentScope = 100m, DailyEmploymentScope = 9m
+    });
+    await _db.SaveChangesAsync();
+    using var stream = BuildWorkbook(new[]
+    {
+      Row(1, "EMP001", "ישראל ישראלי", DateTime.Today.AddDays(-1), 1)
+    });
+
+    var result = await _sut.ImportAsync(stream, 1, 99);
+
+    result.RowsImported.Should().Be(0);
+    result.Errors.Should().ContainSingle(error =>
+      error.ErrorMessage == "נמצאו מספר הקצאות מתאימות. יש לבחור תוכנית או הקצאה.");
+    _db.ReportRows.Should().BeEmpty();
+  }
+
+  [Fact]
+  public async Task ImportAsync_ExplicitAllocationId_SelectsOwnedAllocation()
+  {
+    _db.Allocations.Add(new Allocation
+    {
+      Id = 11, UserId = 1, ProjectId = 1, IsActive = true,
+      AllowExcelUpload = true, CreatedAt = DateTime.UtcNow,
+      MonthlyEmploymentScope = 100m, DailyEmploymentScope = 9m
+    });
+    await _db.SaveChangesAsync();
+    using var stream = BuildWorkbook(new[]
+    {
+      Row(1, "EMP001", "ישראל ישראלי", DateTime.Today.AddDays(-1), 1, allocationId: 11)
+    }, includeAllocationColumn: true);
+
+    var result = await _sut.ImportAsync(stream, 1, 99);
+
+    result.ErrorRowsCount.Should().Be(0);
+    _db.ReportRows.Should().ContainSingle(row => row.AllocationId == 11);
+    result.RowResults.Should().ContainSingle(row => row.AllocationId == 11);
+  }
+
+  [Fact]
+  public async Task ImportAsync_PreviewOnly_ReportsAllocationWithoutWritingOrSendingEmail()
+  {
+    using var stream = BuildWorkbook(new[]
+    {
+      Row(1, "EMP001", "ישראל ישראלי", DateTime.Today.AddDays(-1), 1)
+    }, durationHeader: "\uFEFFמשך\u00A0 תפוקה");
+
+    var result = await _sut.ImportAsync(stream, 1, 99, previewOnly: true);
+
+    result.IsPreview.Should().BeTrue();
+    result.RowsImported.Should().Be(1);
+    result.RowResults.Should().ContainSingle(row => row.AllocationId == 10);
+    _db.Reports.Should().BeEmpty();
+    _db.ReportRows.Should().BeEmpty();
+    _email.Sent.Should().BeEmpty();
+  }
+
   // ---------- helpers ----------
 
-  private static MemoryStream BuildWorkbook(IEnumerable<TestRow> rows)
+  private static MemoryStream BuildWorkbook(
+    IEnumerable<TestRow> rows,
+    bool includeConclusionColumns = true,
+    bool includeAllocationColumn = false,
+    string durationHeader = "משך המפגש (בשעות)")
   {
     using var wb = new XLWorkbook();
     var ws = wb.AddWorksheet("Data");
@@ -156,11 +279,21 @@ public class BatchReportImportServiceTests : IDisposable
     ws.Cell(7, 5).Value = "יישוב";
     ws.Cell(7, 6).Value = "שם המסגרת חינוכית";
     ws.Cell(7, 7).Value = "תאריך המפגש";
-    ws.Cell(7, 8).Value = "משך המפגש (בשעות)";
+    ws.Cell(7, 8).Value = durationHeader;
     ws.Cell(7, 9).Value = "תוכנית חינוכית";
     ws.Cell(7, 10).Value = "תחום";
     ws.Cell(7, 11).Value = "נושא 1";
-    ws.Cell(7, 12).Value = "הערות";
+    if (includeConclusionColumns)
+    {
+      ws.Cell(7, 12).Value = "מסקנות כיתה";
+      ws.Cell(7, 13).Value = "מסגרת חינוכית (מסקנה)";
+      ws.Cell(7, 14).Value = "הערות";
+    }
+    else
+    {
+      ws.Cell(7, 12).Value = "הערות";
+    }
+    if (includeAllocationColumn) ws.Cell(7, 15).Value = "מזהה הקצאה";
 
     var r = 8;
     foreach (var row in rows)
@@ -176,7 +309,18 @@ public class BatchReportImportServiceTests : IDisposable
       ws.Cell(r, 9).Value = row.EducationalProgram;
       ws.Cell(r, 10).Value = row.Domain;
       ws.Cell(r, 11).Value = row.Subject1;
-      ws.Cell(r, 12).Value = row.Notes;
+      if (includeConclusionColumns)
+      {
+        ws.Cell(r, 12).Value = row.ConclusionClass;
+        ws.Cell(r, 13).Value = row.ConclusionFramework;
+        ws.Cell(r, 14).Value = row.Notes;
+      }
+      else
+      {
+        ws.Cell(r, 12).Value = row.Notes;
+      }
+      if (includeAllocationColumn && row.AllocationId.HasValue)
+        ws.Cell(r, 15).Value = row.AllocationId.Value;
       r++;
     }
 
@@ -189,14 +333,17 @@ public class BatchReportImportServiceTests : IDisposable
   private static TestRow Row(int seq, string emp, string name, DateTime date, decimal duration,
     string district = "צפון", string locality = "חיפה", string framework = "בית ספר יסודי",
     string eduProgram = "תוכנית א", string domain = "תחום א", string subject1 = "נושא ראשון",
-    string notes = "")
-    => new(seq, emp, name, district, locality, framework, date, duration, eduProgram, domain, subject1, notes);
+    string conclusionClass = "", string conclusionFramework = "", string notes = "",
+    int? allocationId = null)
+    => new(seq, emp, name, district, locality, framework, date, duration, eduProgram, domain, subject1,
+      conclusionClass, conclusionFramework, notes, allocationId);
 
   private sealed record TestRow(
     int Seq, string EmployeeCode, string ReporterName,
     string District, string Locality, string Framework,
     DateTime Date, decimal Duration,
-    string EducationalProgram, string Domain, string Subject1, string Notes);
+    string EducationalProgram, string Domain, string Subject1, string ConclusionClass,
+    string ConclusionFramework, string Notes, int? AllocationId);
 
   private void Seed()
   {
@@ -207,6 +354,8 @@ public class BatchReportImportServiceTests : IDisposable
     _db.EducationalPrograms.Add(new EducationalProgram { Id = 1, Description = "תוכנית א", IsActive = true, CreatedAt = DateTime.UtcNow });
     _db.Domains.Add(new Domain { Id = 1, Description = "תחום א", IsActive = true, CreatedAt = DateTime.UtcNow });
     _db.Subjects.Add(new Subject { Id = 1, Description = "נושא ראשון", IsActive = true, CreatedAt = DateTime.UtcNow });
+    _db.ClassConclusions.Add(new ClassConclusion { Id = 7, Description = "המשך ליווי", IsActive = true, CreatedAt = DateTime.UtcNow });
+    _db.FrameworkConclusions.Add(new FrameworkConclusion { Id = 8, Description = "המשך מסגרת", IsActive = true, CreatedAt = DateTime.UtcNow });
 
     // Users (employees)
     _db.Users.Add(new User

@@ -41,7 +41,7 @@ public class MyAllocationsController : Controller
       .ThenBy(a => a.Id)
       .ToListAsync();
 
-    var uploadAllocation = allocations.FirstOrDefault(a => a.AllowExcelUpload);
+    var uploadAllocations = allocations.Where(a => a.AllowExcelUpload).ToList();
     var allocationIds = allocations.Select(a => a.Id).ToList();
     var currentReportId = activeMonth == null
       ? 0
@@ -62,8 +62,10 @@ public class MyAllocationsController : Controller
       ActiveMonth = activeMonth,
       AllocationCount = allocations.Count,
       // The Excel-upload tile is shown when ANY active allocation grants the right.
-      AllowExcelUpload = uploadAllocation != null,
-      ExcelUploadAllocationId = uploadAllocation?.Id,
+      AllowExcelUpload = uploadAllocations.Count > 0,
+      // Never choose one allocation implicitly when more than one grants upload.
+      // Report/Index will display the explicit allocation selector instead.
+      ExcelUploadAllocationId = uploadAllocations.Count == 1 ? uploadAllocations[0].Id : null,
       Allocations = allocations,
       HistoryReports = historyReports
     };

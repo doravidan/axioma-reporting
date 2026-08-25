@@ -6,6 +6,7 @@ using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
+using AxiomaReporting.Web.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -29,19 +30,25 @@ public class AccountController : Controller
   private readonly IEmailService _emailService;
   private readonly IAuditLogService _auditLog;
   private readonly AppDbContext _db;
+  private readonly SecurityRequestLimiter _requestLimiter;
+  private readonly IConfiguration _configuration;
 
   public AccountController(
     IAuthService authService,
     IPasswordService passwordService,
     IEmailService emailService,
     IAuditLogService auditLog,
-    AppDbContext db)
+    AppDbContext db,
+    SecurityRequestLimiter requestLimiter,
+    IConfiguration configuration)
   {
     _authService = authService;
     _passwordService = passwordService;
     _emailService = emailService;
     _auditLog = auditLog;
     _db = db;
+    _requestLimiter = requestLimiter;
+    _configuration = configuration;
   }
 
   [HttpGet]
@@ -59,12 +66,24 @@ public class AccountController : Controller
   {
     if (!ModelState.IsValid) return View(model);
 
+    var client = ClientAddress();
+    var loginIpLimit = Math.Clamp(_configuration.GetValue<int?>("Security:LoginIpLimit") ?? 50, 1, 10_000);
+    var loginUserLimit = Math.Clamp(_configuration.GetValue<int?>("Security:LoginUserLimit") ?? 8, 1, 1_000);
+    if (!_requestLimiter.TryAcquire("login-ip", client, loginIpLimit, TimeSpan.FromMinutes(15)) ||
+        !_requestLimiter.TryAcquire("login-user", model.IdNumber, loginUserLimit, TimeSpan.FromMinutes(15)))
+    {
+      ModelState.AddModelError(string.Empty, "יותר מדי ניסיונות. נא להמתין ולנסות שוב.");
+      return View(model);
+    }
+
     var (success, error, user) = await _authService.ValidateLoginAsync(model.IdNumber, model.Password);
     if (!success || user == null)
     {
       ModelState.AddModelError(string.Empty, error ?? "שגיאת כניסה");
       return View(model);
     }
+
+    _requestLimiter.Reset("login-user", model.IdNumber);
 
     if (await IsTfaEnabledAsync())
     {
@@ -101,6 +120,13 @@ public class AccountController : Controller
     if (!int.TryParse(userIdRaw, out var userId))
       return RedirectToAction(nameof(Login));
 
+    if (!_requestLimiter.TryAcquire("tfa-user", userId.ToString(), 6, TimeSpan.FromMinutes(TwoFactorMinutes)) ||
+        !_requestLimiter.TryAcquire("tfa-ip", ClientAddress(), 30, TimeSpan.FromMinutes(TwoFactorMinutes)))
+    {
+      ModelState.AddModelError(string.Empty, "יותר מדי ניסיונות אימות. נא להמתין ולנסות שוב.");
+      return View();
+    }
+
     var codeHash = HashValue(code?.Trim() ?? string.Empty);
     var entry = await _db.TwoFactorCodes
       .Where(c => c.UserId == userId &&
@@ -116,6 +142,7 @@ public class AccountController : Controller
       return View();
     }
 
+    _requestLimiter.Reset("tfa-user", userId.ToString());
     entry.UsedAt = DateTime.UtcNow;
     await _db.SaveChangesAsync();
 
@@ -231,7 +258,18 @@ public class AccountController : Controller
       return View(model);
     }
 
+    var currentAuthentication = await HttpContext.AuthenticateAsync(
+      CookieAuthenticationDefaults.AuthenticationScheme);
     var changed = await _authService.ChangePasswordAsync(userId, model.CurrentPassword, model.NewPassword);
+    if (changed)
+    {
+      var refreshedUser = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+      if (refreshedUser != null)
+        await SignInAndRedirectAsync(
+          refreshedUser,
+          rememberMe: currentAuthentication.Properties?.IsPersistent == true,
+          returnUrl: null);
+    }
     if (!changed)
     {
       ModelState.AddModelError(nameof(model.CurrentPassword), "הסיסמה הנוכחית שגויה");
@@ -263,6 +301,13 @@ public class AccountController : Controller
     const string GenericConfirmation =
       "אם נמצאה כתובת מייל למשתמש, נשלח קישור לאיפוס סיסמה";
 
+    if (!_requestLimiter.TryAcquire("forgot-ip", ClientAddress(), 20, TimeSpan.FromHours(1)) ||
+        !_requestLimiter.TryAcquire("forgot-user", idNumber ?? string.Empty, 5, TimeSpan.FromHours(1)))
+    {
+      TempData["Success"] = GenericConfirmation;
+      return RedirectToAction(nameof(Login));
+    }
+
     var user = string.IsNullOrWhiteSpace(idNumber)
       ? null
       : await _db.Users.FirstOrDefaultAsync(u => u.IdNumber == idNumber);
@@ -280,7 +325,9 @@ public class AccountController : Controller
       });
       await _db.SaveChangesAsync();
 
-      var resetLink = Url.Action(nameof(ResetPassword), "Account", new { token }, Request.Scheme) ?? string.Empty;
+      var resetPage = Url.Action(nameof(ResetPassword), "Account", values: null, Request.Scheme) ?? string.Empty;
+      // URL fragments are not sent to IIS, application logs, or referrer headers.
+      var resetLink = $"{resetPage}#token={Uri.EscapeDataString(token)}";
       // NotificationDispatcher writes a NotificationLog row with the SMTP outcome.
       await _emailService.SendAsync(
         user.Email,
@@ -304,7 +351,9 @@ public class AccountController : Controller
         RecipientUserId = user?.Id,
         RecipientEmail = user?.Email ?? string.Empty,
         Subject = "(Skipped) ForgotPassword",
-        Body = $"ForgotPassword requested for IdNumber='{idNumber}' - {(user == null ? "no such user" : "user has no email on file")}",
+        Body = user == null
+          ? "ForgotPassword request skipped: no matching account."
+          : "ForgotPassword request skipped: account has no email address.",
         Status = "Skipped",
         AttemptCount = 0,
         CreatedAt = DateTime.UtcNow
@@ -317,8 +366,16 @@ public class AccountController : Controller
   }
 
   [HttpGet]
-  public async Task<IActionResult> ResetPassword(string token)
+  public async Task<IActionResult> ResetPassword(string? token)
   {
+    // New links keep the token in the fragment. The view transfers it to the
+    // antiforgery-protected POST without exposing it in server access logs.
+    if (string.IsNullOrWhiteSpace(token))
+    {
+      ViewBag.Token = string.Empty;
+      return View();
+    }
+
     var tokenHash = HashValue(token ?? string.Empty);
     var reset = await _db.PasswordResetTokens
       .FirstOrDefaultAsync(t => t.TokenHash == tokenHash && t.UsedAt == null && t.ExpiresAt >= DateTime.UtcNow);
@@ -422,7 +479,9 @@ public class AccountController : Controller
       new(ClaimTypes.Name, user.IdNumber),
       new("FullName", $"{user.FirstName} {user.LastName}"),
       new(ClaimTypes.Role, user.UserRoleId.ToString()),
-      new("UserRoleName", ((UserRoleEnum)user.UserRoleId).ToString())
+      new("UserRoleName", ((UserRoleEnum)user.UserRoleId).ToString()),
+      new(AuthenticationState.FingerprintClaim, AuthenticationState.CreateFingerprint(user)),
+      new(AuthenticationState.ValidatedAtClaim, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
     };
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
@@ -469,4 +528,7 @@ public class AccountController : Controller
     var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
     return Convert.ToHexString(bytes);
   }
+
+  private string ClientAddress() =>
+    HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 }

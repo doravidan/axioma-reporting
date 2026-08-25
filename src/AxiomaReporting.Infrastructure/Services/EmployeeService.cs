@@ -17,7 +17,7 @@ public interface IEmployeeService
   Task<Allocation?> GetAllocationByIdAsync(int allocationId);
   Task<Allocation> CreateAllocationAsync(AllocationDto dto);
   Task<bool> UpdateAllocationAsync(int allocationId, AllocationDto dto);
-  Task<bool> DeleteAllocationAsync(int allocationId);
+  Task<bool> DeleteAllocationAsync(int allocationId, int userId);
 }
 
 public class EmployeeService : IEmployeeService
@@ -299,9 +299,10 @@ public class EmployeeService : IEmployeeService
     return true;
   }
 
-  public async Task<bool> DeleteAllocationAsync(int allocationId)
+  public async Task<bool> DeleteAllocationAsync(int allocationId, int userId)
   {
-    var allocation = await _db.Allocations.FindAsync(allocationId);
+    var allocation = await _db.Allocations
+      .FirstOrDefaultAsync(a => a.Id == allocationId && a.UserId == userId && a.IsActive);
     if (allocation == null) return false;
 
     allocation.IsActive = false;

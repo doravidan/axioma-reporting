@@ -1,9 +1,11 @@
 using AxiomaReporting.Core.Entities;
+using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Authorization;
 using AxiomaReporting.Web.Models;
+using AxiomaReporting.Web.Security;
 using ClosedXML.Excel;
 using ExcelDataReader;
 using Microsoft.AspNetCore.Authorization;
@@ -20,6 +22,8 @@ namespace AxiomaReporting.Web.Controllers;
 [Authorize(Policy = PolicyNames.AdminOrPM)]
 public class AdminController : Controller
 {
+  private const string DuplicateInstitutionNumberMessage =
+    "לא ניתן ליצור את המוסד. מספר המוסד כבר קיים במערכת.";
   private readonly AppDbContext _db;
   private readonly IPasswordService _passwordService;
   private readonly IBatchReportImportService _batchImportService;
@@ -28,6 +32,7 @@ public class AdminController : Controller
   private readonly IBrandingService _brandingService;
   private readonly IAuditLogService _auditLog;
   private readonly IWebHostEnvironment _hostEnvironment;
+  private readonly IHtmlContentSanitizer _htmlSanitizer;
 
   public AdminController(
     AppDbContext db,
@@ -37,7 +42,8 @@ public class AdminController : Controller
     IEmailService emailService,
     IBrandingService brandingService,
     IAuditLogService auditLog,
-    IWebHostEnvironment hostEnvironment)
+    IWebHostEnvironment hostEnvironment,
+    IHtmlContentSanitizer? htmlSanitizer = null)
   {
     _db = db;
     _passwordService = passwordService;
@@ -47,6 +53,7 @@ public class AdminController : Controller
     _brandingService = brandingService;
     _auditLog = auditLog;
     _hostEnvironment = hostEnvironment;
+    _htmlSanitizer = htmlSanitizer ?? new HtmlContentSanitizer();
   }
 
   // --- Reporting Months ---
@@ -208,8 +215,8 @@ public class AdminController : Controller
     // עמודת יישוב (יישור לגרסת השרת): נגזר מהמוסד החולק את סמל המסגרת.
     var shownSymbols = items.Select(f => f.InstitutionSymbol).Distinct().ToList();
     ViewBag.LocalityBySymbol = (await _db.Institutions
-        .Where(i => i.Locality != null && shownSymbols.Contains(i.InstitutionSymbol.ToString()))
-        .Select(i => new { Symbol = i.InstitutionSymbol.ToString(), Locality = i.Locality!.Description })
+        .Where(i => i.Locality != null && shownSymbols.Contains(i.InstitutionSymbol))
+        .Select(i => new { Symbol = i.InstitutionSymbol, Locality = i.Locality!.Description })
         .ToListAsync())
       .GroupBy(x => x.Symbol)
       .ToDictionary(g => g.Key, g => g.First().Locality);
@@ -243,7 +250,7 @@ public class AdminController : Controller
       var loc = locality.Trim();
       var symbols = _db.Institutions
         .Where(i => i.Locality != null && EF.Functions.Like(i.Locality.Description, $"%{loc}%"))
-        .Select(i => i.InstitutionSymbol.ToString());
+        .Select(i => i.InstitutionSymbol);
       query = query.Where(f => symbols.Contains(f.InstitutionSymbol));
     }
     return query;
@@ -312,23 +319,24 @@ public class AdminController : Controller
   public async Task<IActionResult> CreateFramework(string description, string institutionSymbol,
     int? educationalStageId)
   {
-    if (string.IsNullOrWhiteSpace(description) || string.IsNullOrWhiteSpace(institutionSymbol))
+    if (string.IsNullOrWhiteSpace(description) ||
+        !InstitutionSymbolNormalizer.TryNormalizeFramework(institutionSymbol, out var normalizedSymbol))
     {
       TempData["Error"] = "יש להזין תיאור וסמל מוסד";
       return RedirectToAction(nameof(Frameworks));
     }
     // Institution symbol must be unique per educational stage (business rule #5)
     var exists = await _db.Frameworks.AnyAsync(f =>
-      f.InstitutionSymbol == institutionSymbol && f.EducationalStageId == educationalStageId);
+      f.InstitutionSymbol == normalizedSymbol && f.EducationalStageId == educationalStageId);
     if (exists)
     {
-      TempData["Error"] = "סמל מוסד זה כבר קיים עבור שלב חינוך זה";
+      TempData["Error"] = "סמל המוסד כבר קיים במערכת";
       return RedirectToAction(nameof(Frameworks));
     }
     _db.Frameworks.Add(new Framework
     {
       Description = description.Trim(),
-      InstitutionSymbol = institutionSymbol.Trim(),
+      InstitutionSymbol = normalizedSymbol,
       EducationalStageId = educationalStageId,
       IsActive = true,
       CreatedAt = DateTime.UtcNow
@@ -339,7 +347,7 @@ public class AdminController : Controller
     }
     catch (DbUpdateException)
     {
-      TempData["Error"] = "סמל מוסד זה כבר קיים עבור שלב חינוך זה";
+      TempData["Error"] = "סמל המוסד כבר קיים במערכת";
       return RedirectToAction(nameof(Frameworks));
     }
     TempData["Success"] = "מסגרת נוצרה";
@@ -357,15 +365,21 @@ public class AdminController : Controller
       TempData["Error"] = "מסגרת לא נמצאה";
       return RedirectToAction(nameof(Frameworks));
     }
-    var symbolTaken = await _db.Frameworks.AnyAsync(f =>
-      f.Id != id && f.InstitutionSymbol == institutionSymbol && f.EducationalStageId == educationalStageId);
-    if (symbolTaken)
+    if (string.IsNullOrWhiteSpace(description) ||
+        !InstitutionSymbolNormalizer.TryNormalizeFramework(institutionSymbol, out var normalizedSymbol))
     {
-      TempData["Error"] = "סמל מוסד זה כבר קיים עבור שלב חינוך זה";
+      TempData["Error"] = "יש להזין תיאור וסמל מוסד תקינים";
       return RedirectToAction(nameof(Frameworks));
     }
-    framework.Description = description;
-    framework.InstitutionSymbol = institutionSymbol;
+    var symbolTaken = await _db.Frameworks.AnyAsync(f =>
+      f.Id != id && f.InstitutionSymbol == normalizedSymbol && f.EducationalStageId == educationalStageId);
+    if (symbolTaken)
+    {
+      TempData["Error"] = "סמל המוסד כבר קיים במערכת";
+      return RedirectToAction(nameof(Frameworks));
+    }
+    framework.Description = description.Trim();
+    framework.InstitutionSymbol = normalizedSymbol;
     framework.EducationalStageId = educationalStageId;
     framework.IsActive = isActive;
     framework.UpdatedAt = DateTime.UtcNow;
@@ -375,7 +389,7 @@ public class AdminController : Controller
     }
     catch (DbUpdateException)
     {
-      TempData["Error"] = "סמל מוסד זה כבר קיים עבור שלב חינוך זה";
+      TempData["Error"] = "סמל המוסד כבר קיים במערכת";
       return RedirectToAction(nameof(Frameworks));
     }
     TempData["Success"] = "מסגרת עודכנה";
@@ -384,38 +398,148 @@ public class AdminController : Controller
 
   // --- Institutions ---
 
+  private const int MaxInstitutionExportRows = 25000;
+
   [Authorize(Policy = PolicyNames.AdminOnly)]
-  public async Task<IActionResult> Institutions()
+  public async Task<IActionResult> Institutions(
+    string? name = null, string? symbol = null, int? localityId = null,
+    int? districtId = null, int? sectorId = null, int? typeId = null,
+    int? educationalStageId = null, bool? isActive = null,
+    int page = 1, int pageSize = 50)
   {
-    var items = await _db.Institutions
+    var query = BuildInstitutionsQuery(
+      name, symbol, localityId, districtId, sectorId, typeId, educationalStageId, isActive);
+    page = Math.Max(page, 1);
+    pageSize = pageSize is < 1 or > 200 ? 50 : pageSize;
+    var total = await query.CountAsync();
+    var items = await query
       .Include(i => i.Locality)
       .Include(i => i.District)
       .Include(i => i.Sector)
       .Include(i => i.Type)
       .Include(i => i.EducationalStage)
       .OrderBy(i => i.Name)
+      .ThenBy(i => i.InstitutionSymbol)
+      .Skip((page - 1) * pageSize)
+      .Take(pageSize)
       .ToListAsync();
     await LoadInstitutionDropdowns();
+    ViewBag.FilterName = name;
+    ViewBag.FilterSymbol = symbol;
+    ViewBag.FilterLocalityId = localityId;
+    ViewBag.FilterDistrictId = districtId;
+    ViewBag.FilterSectorId = sectorId;
+    ViewBag.FilterTypeId = typeId;
+    ViewBag.FilterEducationalStageId = educationalStageId;
+    ViewBag.FilterIsActive = isActive;
+    ViewBag.Page = page;
+    ViewBag.PageSize = pageSize;
+    ViewBag.TotalCount = total;
     return View(items);
+  }
+
+  private IQueryable<Institution> BuildInstitutionsQuery(
+    string? name, string? symbol, int? localityId, int? districtId,
+    int? sectorId, int? typeId, int? educationalStageId, bool? isActive)
+  {
+    var query = _db.Institutions.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(name))
+      query = query.Where(i => EF.Functions.Like(i.Name, $"%{name.Trim()}%"));
+    if (!string.IsNullOrWhiteSpace(symbol))
+    {
+      var normalizedSymbol = InstitutionSymbolNormalizer.Normalize(symbol);
+      query = query.Where(i => i.InstitutionSymbol == normalizedSymbol);
+    }
+    if (localityId.HasValue) query = query.Where(i => i.LocalityId == localityId.Value);
+    if (districtId.HasValue) query = query.Where(i => i.DistrictId == districtId.Value);
+    if (sectorId.HasValue) query = query.Where(i => i.SectorId == sectorId.Value);
+    if (typeId.HasValue) query = query.Where(i => i.TypeId == typeId.Value);
+    if (educationalStageId.HasValue) query = query.Where(i => i.EducationalStageId == educationalStageId.Value);
+    if (isActive.HasValue) query = query.Where(i => i.IsActive == isActive.Value);
+    return query;
+  }
+
+  [HttpGet]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> ExportInstitutionsExcel(
+    string? name = null, string? symbol = null, int? localityId = null,
+    int? districtId = null, int? sectorId = null, int? typeId = null,
+    int? educationalStageId = null, bool? isActive = null)
+  {
+    var items = await BuildInstitutionsQuery(
+        name, symbol, localityId, districtId, sectorId, typeId, educationalStageId, isActive)
+      .Include(i => i.Locality)
+      .Include(i => i.District)
+      .Include(i => i.Sector)
+      .Include(i => i.Type)
+      .Include(i => i.EducationalStage)
+      .OrderBy(i => i.Name)
+      .ThenBy(i => i.InstitutionSymbol)
+      .Take(MaxInstitutionExportRows + 1)
+      .ToListAsync();
+
+    if (items.Count > MaxInstitutionExportRows)
+      return BadRequest($"הייצוא מוגבל ל-{MaxInstitutionExportRows:N0} מוסדות. יש לצמצם את הסינון ולנסות שוב.");
+
+    using var workbook = new XLWorkbook();
+    var worksheet = workbook.Worksheets.Add("מוסדות");
+    worksheet.RightToLeft = true;
+    var headers = new[] { "שם המוסד", "סמל מוסד", "יישוב", "מחוז", "מגזר", "סוג חינוך", "שלב חינוך", "פעיל" };
+    for (var column = 0; column < headers.Length; column++)
+    {
+      worksheet.Cell(1, column + 1).Value = headers[column];
+      worksheet.Cell(1, column + 1).Style.Font.Bold = true;
+    }
+
+    var row = 2;
+    foreach (var institution in items)
+    {
+      worksheet.Cell(row, 1).Value = institution.Name;
+      worksheet.Cell(row, 2).Value = institution.InstitutionSymbol;
+      worksheet.Cell(row, 2).Style.NumberFormat.Format = "@";
+      worksheet.Cell(row, 3).Value = institution.Locality?.Description ?? string.Empty;
+      worksheet.Cell(row, 4).Value = institution.District?.Description ?? string.Empty;
+      worksheet.Cell(row, 5).Value = institution.Sector?.Description ?? string.Empty;
+      worksheet.Cell(row, 6).Value = institution.Type?.Description ?? string.Empty;
+      worksheet.Cell(row, 7).Value = institution.EducationalStage?.Description ?? string.Empty;
+      worksheet.Cell(row, 8).Value = institution.IsActive ? "כן" : "לא";
+      row++;
+    }
+
+    worksheet.SheetView.FreezeRows(1);
+    worksheet.RangeUsed()?.SetAutoFilter();
+    worksheet.Columns().AdjustToContents(1d, 60d);
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return File(
+      stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"institutions_{DateTime.Now:yyyy-MM-dd}.xlsx");
   }
 
   [HttpPost, ValidateAntiForgeryToken]
   [Authorize(Policy = PolicyNames.AdminOnly)]
-  public async Task<IActionResult> CreateInstitution(int institutionSymbol, string name,
+  public async Task<IActionResult> CreateInstitution(string institutionSymbol, string name,
     int? localityId, int? districtId, int? sectorId, int? typeId, int? educationalStageId)
   {
-    // Institution symbol must be unique per educational stage (business rule #5)
-    var exists = await _db.Institutions.AnyAsync(i =>
-      i.InstitutionSymbol == institutionSymbol && i.EducationalStageId == educationalStageId);
+    if (!InstitutionSymbolNormalizer.TryNormalizeInstitution(institutionSymbol, out var normalizedSymbol) ||
+        string.IsNullOrWhiteSpace(name))
+    {
+      TempData["Error"] = "יש להזין שם וסמל מוסד תקינים";
+      return RedirectToAction(nameof(Institutions));
+    }
+    // Institution number is globally unique; stage and other attributes do not
+    // participate in the business key.
+    var exists = await _db.Institutions.AnyAsync(i => i.InstitutionSymbol == normalizedSymbol);
     if (exists)
     {
-      TempData["Error"] = "סמל מוסד כבר קיים עבור שלב חינוך זה";
+      TempData["Error"] = DuplicateInstitutionNumberMessage;
       return RedirectToAction(nameof(Institutions));
     }
     _db.Institutions.Add(new Institution
     {
-      InstitutionSymbol = institutionSymbol,
-      Name = name,
+      InstitutionSymbol = normalizedSymbol,
+      Name = name.Trim(),
       LocalityId = localityId,
       DistrictId = districtId,
       SectorId = sectorId,
@@ -424,14 +548,23 @@ public class AdminController : Controller
       IsActive = true,
       CreatedAt = DateTime.UtcNow
     });
-    await _db.SaveChangesAsync();
+    try
+    {
+      await _db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+      // The database unique index is the final guard for two concurrent requests.
+      TempData["Error"] = DuplicateInstitutionNumberMessage;
+      return RedirectToAction(nameof(Institutions));
+    }
     TempData["Success"] = "מוסד נוצר";
     return RedirectToAction(nameof(Institutions));
   }
 
   [HttpPost, ValidateAntiForgeryToken]
   [Authorize(Policy = PolicyNames.AdminOnly)]
-  public async Task<IActionResult> EditInstitution(int id, int institutionSymbol, string name,
+  public async Task<IActionResult> EditInstitution(int id, string institutionSymbol, string name,
     int? localityId, int? districtId, int? sectorId, int? typeId, int? educationalStageId, bool isActive)
   {
     var institution = await _db.Institutions.FindAsync(id);
@@ -440,15 +573,21 @@ public class AdminController : Controller
       TempData["Error"] = "מוסד לא נמצא";
       return RedirectToAction(nameof(Institutions));
     }
-    var symbolTaken = await _db.Institutions.AnyAsync(i =>
-      i.Id != id && i.InstitutionSymbol == institutionSymbol && i.EducationalStageId == educationalStageId);
-    if (symbolTaken)
+    if (!InstitutionSymbolNormalizer.TryNormalizeInstitution(institutionSymbol, out var normalizedSymbol) ||
+        string.IsNullOrWhiteSpace(name))
     {
-      TempData["Error"] = "סמל מוסד כבר קיים עבור שלב חינוך זה";
+      TempData["Error"] = "יש להזין שם וסמל מוסד תקינים";
       return RedirectToAction(nameof(Institutions));
     }
-    institution.InstitutionSymbol = institutionSymbol;
-    institution.Name = name;
+    var symbolTaken = await _db.Institutions.AnyAsync(i =>
+      i.Id != id && i.InstitutionSymbol == normalizedSymbol);
+    if (symbolTaken)
+    {
+      TempData["Error"] = DuplicateInstitutionNumberMessage;
+      return RedirectToAction(nameof(Institutions));
+    }
+    institution.InstitutionSymbol = normalizedSymbol;
+    institution.Name = name.Trim();
     institution.LocalityId = localityId;
     institution.DistrictId = districtId;
     institution.SectorId = sectorId;
@@ -456,7 +595,15 @@ public class AdminController : Controller
     institution.EducationalStageId = educationalStageId;
     institution.IsActive = isActive;
     institution.UpdatedAt = DateTime.UtcNow;
-    await _db.SaveChangesAsync();
+    try
+    {
+      await _db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+      TempData["Error"] = DuplicateInstitutionNumberMessage;
+      return RedirectToAction(nameof(Institutions));
+    }
     TempData["Success"] = "מוסד עודכן";
     return RedirectToAction(nameof(Institutions));
   }
@@ -656,8 +803,8 @@ public class AdminController : Controller
 
   // --- Inspector Assignments ---
 
-  [Authorize(Policy = PolicyNames.AdminOrPM)]
-  public async Task<IActionResult> InspectorAssignments()
+  [Authorize(Policy = PolicyNames.AdminOnly)]
+  public async Task<IActionResult> InspectorAssignments(int? inspectorUserId = null)
   {
     ViewBag.Assignments = await _db.InspectorAssignments
       .Include(a => a.Inspector)
@@ -674,14 +821,50 @@ public class AdminController : Controller
     ViewBag.Programs = await _db.Programs.Where(p => p.IsActive).OrderBy(p => p.Description).ToListAsync();
     ViewBag.Districts = await _db.Districts.Where(d => d.IsActive).OrderBy(d => d.Description).ToListAsync();
     ViewBag.Sectors = await _db.Sectors.Where(s => s.IsActive).OrderBy(s => s.Description).ToListAsync();
+    ViewBag.SelectedInspectorUserId = inspectorUserId;
     return View();
   }
 
   [HttpPost, ValidateAntiForgeryToken]
-  [Authorize(Policy = PolicyNames.AdminOrPM)]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> CreateInspectorAssignment(
     int inspectorUserId, int? programId, int? districtId, int? sectorId)
   {
+    var inspectorExists = await _db.Users.AnyAsync(user =>
+      user.Id == inspectorUserId &&
+      (user.UserRoleId == (int)UserRoleEnum.InspectorView ||
+       user.UserRoleId == (int)UserRoleEnum.InspectorApproval));
+    if (!inspectorExists)
+    {
+      TempData["Error"] = "המשתמש שנבחר אינו מוגדר כמפקח";
+      return RedirectToAction(nameof(InspectorAssignments), new { inspectorUserId });
+    }
+
+    if (!programId.HasValue && !districtId.HasValue && !sectorId.HasValue)
+    {
+      TempData["Error"] = "יש לבחור לפחות תחום צפייה אחד: תוכנית, מחוז או מגזר";
+      return RedirectToAction(nameof(InspectorAssignments), new { inspectorUserId });
+    }
+
+    if (programId.HasValue && !await _db.Programs.AnyAsync(item => item.Id == programId && item.IsActive) ||
+        districtId.HasValue && !await _db.Districts.AnyAsync(item => item.Id == districtId && item.IsActive) ||
+        sectorId.HasValue && !await _db.Sectors.AnyAsync(item => item.Id == sectorId && item.IsActive))
+    {
+      TempData["Error"] = "אחד מתחומי הצפייה שנבחרו אינו קיים או אינו פעיל";
+      return RedirectToAction(nameof(InspectorAssignments), new { inspectorUserId });
+    }
+
+    var duplicateExists = await _db.InspectorAssignments.AnyAsync(item =>
+      item.InspectorUserId == inspectorUserId &&
+      item.ProgramId == programId &&
+      item.DistrictId == districtId &&
+      item.SectorId == sectorId);
+    if (duplicateExists)
+    {
+      TempData["Error"] = "שיוך צפייה זה כבר קיים עבור המפקח";
+      return RedirectToAction(nameof(InspectorAssignments), new { inspectorUserId });
+    }
+
     var assignment = new InspectorAssignment
     {
       InspectorUserId = inspectorUserId,
@@ -694,11 +877,11 @@ public class AdminController : Controller
     await _auditLog.LogAsync("InspectorAssignment.Create", nameof(InspectorAssignment), assignment.Id.ToString(),
       after: new { assignment.InspectorUserId, assignment.ProgramId, assignment.DistrictId, assignment.SectorId });
     TempData["Success"] = "שיוך המפקח נוסף";
-    return RedirectToAction(nameof(InspectorAssignments));
+    return RedirectToAction(nameof(InspectorAssignments), new { inspectorUserId });
   }
 
   [HttpPost, ValidateAntiForgeryToken]
-  [Authorize(Policy = PolicyNames.AdminOrPM)]
+  [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> DeleteInspectorAssignment(int id)
   {
     var assignment = await _db.InspectorAssignments.FindAsync(id);
@@ -756,9 +939,107 @@ public class AdminController : Controller
     ViewBag.ScopeDiscussionCodes = await _db.DiscussionCodes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeGradeLevels = await _db.GradeLevels.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeClasses = await _db.Classes.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
+    ViewBag.ScopeLocalities = await _db.Localities.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
     ViewBag.ScopeLocalityDistrictNationals = await _db.LocalityDistrictNationals.Where(x => x.IsActive).OrderBy(x => x.Description).ToListAsync();
 
     return View();
+  }
+
+  [HttpGet]
+  [Route("Admin/ProjectPrograms/Export")]
+  public async Task<IActionResult> ExportProjectProgramScopesExcel()
+  {
+    var projectPrograms = await _db.ProjectPrograms
+      .AsNoTracking()
+      .Include(x => x.Project)
+      .Include(x => x.Program)
+      .OrderBy(x => x.Project!.Description)
+      .ThenBy(x => x.Program!.Description)
+      .ToListAsync();
+
+    var subjectValues = BuildScopeValues(
+      await _db.ProjectProgramSubjects.AsNoTracking().Include(x => x.Subject).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.Subject?.Description);
+    var domainValues = BuildScopeValues(
+      await _db.ProjectProgramDomains.AsNoTracking().Include(x => x.Domain).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.Domain?.Description);
+    var educationalProgramValues = BuildScopeValues(
+      await _db.ProjectProgramEducationalPrograms.AsNoTracking().Include(x => x.EducationalProgram).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.EducationalProgram?.Description);
+    var discussionCodeValues = BuildScopeValues(
+      await _db.ProjectProgramDiscussionCodes.AsNoTracking().Include(x => x.DiscussionCode).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.DiscussionCode?.Description);
+    var gradeLevelValues = BuildScopeValues(
+      await _db.ProjectProgramGradeLevels.AsNoTracking().Include(x => x.GradeLevel).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.GradeLevel?.Description);
+    var classValues = BuildScopeValues(
+      await _db.ProjectProgramClasses.AsNoTracking().Include(x => x.SchoolClass).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.SchoolClass?.Description);
+    var localityValues = BuildScopeValues(
+      await _db.ProjectProgramLocalities.AsNoTracking().Include(x => x.Locality).ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.Locality?.Description);
+    var localityDistrictNationalValues = BuildScopeValues(
+      await _db.ProjectProgramLocalityDistrictNationals.AsNoTracking()
+        .Include(x => x.LocalityDistrictNational)
+        .ToListAsync(),
+      x => x.ProjectId, x => x.ProgramId, x => x.LocalityDistrictNational?.Description);
+
+    var frameworkRows = await _db.ProjectProgramFrameworks.AsNoTracking().ToListAsync();
+    var frameworkLabels = await FrameworkLabelService.BuildLabelsAsync(
+      _db,
+      frameworkRows.Select(x => x.FrameworkId).Distinct().ToList());
+    var frameworkValues = BuildScopeValues(
+      frameworkRows,
+      x => x.ProjectId,
+      x => x.ProgramId,
+      x => frameworkLabels.GetValueOrDefault(x.FrameworkId));
+
+    using var workbook = new XLWorkbook();
+    var worksheet = workbook.Worksheets.Add("שיוכי ערכים לתוכנית");
+    worksheet.RightToLeft = true;
+    var headers = new[]
+    {
+      "מזהה פרויקט", "פרויקט", "פרויקט פעיל", "מזהה תוכנית", "תוכנית", "תוכנית פעילה",
+      "נושאים", "תחומים", "תוכניות חינוכיות", "קיום דיון", "שכבות", "כיתות",
+      "יישובים", "יישוב/מחוז/ארצי", "מסגרות חינוכיות"
+    };
+    for (var column = 0; column < headers.Length; column++)
+      worksheet.Cell(1, column + 1).Value = headers[column];
+
+    var row = 2;
+    foreach (var projectProgram in projectPrograms)
+    {
+      var key = (projectProgram.ProjectId, projectProgram.ProgramId);
+      worksheet.Cell(row, 1).Value = projectProgram.ProjectId;
+      worksheet.Cell(row, 2).Value = projectProgram.Project?.Description;
+      worksheet.Cell(row, 3).Value = projectProgram.Project?.IsActive == true ? "כן" : "לא";
+      worksheet.Cell(row, 4).Value = projectProgram.ProgramId;
+      worksheet.Cell(row, 5).Value = projectProgram.Program?.Description;
+      worksheet.Cell(row, 6).Value = projectProgram.Program?.IsActive == true ? "כן" : "לא";
+      worksheet.Cell(row, 7).Value = subjectValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 8).Value = domainValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 9).Value = educationalProgramValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 10).Value = discussionCodeValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 11).Value = gradeLevelValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 12).Value = classValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 13).Value = localityValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 14).Value = localityDistrictNationalValues.GetValueOrDefault(key, string.Empty);
+      worksheet.Cell(row, 15).Value = frameworkValues.GetValueOrDefault(key, string.Empty);
+      row++;
+    }
+
+    worksheet.Row(1).Style.Font.Bold = true;
+    worksheet.Row(1).Style.Fill.BackgroundColor = XLColor.LightBlue;
+    worksheet.SheetView.FreezeRows(1);
+    worksheet.RangeUsed()?.SetAutoFilter();
+    worksheet.Columns().AdjustToContents(1d, 60d);
+
+    using var stream = new MemoryStream();
+    workbook.SaveAs(stream);
+    return File(
+      stream.ToArray(),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      $"project_program_value_sets_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
   }
 
   [HttpPost, ValidateAntiForgeryToken]
@@ -817,6 +1098,7 @@ public class AdminController : Controller
       discussionCodeIds = await _db.ProjectProgramDiscussionCodes.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.DiscussionCodeId).ToListAsync(),
       gradeLevelIds = await _db.ProjectProgramGradeLevels.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.GradeLevelId).ToListAsync(),
       classIds = await _db.ProjectProgramClasses.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.ClassId).ToListAsync(),
+      localityIds = await _db.ProjectProgramLocalities.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.LocalityId).ToListAsync(),
       localityDistrictNationalIds = await _db.ProjectProgramLocalityDistrictNationals.Where(x => x.ProjectId == projectId && x.ProgramId == programId).Select(x => x.LocalityDistrictNationalId).ToListAsync()
     });
   }
@@ -824,7 +1106,8 @@ public class AdminController : Controller
   [HttpPost, ValidateAntiForgeryToken]
   public async Task<IActionResult> SaveProjectProgramScope(int projectId, int programId,
     int[]? subjectIds, int[]? domainIds, int[]? frameworkIds, int[]? educationalProgramIds,
-    int[]? discussionCodeIds, int[]? gradeLevelIds, int[]? classIds, int[]? localityDistrictNationalIds)
+    int[]? discussionCodeIds, int[]? gradeLevelIds, int[]? classIds, int[]? localityIds,
+    int[]? localityDistrictNationalIds)
   {
     var exists = await _db.ProjectPrograms.AnyAsync(pp => pp.ProjectId == projectId && pp.ProgramId == programId);
     if (!exists)
@@ -854,13 +1137,24 @@ public class AdminController : Controller
     await ReplaceScopeAsync(_db.ProjectProgramClasses,
       x => x.ProjectId == projectId && x.ProgramId == programId, classIds,
       id => new ProjectProgramClass { ProjectId = projectId, ProgramId = programId, ClassId = id });
+    await ReplaceScopeAsync(_db.ProjectProgramLocalities,
+      x => x.ProjectId == projectId && x.ProgramId == programId, localityIds,
+      id => new ProjectProgramLocality { ProjectId = projectId, ProgramId = programId, LocalityId = id });
     await ReplaceScopeAsync(_db.ProjectProgramLocalityDistrictNationals,
       x => x.ProjectId == projectId && x.ProgramId == programId, localityDistrictNationalIds,
       id => new ProjectProgramLocalityDistrictNational { ProjectId = projectId, ProgramId = programId, LocalityDistrictNationalId = id });
 
-    await _db.SaveChangesAsync();
+    try
+    {
+      await _db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+      TempData["Error"] = "סמל המוסד כבר קיים במערכת";
+      return RedirectToAction(nameof(Institutions));
+    }
     await _auditLog.LogAsync("ProjectProgramScope.Update", nameof(ProjectProgram), $"{projectId}:{programId}",
-      after: new { projectId, programId, subjectIds, domainIds, frameworkIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, classIds, localityDistrictNationalIds });
+      after: new { projectId, programId, subjectIds, domainIds, frameworkIds, educationalProgramIds, discussionCodeIds, gradeLevelIds, classIds, localityIds, localityDistrictNationalIds });
 
     TempData["Success"] = "שיוכי הערכים לתוכנית נשמרו";
     return RedirectToAction(nameof(ProjectPrograms));
@@ -876,6 +1170,24 @@ public class AdminController : Controller
     set.RemoveRange(existing);
     foreach (var id in (selectedIds ?? Array.Empty<int>()).Where(x => x > 0).Distinct())
       set.Add(create(id));
+  }
+
+  private static Dictionary<(int ProjectId, int ProgramId), string> BuildScopeValues<T>(
+    IEnumerable<T> rows,
+    Func<T, int> projectId,
+    Func<T, int> programId,
+    Func<T, string?> value)
+  {
+    return rows
+      .GroupBy(row => (ProjectId: projectId(row), ProgramId: programId(row)))
+      .ToDictionary(
+        group => group.Key,
+        group => string.Join(", ", group
+          .Select(value)
+          .Where(item => !string.IsNullOrWhiteSpace(item))
+          .Select(item => item!.Trim())
+          .Distinct(StringComparer.OrdinalIgnoreCase)
+          .OrderBy(item => item, StringComparer.CurrentCulture)));
   }
 
   // --- מדיניות פרטיות (ניהול גרסאות — יישור לגרסת השרת) ---
@@ -895,6 +1207,7 @@ public class AdminController : Controller
   [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> PublishPrivacyPolicy(string bodyHtml, DateTime? effectiveFrom)
   {
+    bodyHtml = _htmlSanitizer.Sanitize(bodyHtml);
     if (string.IsNullOrWhiteSpace(bodyHtml))
     {
       TempData["Error"] = "יש להזין תוכן למדיניות הפרטיות";
@@ -1126,7 +1439,15 @@ public class AdminController : Controller
       results["כיתות"] += EnsureLookup(_db.Classes, existingClasses, ws.Cell(row, 11).GetString(), now);
     }
 
-    await _db.SaveChangesAsync();
+    try
+    {
+      await _db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+      TempData["Error"] = DuplicateInstitutionNumberMessage;
+      return RedirectToAction(nameof(DataMigration));
+    }
     TempData["ImportResults"] = string.Join("|", results.Select(x => $"{x.Key}: {x.Value} רשומות נוספו"));
     TempData["Success"] = "ייבוא קטלוג השאלונים הושלם";
     return RedirectToAction(nameof(DataMigration));
@@ -1321,7 +1642,8 @@ public class AdminController : Controller
 
     for (var row = 2; row <= lastRow; row++)
     {
-      if (!ws.Cell(row, 1).TryGetValue<int>(out var symbol))
+      var rawSymbol = ws.Cell(row, 1).GetFormattedString();
+      if (!InstitutionSymbolNormalizer.TryNormalizeInstitution(rawSymbol, out var symbol))
       {
         errors.Add($"שורה {row}: סמל מוסד חסר או לא תקין");
         continue;
@@ -1342,7 +1664,7 @@ public class AdminController : Controller
 
       // סנכרון מסגרות: כל מוסד בקובץ חייב להופיע גם בטבלת המסגרות, אחרת אינו זמין
       // בהקצאות ובדיווח (תיקון לקוח 07/2026 #8). מתבצע גם עבור מוסדות קיימים.
-      var symbolText = symbol.ToString();
+      var symbolText = symbol;
       if (pendingFrameworks.Add((symbolText, stageId)))
       {
         var frameworkExists = await _db.Frameworks.AnyAsync(f =>
@@ -1362,7 +1684,7 @@ public class AdminController : Controller
         }
       }
 
-      if (await _db.Institutions.AnyAsync(i => i.InstitutionSymbol == symbol && i.EducationalStageId == stageId))
+      if (await _db.Institutions.AnyAsync(i => i.InstitutionSymbol == symbol))
       {
         skipped++;
         continue;
@@ -1383,7 +1705,15 @@ public class AdminController : Controller
       added++;
     }
 
-    await _db.SaveChangesAsync();
+    try
+    {
+      await _db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+      TempData["Error"] = DuplicateInstitutionNumberMessage;
+      return RedirectToAction(nameof(DataMigration));
+    }
     TempData["ImportResults"] = string.Join("|",
       new[] { $"מוסדות: {added} נוספו, {skipped} קיימים (דולגו) | מסגרות: {addedFrameworks} נוספו" }.Concat(errors));
     TempData["Success"] = "ייבוא מוסדות הושלם";
@@ -1568,17 +1898,16 @@ public class AdminController : Controller
     var sectorMap = await _db.Sectors.ToDictionaryAsync(x => x.Description, x => x.Id);
     var educationTypeMap = await _db.EducationTypes.ToDictionaryAsync(x => x.Description, x => x.Id);
     var stageMap = await _db.EducationalStages.ToDictionaryAsync(x => x.Description, x => x.Id);
-    var existing = await _db.Institutions
-      .Select(x => new { x.InstitutionSymbol, x.EducationalStageId })
-      .ToListAsync();
-    var existingKeys = existing.Select(x => $"{x.InstitutionSymbol}|{x.EducationalStageId}").ToHashSet(StringComparer.Ordinal);
+    var existingKeys = (await _db.Institutions
+        .Select(x => x.InstitutionSymbol)
+        .ToListAsync())
+      .ToHashSet(StringComparer.Ordinal);
 
     var count = 0;
     for (var i = 1; i < institutions.Rows.Count; i++)
     {
       var symbolValue = GetCell(institutions, i, 0);
-      if (!decimal.TryParse(symbolValue, out var symbolDecimal)) continue;
-      var symbol = (int)symbolDecimal;
+      if (!InstitutionSymbolNormalizer.TryNormalizeInstitution(symbolValue, out var symbol)) continue;
       var name = GetCell(institutions, i, 1);
       if (string.IsNullOrWhiteSpace(name)) continue;
 
@@ -1587,7 +1916,7 @@ public class AdminController : Controller
       var sectorId = GetMappedId(sectorMap, GetCell(institutions, i, 4));
       var typeId = GetMappedId(educationTypeMap, GetCell(institutions, i, 5));
       var stageId = GetMappedId(stageMap, GetCell(institutions, i, 6));
-      if (!existingKeys.Add($"{symbol}|{stageId}")) continue;
+      if (!existingKeys.Add(symbol)) continue;
 
       _db.Institutions.Add(new Institution
       {
@@ -1739,8 +2068,24 @@ public class AdminController : Controller
   {
     value = value.Trim();
     if (string.IsNullOrEmpty(value)) return null;
-    if (int.TryParse(value, out var symbol))
-      return await _db.Frameworks.Where(f => f.InstitutionSymbol == symbol.ToString()).Select(f => (int?)f.Id).FirstOrDefaultAsync();
+    if (value.All(char.IsDigit))
+    {
+      var exact = await _db.Frameworks
+        .Where(f => f.InstitutionSymbol == value)
+        .Select(f => (int?)f.Id)
+        .FirstOrDefaultAsync();
+      if (exact.HasValue) return exact;
+
+      var numericKey = InstitutionSymbolNormalizer.NumericComparisonKey(value);
+      var numericFrameworks = await _db.Frameworks
+        .Where(f => !f.InstitutionSymbol.Contains("-") && !f.InstitutionSymbol.Contains(" "))
+        .Select(f => new { f.Id, f.InstitutionSymbol })
+        .ToListAsync();
+      return numericFrameworks
+        .Where(f => InstitutionSymbolNormalizer.NumericComparisonKey(f.InstitutionSymbol) == numericKey)
+        .Select(f => (int?)f.Id)
+        .FirstOrDefault();
+    }
     return await _db.Frameworks.Where(f => f.Description == value).Select(f => (int?)f.Id).FirstOrDefaultAsync();
   }
 
@@ -1770,9 +2115,9 @@ public class AdminController : Controller
 
     var headers = new[]
     {
-      "מס\"ד", "קוד עובד", "שם המדווח", "סוג דיווח", "מחוז", "יישוב",
-      "שם המסגרת חינוכית", "תאריך המפגש", "משך המפגש", "תוכנית חינוכית",
-      "תחום", "נושא 1", "נושא 2", "קיום דיון", "מסגרת חינוכית (מסקנה)",
+      "מס\"ד", "קוד עובד", "שם המדווח", "מזהה הקצאה", "פרויקט הקצאה", "תוכנית הקצאה",
+      "סוג דיווח", "מחוז", "יישוב", "שם המסגרת חינוכית", "תאריך המפגש", "משך תפוקה", "תוכנית חינוכית",
+      "תחום", "נושא 1", "נושא 2", "קיום דיון", "מסקנות כיתה", "מסגרת חינוכית (מסקנה)",
       "יישוב/מחוז/ארצי", "שכבה", "כיתה", "הערות"
     };
     for (var i = 0; i < headers.Length; i++)
@@ -1785,13 +2130,16 @@ public class AdminController : Controller
     ws.Cell(2, 1).Value = 1;
     ws.Cell(2, 2).Value = "1234";
     ws.Cell(2, 3).Value = "ישראל ישראלי";
-    ws.Cell(2, 5).Value = "ארצי";
-    ws.Cell(2, 6).Value = "ירושלים";
-    ws.Cell(2, 7).Value = "123456 שם בית הספר";
-    ws.Cell(2, 8).Value = DateTime.Today;
-    ws.Cell(2, 8).Style.DateFormat.Format = "dd/MM/yyyy";
-    ws.Cell(2, 9).Value = 1.0;
-    ws.Cell(2, 19).Value = "דוגמה — יש להחליף בערכי הדיווח; קוד עובד חובה בכל שורה, שאר הערכים בעברית כפי שמופיעים במסך הדיווח";
+    ws.Cell(2, 4).Value = 123;
+    ws.Cell(2, 5).Value = "שם הפרויקט";
+    ws.Cell(2, 6).Value = "שם תוכנית ההקצאה";
+    ws.Cell(2, 8).Value = "ארצי";
+    ws.Cell(2, 9).Value = "ירושלים";
+    ws.Cell(2, 10).Value = "123456 שם בית הספר";
+    ws.Cell(2, 11).Value = DateTime.Today;
+    ws.Cell(2, 11).Style.DateFormat.Format = "dd/MM/yyyy";
+    ws.Cell(2, 12).Value = 1.0;
+    ws.Cell(2, 23).Value = "דוגמה — כאשר לעובד כמה הקצאות חובה לציין מזהה הקצאה או תוכנית הקצאה";
     ws.Columns().AdjustToContents();
 
     using var stream = new MemoryStream();
@@ -1817,7 +2165,12 @@ public class AdminController : Controller
   }
 
   [HttpPost, ValidateAntiForgeryToken]
-  public async Task<IActionResult> BatchReportImport(IFormFile file, int reportingMonthId, CancellationToken ct, string? progressId = null)
+  public async Task<IActionResult> BatchReportImport(
+    IFormFile file,
+    int reportingMonthId,
+    CancellationToken ct,
+    string? progressId = null,
+    bool previewOnly = false)
   {
     if (file == null || file.Length == 0)
     {
@@ -1831,7 +2184,8 @@ public class AdminController : Controller
     var month = await _db.ReportingMonths.FindAsync(new object[] { reportingMonthId }, ct);
 
     await using var stream = file.OpenReadStream();
-    var result = await _batchImportService.ImportAsync(stream, reportingMonthId, uploaderId, ct, progressId);
+    var result = await _batchImportService.ImportAsync(
+      stream, reportingMonthId, uploaderId, ct, progressId, previewOnly);
 
     // Pre-generate the errors PDF once so we can both email it as an attachment
     // and offer it as a download from the results screen.
@@ -1844,7 +2198,7 @@ public class AdminController : Controller
     }
 
     // Send uploader emails
-    if (!string.IsNullOrWhiteSpace(uploader?.Email) && month != null)
+    if (!result.IsPreview && !string.IsNullOrWhiteSpace(uploader?.Email) && month != null)
     {
       await _emailService.SendAsync(
         uploader.Email, uploaderName, "BatchImportSuccessUploader",
@@ -1977,6 +2331,7 @@ public class AdminController : Controller
   [Authorize(Policy = PolicyNames.AdminOnly)]
   public async Task<IActionResult> PublishTermsOfUse(string bodyHtml, DateTime? effectiveFrom)
   {
+    bodyHtml = _htmlSanitizer.Sanitize(bodyHtml);
     if (string.IsNullOrWhiteSpace(bodyHtml))
     {
       TempData["Error"] = "יש להזין תוכן לתנאי השימוש";

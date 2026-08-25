@@ -27,7 +27,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_Districts_BlockedWhenUsedByInstitution()
   {
-    _db.Institutions.Add(new Institution { InstitutionSymbol = 1, Name = "x", DistrictId = 42, CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { InstitutionSymbol = "1", Name = "x", DistrictId = 42, CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
     var (can, reason) = await _sut.CanDeleteItemAsync("districts", 42);
@@ -53,7 +53,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_Sectors_BlockedWhenUsedByInstitution()
   {
-    _db.Institutions.Add(new Institution { InstitutionSymbol = 1, Name = "x", SectorId = 5, CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { InstitutionSymbol = "1", Name = "x", SectorId = 5, CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
     var (can, _) = await _sut.CanDeleteItemAsync("sectors", 5);
@@ -66,7 +66,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_Localities_BlockedWhenUsedByInstitution()
   {
-    _db.Institutions.Add(new Institution { InstitutionSymbol = 2, Name = "x", LocalityId = 9, CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { InstitutionSymbol = "2", Name = "x", LocalityId = 9, CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
     var (can, reason) = await _sut.CanDeleteItemAsync("localities", 9);
@@ -138,7 +138,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_Institutions_BlockedWhenFrameworkUsesSameSymbolAndStage()
   {
-    _db.Institutions.Add(new Institution { Id = 77, InstitutionSymbol = 1234, EducationalStageId = 3, Name = "Inst", CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { Id = 77, InstitutionSymbol = "1234", EducationalStageId = 3, Name = "Inst", CreatedAt = DateTime.UtcNow });
     _db.Frameworks.Add(new Framework { Description = "FX", InstitutionSymbol = "1234", EducationalStageId = 3, IsActive = true, CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
@@ -151,7 +151,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_Institutions_AllowedWhenNoMatchingFramework()
   {
-    _db.Institutions.Add(new Institution { Id = 78, InstitutionSymbol = 5678, EducationalStageId = 4, Name = "Inst2", CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { Id = 78, InstitutionSymbol = "5678", EducationalStageId = 4, Name = "Inst2", CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
     var (can, _) = await _sut.CanDeleteItemAsync("institutions", 78);
@@ -176,7 +176,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_EducationalStages_BlockedByInstitution()
   {
-    _db.Institutions.Add(new Institution { InstitutionSymbol = 1, Name = "x", EducationalStageId = 12, CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { InstitutionSymbol = "1", Name = "x", EducationalStageId = 12, CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
     var (can, reason) = await _sut.CanDeleteItemAsync("educationalstages", 12);
@@ -197,7 +197,7 @@ public class LookupControllerFkCheckTests : IDisposable
   [Fact]
   public async Task CanDelete_EducationTypes_BlockedByInstitution()
   {
-    _db.Institutions.Add(new Institution { InstitutionSymbol = 1, Name = "x", TypeId = 20, CreatedAt = DateTime.UtcNow });
+    _db.Institutions.Add(new Institution { InstitutionSymbol = "1", Name = "x", TypeId = 20, CreatedAt = DateTime.UtcNow });
     await _db.SaveChangesAsync();
 
     var (can, reason) = await _sut.CanDeleteItemAsync("educationtypes", 20);

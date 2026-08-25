@@ -2,6 +2,7 @@ using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Entities.Base;
 using AxiomaReporting.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace AxiomaReporting.Infrastructure.Services;
 
@@ -89,6 +90,15 @@ public class LookupResolver : ILookupResolver
       return byId;
     if (_frameworks.TryGetValue(trimmed.ToLowerInvariant(), out var id))
       return id;
+
+    // The UI/export format is often a composite label such as
+    // "יישוב — 248013 — שם המסגרת". Resolve its institution symbol too.
+    // Keep this after exact matches so ordinary descriptions containing digits
+    // retain their existing behavior.
+    var symbolMatch = Regex.Match(trimmed, @"(?<!\d)\d{3,}(?!\d)");
+    if (symbolMatch.Success && _frameworkSymbols.TryGetValue(symbolMatch.Value, out var byCompositeSymbol))
+      return byCompositeSymbol;
+
     return null;
   }
 

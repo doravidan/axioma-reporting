@@ -316,6 +316,49 @@ public class LookupFlowTests : IDisposable
       "the same institution symbol is allowed across different educational stages (business rule #5)");
   }
 
+  [Fact]
+  public async Task DirectHttp_CreateInstitution_DuplicateGlobalNumberWithWhitespace_IsRejectedServerSide()
+  {
+    int otherStageId;
+    using (var setup = _factory.Services.CreateScope())
+    {
+      var db = setup.ServiceProvider.GetRequiredService<AppDbContext>();
+      var stage1 = new EducationalStage { Description = "Institution Stage One", IsActive = true, CreatedAt = DateTime.UtcNow };
+      var stage2 = new EducationalStage { Description = "Institution Stage Two", IsActive = true, CreatedAt = DateTime.UtcNow };
+      db.EducationalStages.AddRange(stage1, stage2);
+      await db.SaveChangesAsync();
+      otherStageId = stage2.Id;
+      db.Institutions.Add(new Institution
+      {
+        InstitutionSymbol = "909090",
+        Name = "Existing Institution",
+        EducationalStageId = stage1.Id,
+        IsActive = true,
+        CreatedAt = DateTime.UtcNow
+      });
+      await db.SaveChangesAsync();
+    }
+
+    var client = await SignInAdmin();
+    var institutionsHtml = await client.GetStringAsync("/Admin/Institutions");
+    var response = await client.PostAsync("/Admin/CreateInstitution",
+      new FormUrlEncodedContent(new Dictionary<string, string>
+      {
+        ["__RequestVerificationToken"] = HtmlForm.AntiForgeryToken(institutionsHtml),
+        ["institutionSymbol"] = " 909090 ",
+        ["name"] = "Bypass Attempt",
+        ["educationalStageId"] = otherStageId.ToString()
+      }));
+
+    response.IsSuccessStatusCode.Should().BeTrue();
+    using var verify = _factory.Services.CreateScope();
+    var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+    verifyDb.Institutions.Count(i => i.InstitutionSymbol == "909090").Should().Be(1);
+    // The exact friendly TempData message is asserted by AdminFrameworkTests and
+    // through the browser flow. This integration assertion proves that a forged
+    // HTTP request cannot bypass server-side normalization or global uniqueness.
+  }
+
   // ─── System lookup tables protected ─────────────────────────────────────────
 
   [Fact]

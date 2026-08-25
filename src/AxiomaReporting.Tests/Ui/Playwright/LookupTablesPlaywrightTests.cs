@@ -115,6 +115,39 @@ public class LookupTablesPlaywrightTests : PlaywrightTestBase
         body.Should().MatchRegex(new Regex("סמל|institution|מסגרת", RegexOptions.IgnoreCase));
     }
 
+    [Fact]
+    public async Task InstitutionDuplicateSymbol_IsRejectedWithHebrewMessage()
+    {
+        await Page.GotoAsync("/Admin/Institutions");
+        await Page.Locator("[data-bs-target='#addModal']").First.ClickAsync();
+        var modal = Page.Locator("#addModal");
+        await modal.Locator("input[name='name']").FillAsync("מוסד כפול E2E");
+        await modal.Locator("input[name='institutionSymbol']").FillAsync("872903");
+        var stage = modal.Locator("select[name='educationalStageId']");
+        var stageValue = await stage.EvaluateAsync<string?>(
+            "select => Array.from(select.options).find(option => option.value)?.value ?? null");
+        if (!string.IsNullOrEmpty(stageValue)) await stage.SelectOptionAsync(stageValue);
+        await modal.Locator("button[type='submit']").ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+
+        (await GetPageTextAsync()).Should().Contain(
+            "לא ניתן ליצור את המוסד. מספר המוסד כבר קיים במערכת.");
+    }
+
+    [Fact]
+    public async Task FrameworkDuplicateSymbol_IsRejectedWithHebrewMessage()
+    {
+        await Page.GotoAsync("/Admin/Frameworks");
+        await Page.Locator("[data-bs-target='#addModal']").First.ClickAsync();
+        var modal = Page.Locator("#addModal");
+        await modal.Locator("input[name='description']").FillAsync("מסגרת כפולה E2E");
+        await modal.Locator("input[name='institutionSymbol']").FillAsync("0872903");
+        await modal.Locator("button[type='submit']").ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+
+        (await GetPageTextAsync()).Should().Contain("סמל המוסד כבר קיים במערכת");
+    }
+
     // ─── System tables are protected ─────────────────────────────────────────
 
     [Fact]

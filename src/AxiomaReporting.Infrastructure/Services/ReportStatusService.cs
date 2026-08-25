@@ -11,7 +11,7 @@ public interface IReportStatusService
   Task<bool> SubmitReportAsync(int reportId, int submittedByUserId);
   Task<bool> ApproveReportAsync(int reportId, int approvedByUserId);
   Task<bool> RejectReportAsync(int reportId, int rejectedByUserId, string rejectionReason);
-  Task<bool> ReopenReportAsync(int reportId, int reopenedByUserId);
+  Task<bool> ReopenReportAsync(int reportId, int reopenedByUserId, string reason);
   Task<bool> SaveDraftAsync(int reportId);
 }
 
@@ -31,7 +31,9 @@ public class ReportStatusService : IReportStatusService
   public async Task<Report?> GetOrCreateDraftAsync(int userId, int reportingMonthId)
   {
     var existing = await _db.Reports
-      .FirstOrDefaultAsync(r => r.UserId == userId && r.ReportingMonthId == reportingMonthId);
+      .FirstOrDefaultAsync(r => r.UserId == userId &&
+                                r.ReportingMonthId == reportingMonthId &&
+                                !r.IsArchived);
 
     if (existing != null) return existing;
 
@@ -49,7 +51,7 @@ public class ReportStatusService : IReportStatusService
 
   public async Task<bool> SaveDraftAsync(int reportId)
   {
-    var report = await _db.Reports.FindAsync(reportId);
+    var report = await _db.Reports.FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null) return false;
     if (report.StatusId == 1) // Move from Draft to InEntry when rows are first saved
     {
@@ -71,7 +73,7 @@ public class ReportStatusService : IReportStatusService
   {
     var report = await _db.Reports
       .Include(r => r.User)
-      .FirstOrDefaultAsync(r => r.Id == reportId);
+      .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null) return false;
 
     var previousStatus = report.StatusId;
@@ -110,7 +112,7 @@ public class ReportStatusService : IReportStatusService
   {
     var report = await _db.Reports
       .Include(r => r.User)
-      .FirstOrDefaultAsync(r => r.Id == reportId);
+      .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null) return false;
 
     var previousStatus = report.StatusId;
@@ -148,7 +150,7 @@ public class ReportStatusService : IReportStatusService
   {
     var report = await _db.Reports
       .Include(r => r.User)
-      .FirstOrDefaultAsync(r => r.Id == reportId);
+      .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null) return false;
 
     var previousStatus = report.StatusId;
@@ -185,20 +187,23 @@ public class ReportStatusService : IReportStatusService
   }
 
   /// <summary>
-  /// Returns an APPROVED report to the editable הוחזר-לתיקון state so the
-  /// employee can keep reporting within the same month (status-override
-  /// capability of SystemAdmin/ProjectManager per the role spec).
+  /// Legacy single-report path for returning an APPROVED report to Submitted.
+  /// Authorization is enforced by the controller; the configurable bulk path
+  /// uses the same safe target until the business decision is confirmed.
   /// </summary>
-  public async Task<bool> ReopenReportAsync(int reportId, int reopenedByUserId)
+  public async Task<bool> ReopenReportAsync(int reportId, int reopenedByUserId, string reason)
   {
+    reason = reason?.Trim() ?? string.Empty;
+    if (reason.Length == 0) return false;
     var report = await _db.Reports
       .Include(r => r.User)
-      .FirstOrDefaultAsync(r => r.Id == reportId);
+      .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null || report.StatusId != 4) return false;
 
-    const string reason = "הדיווח נפתח מחדש לעריכה והוספת שורות";
-    report.StatusId = 5; // Returned for Correction — editable by the owner
-    report.RejectionReason = reason;
+    report.StatusId = 3; // Submitted — the safe default pending final business confirmation.
+    report.RejectionReason = null;
+    report.RejectedAt = null;
+    report.RejectedBy = null;
     report.ApprovedAt = null;
     report.ApprovedBy = null;
     report.UpdatedAt = DateTime.UtcNow;
@@ -208,24 +213,7 @@ public class ReportStatusService : IReportStatusService
       await _auditLog.LogAsync("Report.StatusChange", nameof(Report), report.Id.ToString(),
         before: new { StatusId = 4 },
         after: new { StatusId = report.StatusId },
-        notes: $"reopened for editing by user {reopenedByUserId}");
-
-    if (report.User?.Email != null)
-    {
-      var month = await _db.ReportingMonths.FindAsync(report.ReportingMonthId);
-      await _emailService.SendAsync(
-        report.User.Email,
-        $"{report.User.FirstName} {report.User.LastName}",
-        "ReportRejected",
-        new Dictionary<string, string>
-        {
-          ["EmployeeName"] = $"{report.User.FirstName} {report.User.LastName}",
-          ["MonthName"] = month?.Description ?? string.Empty,
-          ["Month"] = month?.Month.ToString() ?? string.Empty,
-          ["Year"] = month?.Year.ToString() ?? string.Empty,
-          ["RejectionReason"] = reason
-        });
-    }
+        notes: $"approved report returned to submitted by user {reopenedByUserId}; reason: {reason}");
     return true;
   }
 }

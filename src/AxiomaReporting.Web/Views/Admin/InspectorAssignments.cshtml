@@ -10,10 +10,19 @@
     ?? new List<AxiomaReporting.Core.Entities.District>();
   var sectors = ViewBag.Sectors as List<AxiomaReporting.Core.Entities.Sector>
     ?? new List<AxiomaReporting.Core.Entities.Sector>();
+  int? selectedInspectorUserId = ViewBag.SelectedInspectorUserId as int?;
 }
 
 <div class="container-fluid mt-3">
   <h3>שיוכי מפקחים</h3>
+  @if (TempData["Success"] != null)
+  {
+    <div class="alert alert-success" role="status">@TempData["Success"]</div>
+  }
+  @if (TempData["Error"] != null)
+  {
+    <div class="alert alert-danger" role="alert">@TempData["Error"]</div>
+  }
   <p class="text-muted">בתוך שורה אחת התנאים מצטברים ב-AND. ערך ריק הוא wildcard. כמה שורות לאותו מפקח מחוברות ב-OR.</p>
 
   <form asp-action="CreateInspectorAssignment" method="post" class="card card-body mb-3">
@@ -25,7 +34,14 @@
           <option value="">בחר...</option>
           @foreach (var inspector in inspectors)
           {
-            <option value="@inspector.Id">@inspector.FirstName @inspector.LastName — ת.ז @inspector.IdNumber (@inspector.EmployeeCode)</option>
+            if (selectedInspectorUserId == inspector.Id)
+            {
+              <option value="@inspector.Id" selected>@inspector.FirstName @inspector.LastName — ת.ז @inspector.IdNumber (@inspector.EmployeeCode)</option>
+            }
+            else
+            {
+              <option value="@inspector.Id">@inspector.FirstName @inspector.LastName — ת.ז @inspector.IdNumber (@inspector.EmployeeCode)</option>
+            }
           }
         </select>
       </div>

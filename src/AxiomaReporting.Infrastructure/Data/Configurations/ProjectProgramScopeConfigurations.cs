@@ -78,6 +78,16 @@ public class ProjectProgramClassConfiguration : IEntityTypeConfiguration<Project
   }
 }
 
+public class ProjectProgramLocalityConfiguration : IEntityTypeConfiguration<ProjectProgramLocality>
+{
+  public void Configure(EntityTypeBuilder<ProjectProgramLocality> builder)
+  {
+    builder.ToTable("ProjectProgramLocalities");
+    builder.HasKey(e => new { e.ProjectId, e.ProgramId, e.LocalityId });
+    builder.HasOne(e => e.Locality).WithMany().HasForeignKey(e => e.LocalityId).OnDelete(DeleteBehavior.Cascade);
+  }
+}
+
 public class ProjectProgramLocalityDistrictNationalConfiguration : IEntityTypeConfiguration<ProjectProgramLocalityDistrictNational>
 {
   public void Configure(EntityTypeBuilder<ProjectProgramLocalityDistrictNational> builder)

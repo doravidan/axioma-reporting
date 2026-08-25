@@ -11,9 +11,12 @@ public class InstitutionConfiguration : IEntityTypeConfiguration<Institution>
     builder.ToTable("Institutions");
     builder.HasKey(e => e.Id);
     builder.Property(e => e.Name).HasMaxLength(500).IsRequired();
+    builder.Property(e => e.InstitutionSymbol).HasMaxLength(100).IsRequired();
     builder.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
 
-    builder.HasIndex(e => new { e.InstitutionSymbol, e.EducationalStageId }).IsUnique();
+    // Customer clarification 2026-08-09: the institution number is globally
+    // unique, independently of educational stage or any other institution data.
+    builder.HasIndex(e => e.InstitutionSymbol).IsUnique();
 
     builder.HasOne(e => e.Locality)
       .WithMany()

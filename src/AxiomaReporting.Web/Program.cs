@@ -4,10 +4,16 @@ using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Authorization;
+using AxiomaReporting.Web.Security;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
+using ClosedXML.Excel;
+using System.Security.Claims;
+using System.Text.RegularExpressions;
 
 // QuestPDF Community license (free for commercial use under 1M ARR)
 QuestPDF.Settings.License = LicenseType.Community;
@@ -54,19 +60,39 @@ builder.Services.AddSession(options =>
     builder.Configuration.GetValue<int?>("Session:TimeoutMinutes") ?? 30);
   options.Cookie.HttpOnly = true;
   options.Cookie.IsEssential = true;
+  options.Cookie.SameSite = SameSiteMode.Lax;
+  options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+    ? CookieSecurePolicy.SameAsRequest
+    : CookieSecurePolicy.Always;
 });
 
 var useDemoInMemory = string.Equals(
   Environment.GetEnvironmentVariable("AXIOMA_DEMO_INMEMORY"),
   "true",
   StringComparison.OrdinalIgnoreCase);
+var useTestInMemory = builder.Configuration.GetValue<bool>("AXIOMA_TEST_INMEMORY");
+var useInMemory = useDemoInMemory || useTestInMemory;
+
+if (useInMemory)
+{
+  // Local/E2E hosts must never read the IIS/Production key ring or Windows
+  // EventLog. Ephemeral keys also guarantee that test cookies cannot be reused
+  // by another process or environment.
+  builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+  builder.Logging.ClearProviders();
+  builder.Logging.AddConsole();
+}
+
+var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+AutomatedTestDatabaseGuard.EnsureSafe(
+  builder.Environment.EnvironmentName, useInMemory, defaultConnection);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-  if (useDemoInMemory)
-    options.UseInMemoryDatabase("AxiomaReportingDemo");
+  if (useInMemory)
+    options.UseInMemoryDatabase(useDemoInMemory ? "AxiomaReportingDemo" : "AxiomaReportingTestsBootstrap");
   else
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseSqlServer(defaultConnection);
 });
 
 // Auth services
@@ -76,6 +102,8 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IEmployeeService, EmployeeService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<SecurityRequestLimiter>();
+builder.Services.AddSingleton<IHtmlContentSanitizer, HtmlContentSanitizer>();
 
 // Reporting engine services (AX-015, AX-016, AX-017)
 builder.Services.AddScoped<IReportValidationService, ReportValidationService>();
@@ -88,12 +116,19 @@ builder.Services.AddScoped<IPdfReportService, PdfReportService>();
 builder.Services.AddScoped<ILookupResolver, LookupResolver>();
 builder.Services.AddScoped<IBatchReportImportService, BatchReportImportService>();
 
-// Background services (AX-021)
-builder.Services.AddHostedService<AxiomaReporting.Infrastructure.BackgroundJobs.ReminderService>();
-builder.Services.AddHostedService<AxiomaReporting.Infrastructure.BackgroundJobs.NotificationRetryService>();
+// Background jobs must never send reminders or retry notifications in local
+// in-memory test hosts.
+if (!useInMemory)
+{
+  builder.Services.AddHostedService<AxiomaReporting.Infrastructure.BackgroundJobs.ReminderService>();
+  builder.Services.AddHostedService<AxiomaReporting.Infrastructure.BackgroundJobs.NotificationRetryService>();
+}
 
 // Dashboard services (AX-019, AX-020)
 builder.Services.AddScoped<IDashboardFilterService, DashboardFilterService>();
+builder.Services.Configure<BulkReportActionOptions>(
+  builder.Configuration.GetSection(BulkReportActionOptions.SectionName));
+builder.Services.AddScoped<IBulkReportActionService, BulkReportActionService>();
 
 // Branding (AX-023 / Gap 8 — site logo from SystemConstants)
 builder.Services.AddScoped<IBrandingService, BrandingService>();
@@ -110,6 +145,72 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     options.AccessDeniedPath = "/Account/AccessDenied";
     options.ExpireTimeSpan = TimeSpan.FromMinutes(sessionTimeoutMinutes);
     options.SlidingExpiration = true;
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+      ? CookieSecurePolicy.SameAsRequest
+      : CookieSecurePolicy.Always;
+    options.Events.OnValidatePrincipal = async context =>
+    {
+      var identity = context.Principal?.Identity as ClaimsIdentity;
+      var userIdValue = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+      if (identity == null || !int.TryParse(userIdValue, out var userId))
+      {
+        context.RejectPrincipal();
+        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return;
+      }
+
+      var now = DateTimeOffset.UtcNow;
+      var validatedAtValue = context.Principal?.FindFirstValue(AuthenticationState.ValidatedAtClaim);
+      if (long.TryParse(validatedAtValue, out var validatedAtUnix) &&
+          now - DateTimeOffset.FromUnixTimeSeconds(validatedAtUnix) < TimeSpan.FromMinutes(5))
+        return;
+
+      using var scope = context.HttpContext.RequestServices.CreateScope();
+      var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+      var user = await db.Users.AsNoTracking()
+        .Where(u => u.Id == userId)
+        .Select(u => new { u.PasswordHash, u.StatusId, u.UserRoleId })
+        .FirstOrDefaultAsync();
+
+      if (user == null || user.StatusId != (int)UserStatusEnum.Active)
+      {
+        context.RejectPrincipal();
+        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return;
+      }
+
+      if (!string.Equals(
+            context.Principal?.FindFirstValue(ClaimTypes.Role),
+            user.UserRoleId.ToString(),
+            StringComparison.Ordinal))
+      {
+        context.RejectPrincipal();
+        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return;
+      }
+
+      var expectedFingerprint = AuthenticationState.CreateFingerprint(
+        user.PasswordHash, user.StatusId, user.UserRoleId);
+      var ticketFingerprint = context.Principal?.FindFirstValue(AuthenticationState.FingerprintClaim);
+      if (ticketFingerprint != null &&
+          !string.Equals(ticketFingerprint, expectedFingerprint, StringComparison.Ordinal))
+      {
+        context.RejectPrincipal();
+        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return;
+      }
+
+      foreach (var claim in identity.FindAll(AuthenticationState.FingerprintClaim).ToList())
+        identity.RemoveClaim(claim);
+      foreach (var claim in identity.FindAll(AuthenticationState.ValidatedAtClaim).ToList())
+        identity.RemoveClaim(claim);
+      identity.AddClaim(new Claim(AuthenticationState.FingerprintClaim, expectedFingerprint));
+      identity.AddClaim(new Claim(AuthenticationState.ValidatedAtClaim, now.ToUnixTimeSeconds().ToString()));
+      context.ShouldRenew = true;
+    };
   });
 
 // Authorization policies
@@ -151,6 +252,43 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+  // Legacy files remain readable through authorized controller actions, but
+  // are never served directly by StaticFiles. Branding stays public.
+  context.Response.OnStarting(() =>
+  {
+    var headers = context.Response.Headers;
+    headers.TryAdd("Content-Security-Policy",
+      "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
+    headers.TryAdd("X-Content-Type-Options", "nosniff");
+    headers.TryAdd("Referrer-Policy", "no-referrer");
+    headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    headers.TryAdd("X-Frame-Options", "DENY");
+
+    if (context.User.Identity?.IsAuthenticated == true ||
+        context.Request.Path.StartsWithSegments("/Account"))
+    {
+      headers["Cache-Control"] = "no-store, private";
+      headers["Pragma"] = "no-cache";
+      headers["Expires"] = "0";
+    }
+
+    return Task.CompletedTask;
+  });
+
+  var path = context.Request.Path;
+  if (path.StartsWithSegments("/uploads/attachments") ||
+      path.StartsWithSegments("/uploads/employees") ||
+      path.StartsWithSegments("/uploads/private") ||
+      path.StartsWithSegments("/uploads/excel-errors"))
+  {
+    context.Response.StatusCode = StatusCodes.Status404NotFound;
+    return;
+  }
+
+  await next();
+});
 app.UseStaticFiles();
 app.UseRouting();
 app.UseSession();
@@ -197,6 +335,35 @@ static void SeedDemoData(AppDbContext db)
       CreatedAt = now
     };
     db.Users.Add(employee);
+    db.SaveChanges();
+  }
+
+  // Optional local/staging inspector identity for browser tests. Credentials are
+  // supplied at runtime and are never embedded in source or used against SQL.
+  var inspectorIdNumber = Environment.GetEnvironmentVariable("AXIOMA_TEST_INSPECTOR_USERNAME")
+    ?? "inspector";
+  var inspectorPassword = Environment.GetEnvironmentVariable("AXIOMA_TEST_INSPECTOR_PASSWORD")
+    ?? "InspectorTest123!";
+  var inspector = db.Users.FirstOrDefault(u => u.IdNumber == inspectorIdNumber);
+  if (inspector == null)
+  {
+    inspector = new User
+    {
+      EmployeeCode = "INSPECTOR-E2E",
+      IdNumber = inspectorIdNumber,
+      FirstName = "אלעד",
+      LastName = "מפקח בדיקות",
+      PasswordHash = password.HashPassword(inspectorPassword),
+      RoleId = 1,
+      UserRoleId = (int)UserRoleEnum.InspectorView,
+      StatusId = 1,
+      IsReportingEmployee = false,
+      MustChangePassword = false,
+      AcceptedTermsOfUse = true,
+      LastPasswordChange = now,
+      CreatedAt = now
+    };
+    db.Users.Add(inspector);
     db.SaveChanges();
   }
 
@@ -315,11 +482,82 @@ static void SeedDemoData(AppDbContext db)
   }
 
   db.SaveChanges();
+
+  var workbookFixtureFiles = (Environment.GetEnvironmentVariable("AXIOMA_TEST_WORKBOOK_FILES") ?? string.Empty)
+    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Where(File.Exists)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToList();
+  if (workbookFixtureFiles.Count > 0)
+    SeedClientWorkbookFixtures(db, employee, now, workbookFixtureFiles);
+
+  // Browser/E2E-only fixture data. SeedDemoData is invoked exclusively when
+  // AXIOMA_DEMO_INMEMORY=true; these records can never reach a SQL database.
+  framework.InstitutionSymbol = "0872903";
+  if (!db.Institutions.Any(i => i.InstitutionSymbol == "872903"))
+  {
+    db.Institutions.Add(new Institution
+    {
+      InstitutionSymbol = "872903",
+      Name = "הילה ישיבה פרי הארץ",
+      LocalityId = locality.Id,
+      DistrictId = districtA.Id,
+      SectorId = sectorA.Id,
+      IsActive = true,
+      CreatedAt = now
+    });
+  }
+  db.SaveChanges();
+
+  var activeMonth = db.ReportingMonths.First(m => m.IsActive);
+  var demoAllocation = db.Allocations.First(a => a.UserId == employee.Id && a.ProjectId == project.Id);
+  var demoReport = db.Reports.FirstOrDefault(r =>
+    r.UserId == employee.Id && r.ReportingMonthId == activeMonth.Id);
+  if (demoReport == null)
+  {
+    demoReport = new Report
+    {
+      UserId = employee.Id,
+      ReportingMonthId = activeMonth.Id,
+      StatusId = 2,
+      CreatedAt = now
+    };
+    db.Reports.Add(demoReport);
+    db.SaveChanges();
+  }
+
+  if (!db.ReportRows.Any(r => r.ReportId == demoReport.Id))
+  {
+    for (var sequence = 1; sequence <= 12; sequence++)
+    {
+      db.ReportRows.Add(new ReportRow
+      {
+        ReportId = demoReport.Id,
+        AllocationId = demoAllocation.Id,
+        SequenceNumber = sequence,
+        MeetingDate = DateTime.Today.AddDays(-sequence),
+        MeetingDuration = 1,
+        DistrictId = districtA.Id,
+        LocalityId = locality.Id,
+        FrameworkId = framework.Id,
+        EducationalProgramId = educationalProgram.Id,
+        DomainId = domain.Id,
+        Subject1Id = subject.Id,
+        DiscussionCodeId = discussionCode.Id,
+        ClassId = schoolClass.Id,
+        GradeLevelId = gradeLevel.Id,
+        Notes = $"E2E dashboard row {sequence}",
+        CreatedAt = now
+      });
+    }
+    db.SaveChanges();
+  }
 }
 
 static T EnsureLookup<T>(DbSet<T> set, string description, DateTime now) where T : AxiomaReporting.Core.Entities.Base.LookupEntity, new()
 {
-  var existing = set.FirstOrDefault(x => x.Description == description);
+  var existing = set.Local.FirstOrDefault(x => x.Description == description) ??
+    set.FirstOrDefault(x => x.Description == description);
   if (existing != null) return existing;
 
   var entity = new T
@@ -330,6 +568,127 @@ static T EnsureLookup<T>(DbSet<T> set, string description, DateTime now) where T
   };
   set.Add(entity);
   return entity;
+}
+
+static void SeedClientWorkbookFixtures(
+  AppDbContext db,
+  User employee,
+  DateTime now,
+  IReadOnlyCollection<string> workbookFiles)
+{
+  // This helper is called only from SeedDemoData while AXIOMA_DEMO_INMEMORY=true.
+  // The fixture paths are discovered by the test host and passed at runtime; the
+  // application has no machine-specific attachment path or production fallback.
+  var testProject = EnsureLookup(db.Projects, "בדיקות קובצי לקוח", now);
+  db.SaveChanges();
+
+  foreach (var workbookFile in workbookFiles)
+  {
+    using var workbook = new XLWorkbook(workbookFile);
+    var worksheet = workbook.Worksheets.FirstOrDefault();
+    var used = worksheet?.RangeUsed();
+    if (worksheet == null || used == null) continue;
+
+    var headerRow = used.RangeAddress.FirstAddress.RowNumber;
+    var lastRow = used.RangeAddress.LastAddress.RowNumber;
+    IEnumerable<string> Values(int column) => Enumerable.Range(
+        headerRow + 1,
+        Math.Max(0, lastRow - headerRow))
+      .Select(rowNumber => worksheet.Row(rowNumber).Cell(column).GetFormattedString().Trim())
+      .Where(value => !string.IsNullOrWhiteSpace(value))
+      .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var value in Values(3)) EnsureLookup(db.Districts, value, now);
+    foreach (var value in Values(4)) EnsureLookup(db.Localities, value, now);
+    foreach (var value in Values(6)) EnsureLookup(db.EducationalPrograms, value, now);
+    foreach (var value in Values(7)) EnsureLookup(db.Domains, value, now);
+    foreach (var value in Values(8).Concat(Values(9)).Distinct(StringComparer.OrdinalIgnoreCase))
+      EnsureLookup(db.Subjects, value, now);
+    foreach (var value in Values(10)) EnsureLookup(db.DiscussionCodes, value, now);
+    foreach (var value in Values(11)) EnsureLookup(db.ClassConclusions, value, now);
+    foreach (var value in Values(12)) EnsureLookup(db.FrameworkConclusions, value, now);
+    foreach (var value in Values(13)) EnsureLookup(db.LocalityDistrictNationals, value, now);
+    foreach (var value in Values(14)) EnsureLookup(db.GradeLevels, value, now);
+    foreach (var value in Values(15)) EnsureLookup(db.Classes, value, now);
+
+    foreach (var compositeValue in Values(5))
+    {
+      var symbol = Regex.Match(compositeValue, @"\d{3,}").Value;
+      var existingFramework = db.Frameworks.Local.FirstOrDefault(item =>
+          (!string.IsNullOrWhiteSpace(symbol) && item.InstitutionSymbol == symbol) ||
+          item.Description == compositeValue) ??
+        db.Frameworks.FirstOrDefault(item =>
+          (!string.IsNullOrWhiteSpace(symbol) && item.InstitutionSymbol == symbol) ||
+          item.Description == compositeValue);
+      if (existingFramework != null) continue;
+
+      var description = compositeValue.Split('—').LastOrDefault()?.Trim();
+      db.Frameworks.Add(new Framework
+      {
+        Description = string.IsNullOrWhiteSpace(description) ? compositeValue : description,
+        InstitutionSymbol = symbol,
+        IsActive = true,
+        CreatedAt = now
+      });
+    }
+
+    db.SaveChanges();
+
+    var fileName = Path.GetFileName(workbookFile);
+    var programDescription = fileName.Contains("ארגואן", StringComparison.OrdinalIgnoreCase)
+      ? "תוכנית שמיים"
+      : fileName.Contains("יוסף", StringComparison.OrdinalIgnoreCase)
+        ? "כיתות שח\"ר"
+        : Path.GetFileNameWithoutExtension(fileName);
+    var program = EnsureLookup(db.Programs, programDescription, now);
+    db.SaveChanges();
+
+    var alreadySeeded = db.Allocations
+      .Include(item => item.AllocationPrograms)
+      .Any(item => item.UserId == employee.Id && item.ProjectId == testProject.Id &&
+                   item.AllocationPrograms.Any(link => link.ProgramId == program.Id));
+    if (alreadySeeded) continue;
+
+    var allocation = new Allocation
+    {
+      UserId = employee.Id,
+      ProjectId = testProject.Id,
+      MonthlyEmploymentScope = 2000,
+      AnnualEmploymentScope = 20000,
+      MonthlyRowAllocation = 2000,
+      AnnualRowAllocation = 20000,
+      OutputDuration = "Unlimited",
+      AllowExcelUpload = true,
+      Notes = $"E2E workbook fixture: {fileName}",
+      IsActive = true,
+      CreatedAt = now
+    };
+    allocation.AllocationPrograms.Add(new AllocationProgram
+    {
+      Allocation = allocation,
+      ProgramId = program.Id
+    });
+    db.Allocations.Add(allocation);
+    db.SaveChanges();
+  }
+
+  var similarityThreshold = db.SystemConstants.FirstOrDefault(item =>
+    item.Key == "NotesSimilarityThresholdPercent");
+  if (similarityThreshold == null)
+  {
+    db.SystemConstants.Add(new SystemConstant
+    {
+      Key = "NotesSimilarityThresholdPercent",
+      Value = "101",
+      Description = "E2E workbook fixture: disable similarity rejection",
+      CreatedAt = now
+    });
+  }
+  else
+  {
+    similarityThreshold.Value = "101";
+  }
+  db.SaveChanges();
 }
 
 public partial class Program { }

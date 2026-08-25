@@ -6,12 +6,30 @@
     var filter = ViewBag.Filter as DashboardFilter ?? new DashboardFilter();
     var reportingMonths = ViewBag.ReportingMonths as List<ReportingMonth> ?? new List<ReportingMonth>();
     var districts = ViewBag.Districts as List<District> ?? new List<District>();
+    var programs = ViewBag.Programs as List<AxiomaReporting.Core.Entities.Program> ?? new List<AxiomaReporting.Core.Entities.Program>();
     bool canApprove = ViewBag.CanApprove ?? false;
-    // Status override (reopen approved reports) — SystemAdmin / ProjectManager only
-    bool canReopen = User.IsInRole("1") || User.IsInRole("2");
+    bool canBulkSubmit = ViewBag.CanBulkSubmit ?? false;
+    bool canBulkApprove = ViewBag.CanBulkApprove ?? false;
+    bool canBulkReturnApproved = ViewBag.CanBulkReturnApproved ?? false;
+    int approvedReturnTargetStatusId = ViewBag.ApprovedReturnTargetStatusId ?? 3;
+    string approvedReturnTargetText = approvedReturnTargetStatusId == 3 ? "הוגש" : "הוחזר לתיקון";
     int total = ViewBag.TotalCount ?? 0;
     var pendingCount = rows.Count(r => r.StatusId == 3);
     var currentUrl = Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString;
+
+    Dictionary<string, object?> RouteValues(int page) => new()
+    {
+        ["Page"] = page,
+        ["PageSize"] = filter.PageSize,
+        ["StatusId"] = filter.StatusId,
+        ["DistrictId"] = filter.DistrictId,
+        ["ProgramId"] = filter.ProgramId,
+        ["EmployeeName"] = filter.EmployeeName,
+        ["FromMonthId"] = filter.FromMonthId,
+        ["ToMonthId"] = filter.ToMonthId,
+        ["SortBy"] = filter.SortBy,
+        ["SortDesc"] = filter.SortDesc
+    };
 
     string SortLink(string key) => Url.Action("Summary", new
     {
@@ -19,6 +37,7 @@
         PageSize = filter.PageSize,
         StatusId = filter.StatusId,
         DistrictId = filter.DistrictId,
+        ProgramId = filter.ProgramId,
         EmployeeName = filter.EmployeeName,
         FromMonthId = filter.FromMonthId,
         ToMonthId = filter.ToMonthId,
@@ -36,6 +55,7 @@
                asp-route-FromMonthId="@filter.FromMonthId"
                asp-route-ToMonthId="@filter.ToMonthId"
                asp-route-DistrictId="@filter.DistrictId"
+               asp-route-ProgramId="@filter.ProgramId"
                asp-route-EmployeeName="@filter.EmployeeName"
                asp-route-SortBy="@filter.SortBy"
                asp-route-SortDesc="@filter.SortDesc"
@@ -79,12 +99,23 @@
                     <label class="form-label form-label-sm">סטטוס</label>
                     <select name="StatusId" class="form-select form-select-sm" data-live-filter="statuses" data-preserve-options="1">
                         <option value="">הכל</option>
+                        <option value="2" selected="@(filter.StatusId == 2 ? "selected" : null)">בהזנה</option>
                         <option value="3" selected="@(filter.StatusId == 3 ? "selected" : null)">ממתין לאישור</option>
                         <option value="4" selected="@(filter.StatusId == 4 ? "selected" : null)">מאושר</option>
                         <option value="5" selected="@(filter.StatusId == 5 ? "selected" : null)">הוחזר לתיקון</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
+                    <label class="form-label form-label-sm">תוכנית</label>
+                    <select name="ProgramId" class="form-select form-select-sm" data-live-filter="programs">
+                        <option value="">הכל</option>
+                        @foreach (var p in programs)
+                        {
+                            <option value="@p.Id" selected="@(filter.ProgramId == p.Id ? "selected" : null)">@p.Description</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label class="form-label form-label-sm">שם / קוד / ת.ז</label>
                     <input name="EmployeeName" class="form-control form-control-sm" value="@filter.EmployeeName" placeholder="חיפוש עובד..." />
                 </div>
@@ -109,6 +140,10 @@
             @TempData["Error"]
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
         </div>
+    }
+    @if (TempData["ErrorDetails"] != null)
+    {
+        <div class="alert alert-warning" role="alert">@TempData["ErrorDetails"]</div>
     }
 
     <!-- Summary stats -->
@@ -147,18 +182,57 @@
         </div>
     </div>
 
-    @if (canApprove && pendingCount > 0)
+    @if ((canBulkSubmit || canBulkApprove || canBulkReturnApproved) &&
+         rows.Any(r => (canBulkSubmit && r.StatusId is 2 or 5) ||
+                       (canBulkApprove && r.StatusId == 3) ||
+                       (canBulkReturnApproved && r.StatusId == 4)))
     {
         <form asp-action="BulkApprove" method="post" id="bulkForm">
             @Html.AntiForgeryToken()
             <input type="hidden" name="returnUrl" value="@currentUrl" />
+            <input type="hidden" name="reason" id="approvedReturnReason" />
+            <input type="hidden" name="selectAllFiltered" id="selectAllFiltered" value="false" />
+            <input type="hidden" name="filter.StatusId" value="@filter.StatusId" />
+            <input type="hidden" name="filter.DistrictId" value="@filter.DistrictId" />
+            <input type="hidden" name="filter.ProgramId" value="@filter.ProgramId" />
+            <input type="hidden" name="filter.EmployeeName" value="@filter.EmployeeName" />
+            <input type="hidden" name="filter.FromMonthId" value="@filter.FromMonthId" />
+            <input type="hidden" name="filter.ToMonthId" value="@filter.ToMonthId" />
+            <input type="hidden" name="filter.SortBy" value="@filter.SortBy" />
+            <input type="hidden" name="filter.SortDesc" value="@filter.SortDesc" />
+            <div id="summarySelectedInputs"></div>
 
-            <div class="d-flex gap-2 mb-2 align-items-center">
-                <button type="button" onclick="selectAll(true)" class="btn btn-outline-secondary btn-sm">בחר הכל</button>
+            <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+                <strong>פעולות על הנבחרים</strong>
+                <button type="button" onclick="selectAll(true)" class="btn btn-outline-secondary btn-sm">בחר את כל הדיווחים בעמוד</button>
                 <button type="button" onclick="selectAll(false)" class="btn btn-outline-secondary btn-sm">בטל בחירה</button>
-                <button type="submit" class="btn btn-success btn-sm" id="bulkApproveBtn" disabled>
-                    אשר נבחרים (<span id="selectedCount">0</span>)
-                </button>
+                @if (canBulkReturnApproved && filter.StatusId == 4 && total > 0)
+                {
+                    <button type="button" id="selectAllFilteredBtn" class="btn btn-outline-primary btn-sm" data-total="@total">
+                        בחר את כל @total תוצאות החיפוש
+                    </button>
+                }
+                @if (canBulkSubmit)
+                {
+                    <button type="submit" class="btn btn-primary btn-sm" id="bulkSubmitBtn" disabled formaction="@Url.Action("BulkSubmit")">
+                        העבר דיווחים שנבחרו להוגש
+                    </button>
+                }
+                @if (canBulkApprove)
+                {
+                    <button type="submit" class="btn btn-success btn-sm" id="bulkApproveBtn" disabled formaction="@Url.Action("BulkApprove")">
+                        אשר דיווחים שנבחרו
+                    </button>
+                }
+                @if (canBulkReturnApproved)
+                {
+                    <button type="submit" class="btn btn-warning btn-sm" id="bulkReturnBtn" disabled
+                            formaction="@Url.Action("BulkReturnApproved")">
+                        החזר דיווחים
+                    </button>
+                }
+                <span class="badge bg-secondary"><span id="selectedCount">0</span> דיווחים נבחרו</span>
+                <span class="small text-muted" id="selectionScopeText">ה-checkbox בכותרת בוחר את העמוד הנוכחי בלבד.</span>
             </div>
 
             <div class="table-responsive">
@@ -192,10 +266,12 @@
                         {
                             <tr>
                                 <td class="text-center">
-                                    @if (r.StatusId == 3)
+                                    @if ((canBulkSubmit && r.StatusId is 2 or 5) ||
+                                         (canBulkApprove && r.StatusId == 3) ||
+                                         (canBulkReturnApproved && r.StatusId == 4))
                                     {
-                                        <input type="checkbox" name="reportIds" value="@r.ReportId"
-                                               class="report-cb" onchange="updateCount()" />
+                                        <input type="checkbox" value="@r.ReportId" data-report-id="@r.ReportId" data-status-id="@r.StatusId"
+                                               class="report-cb" onchange="updateCount(this)" aria-label="בחר דיווח של @r.FullName" />
                                     }
                                 </td>
                                 <td>@r.FullName</td>
@@ -242,12 +318,6 @@
                                                 formaction="@Url.Action("Approve", "Report", new { reportId = r.ReportId })">אשר</button>
                                         <button type="button" class="btn btn-sm btn-danger ms-1" onclick="openReject(@r.ReportId)">דחה</button>
                                     }
-                                    else if (r.StatusId == 4 && canReopen)
-                                    {
-                                        <button type="submit" class="btn btn-sm btn-outline-primary"
-                                                formaction="@Url.Action("Reopen", "Report", new { reportId = r.ReportId })"
-                                                onclick="return confirm('להחזיר את הדיווח לעריכה? העובד יוכל להוסיף שורות ולהגיש מחדש')">החזר לעריכה</button>
-                                    }
                                     else
                                     {
                                         <span class="text-muted">—</span>
@@ -277,17 +347,13 @@
                         <th>יתרת שורות</th>
                         <th>מסמכים</th>
                         <th><a class="link-dark" href="@SortLink("submitted")">תאריך הגשה</a></th>
-                        @if (canReopen)
-                        {
-                            <th>פעולות</th>
-                        }
                     </tr>
                 </thead>
                 <tbody>
                     @if (!rows.Any())
                     {
                         <tr>
-                            <td colspan="@(canReopen ? 11 : 10)" class="text-center text-muted py-4">אין דיווחים להצגה</td>
+                            <td colspan="10" class="text-center text-muted py-4">אין דיווחים להצגה</td>
                         </tr>
                     }
                     @foreach (var r in rows)
@@ -326,30 +392,40 @@
                                 }
                             </td>
                             <td>@(r.SubmittedAt.HasValue ? r.SubmittedAt.Value.ToString("dd/MM/yyyy") : "—")</td>
-                            @if (canReopen)
-                            {
-                                <td>
-                                    @if (r.StatusId == 4)
-                                    {
-                                        <form asp-controller="Report" asp-action="Reopen" method="post" class="m-0 d-inline">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="reportId" value="@r.ReportId" />
-                                            <input type="hidden" name="returnUrl" value="@currentUrl" />
-                                            <button type="submit" class="btn btn-sm btn-outline-primary"
-                                                    onclick="return confirm('להחזיר את הדיווח לעריכה? העובד יוכל להוסיף שורות ולהגיש מחדש')">החזר לעריכה</button>
-                                        </form>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">—</span>
-                                    }
-                                </td>
-                            }
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
+    }
+
+    @if (total > filter.PageSize)
+    {
+        var totalPages = (int)Math.Ceiling((double)total / filter.PageSize);
+        var pager = PaginationWindow.Create(filter.Page, totalPages);
+        var currentPage = pager.CurrentPage;
+        <nav aria-label="דפדוף תוצאות" class="overflow-auto mt-3">
+            <ul class="pagination pagination-sm mb-0 flex-nowrap">
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")"><a class="page-link" href="@Url.Action("Summary", RouteValues(1))">הראשון</a></li>
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")"><a class="page-link" href="@Url.Action("Summary", RouteValues(Math.Max(1, currentPage - 1)))">הקודם</a></li>
+                @if (pager.HasPreviousWindow)
+                {
+                    <li class="page-item"><a class="page-link" href="@Url.Action("Summary", RouteValues(pager.PreviousWindowPage))" aria-label="הצג את עשרת העמודים הקודמים">… הקודמים</a></li>
+                }
+                @foreach (var pg in pager.Pages)
+                {
+                    <li class="page-item @(pg == currentPage ? "active" : "")">
+                        <a class="page-link" aria-current="@(pg == currentPage ? "page" : null)" href="@Url.Action("Summary", RouteValues(pg))">@pg</a>
+                    </li>
+                }
+                @if (pager.HasNextWindow)
+                {
+                    <li class="page-item"><a class="page-link" href="@Url.Action("Summary", RouteValues(pager.NextWindowPage))" aria-label="הצג את עשרת העמודים הבאים">עוד…</a></li>
+                }
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")"><a class="page-link" href="@Url.Action("Summary", RouteValues(Math.Min(totalPages, currentPage + 1)))">הבא</a></li>
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")"><a class="page-link" href="@Url.Action("Summary", RouteValues(totalPages))">האחרון</a></li>
+            </ul>
+        </nav>
     }
 </div>
 
@@ -383,21 +459,110 @@
 
 @section Scripts {
     <script>
+        var selectedSummaryReports = new Set();
+        var allFilteredSelected = false;
+        var allFilteredCount = 0;
+
         function selectAll(val) {
-            document.querySelectorAll('.report-cb').forEach(function (cb) { cb.checked = val; });
+            allFilteredSelected = false;
+            document.getElementById('selectAllFiltered').value = 'false';
+            document.querySelectorAll('.report-cb').forEach(function (cb) {
+                if (val) selectedSummaryReports.add(cb.dataset.reportId);
+                else selectedSummaryReports.delete(cb.dataset.reportId);
+            });
             updateCount();
         }
 
-        function updateCount() {
-            var count = document.querySelectorAll('.report-cb:checked').length;
-            document.getElementById('selectedCount').textContent = count;
-            document.getElementById('bulkApproveBtn').disabled = count === 0;
+        function updateCount(changed) {
+            if (changed) {
+                allFilteredSelected = false;
+                document.getElementById('selectAllFiltered').value = 'false';
+                if (changed.checked) selectedSummaryReports.add(changed.dataset.reportId);
+                else selectedSummaryReports.delete(changed.dataset.reportId);
+            }
+
+            var boxes = Array.prototype.slice.call(document.querySelectorAll('.report-cb'));
+            boxes.forEach(function (cb) { cb.checked = selectedSummaryReports.has(cb.dataset.reportId); });
+            var statuses = {};
+            boxes.forEach(function (cb) { statuses[cb.dataset.reportId] = parseInt(cb.dataset.statusId, 10); });
+            var ids = Array.from(selectedSummaryReports);
+            var count = allFilteredSelected ? allFilteredCount : ids.length;
+            var countElement = document.getElementById('selectedCount');
+            if (countElement) countElement.textContent = count;
+            var submitButton = document.getElementById('bulkSubmitBtn');
+            var approveButton = document.getElementById('bulkApproveBtn');
+            var returnButton = document.getElementById('bulkReturnBtn');
+            // "All filtered" is exposed only for returning approved reports. Keep
+            // the unrelated bulk actions disabled so the same server-side filter
+            // cannot accidentally be submitted to a different endpoint.
+            if (submitButton) submitButton.disabled = allFilteredSelected || count === 0 ||
+                !ids.every(function (id) { return statuses[id] === 2 || statuses[id] === 5; });
+            if (approveButton) approveButton.disabled = allFilteredSelected || count === 0 ||
+                !ids.every(function (id) { return statuses[id] === 3; });
+            if (returnButton) returnButton.disabled = count === 0 ||
+                (!allFilteredSelected && !ids.every(function (id) { return statuses[id] === 4; }));
+            var hidden = document.getElementById('summarySelectedInputs');
+            if (hidden) {
+                hidden.innerHTML = '';
+                (allFilteredSelected ? [] : ids).forEach(function (id) {
+                    var input = document.createElement('input');
+                    input.type = 'hidden'; input.name = 'reportIds'; input.value = id;
+                    hidden.appendChild(input);
+                });
+            }
+            var header = document.getElementById('selectAllCb');
+            if (header) {
+                var pageIds = Array.from(new Set(boxes.map(function (cb) { return cb.dataset.reportId; })));
+                header.checked = pageIds.length > 0 && pageIds.every(function (id) { return selectedSummaryReports.has(id); });
+                header.indeterminate = pageIds.some(function (id) { return selectedSummaryReports.has(id); }) && !header.checked;
+            }
+            var scopeText = document.getElementById('selectionScopeText');
+            if (scopeText) scopeText.textContent = allFilteredSelected
+                ? 'נבחרו כל ' + allFilteredCount + ' תוצאות החיפוש המסוננות.'
+                : 'ה-checkbox בכותרת בוחר את העמוד הנוכחי בלבד.';
         }
 
         var selectAllCb = document.getElementById('selectAllCb');
         if (selectAllCb) {
             selectAllCb.addEventListener('change', function () {
                 selectAll(this.checked);
+            });
+        }
+
+        var selectAllFilteredBtn = document.getElementById('selectAllFilteredBtn');
+        if (selectAllFilteredBtn) {
+            selectAllFilteredBtn.addEventListener('click', function () {
+                allFilteredSelected = true;
+                allFilteredCount = parseInt(this.dataset.total || '0', 10);
+                document.getElementById('selectAllFiltered').value = 'true';
+                document.querySelectorAll('.report-cb[data-status-id="4"]').forEach(function (cb) {
+                    selectedSummaryReports.add(cb.dataset.reportId);
+                });
+                updateCount();
+            });
+        }
+
+        var bulkForm = document.getElementById('bulkForm');
+        if (bulkForm) {
+            bulkForm.addEventListener('submit', function (event) {
+                var submitter = event.submitter;
+                if (!submitter || ['bulkSubmitBtn', 'bulkApproveBtn', 'bulkReturnBtn'].indexOf(submitter.id) < 0) return;
+                var affectedCount = allFilteredSelected ? allFilteredCount : selectedSummaryReports.size;
+                var action = submitter.id === 'bulkApproveBtn' ? 'לאשר' :
+                    submitter.id === 'bulkReturnBtn' ? 'להחזיר' : 'להעביר להוגש';
+                if (submitter.id === 'bulkReturnBtn') {
+                    var reason = window.prompt('יש לציין סיבת החזרה עבור ' + affectedCount + ' דיווחים:');
+                    if (!reason || !reason.trim()) {
+                        event.preventDefault(); return;
+                    }
+                    document.getElementById('approvedReturnReason').value = reason.trim();
+                    if (!window.confirm('להחזיר ' + affectedCount + ' דיווחים מסטטוס מאושר לסטטוס @approvedReturnTargetText? הדיווחים לא יהיו עוד מאושרים.')) {
+                        event.preventDefault(); return;
+                    }
+                } else if (!window.confirm(action + ' ' + affectedCount + ' דיווחים שנבחרו?')) {
+                    event.preventDefault(); return;
+                }
+                submitter.disabled = true;
             });
         }
 
@@ -413,6 +578,7 @@
 
             var inputToField = {
                 'DistrictId': 'DistrictId',
+                'ProgramId': 'ProgramId',
                 'StatusId': 'StatusId',
                 'FromMonthId': 'FromMonthId',
                 'EmployeeName': 'EmployeeName'
@@ -425,7 +591,7 @@
                     if (!el) return;
                     var v = el.value;
                     if (v === null || v === undefined || v === '') return;
-                    if (['DistrictId', 'StatusId', 'FromMonthId'].indexOf(name) >= 0) {
+                    if (['DistrictId', 'ProgramId', 'StatusId', 'FromMonthId'].indexOf(name) >= 0) {
                         var n = parseInt(v, 10);
                         if (!isNaN(n)) {
                             sel[inputToField[name]] = n;

@@ -2,7 +2,9 @@ using AxiomaReporting.Core.Entities;
 using AxiomaReporting.Core.Enums;
 using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
+using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Models;
+using AxiomaReporting.Web.Services;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -105,47 +107,41 @@ public class AllocationsController : Controller
 
     var allocations = await ApplyAllocationSort(
         ApplyAllocationFilters(
-          await BuildScopedAllocationQueryAsync(_db, _currentUser.UserId, _currentUser.UserRole),
+          await BuildScopedAllocationQueryAsync(
+            _db,
+            _currentUser.UserId,
+            _currentUser.UserRole,
+            includeFullDetails: true),
           filter),
         filter.SortBy,
         filter.SortDesc)
       .ToListAsync();
 
+    var frameworkIds = allocations
+      .SelectMany(a => a.AllocationFrameworks)
+      .Select(x => x.FrameworkId)
+      .Distinct()
+      .ToList();
+    var frameworkLabels = await FrameworkLabelService.BuildLabelsAsync(_db, frameworkIds);
+    var employeesById = allocations
+      .Where(allocation => allocation.User != null)
+      .GroupBy(allocation => allocation.UserId)
+      .ToDictionary(group => group.Key, group => group.First().User!);
+    var employees = allocations
+      .Select(allocation => allocation.UserId)
+      .Distinct()
+      .Where(employeesById.ContainsKey)
+      .Select(userId => employeesById[userId])
+      .ToList();
+
     using var workbook = new XLWorkbook();
-    var ws = workbook.Worksheets.Add("הקצאות עובדים");
-    ws.RightToLeft = true;
-    var headers = new[]
-    {
-      "פרויקט", "תוכנית", "מחוז", "מגזר", "ת.ז", "קוד עובד", "שם פרטי", "שם משפחה",
-      "היקף פעילות חודשי", "היקף פעילות יומי", "היקף פעילות שנתי", "הקצאת שורות חודשית",
-      "הקצאת שורות שנתית", "משך תפוקה", "הערות", "אפשר העלאת קובץ דיווח"
-    };
-    for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
-
-    var row = 2;
-    foreach (var allocation in allocations)
-    {
-      ws.Cell(row, 1).Value = allocation.Project?.Description;
-      ws.Cell(row, 2).Value = JoinValues(allocation.AllocationPrograms.Select(x => x.Program?.Description));
-      ws.Cell(row, 3).Value = JoinValues(allocation.AllocationDistricts.Select(x => x.District?.Description));
-      ws.Cell(row, 4).Value = JoinValues(allocation.AllocationSectors.Select(x => x.Sector?.Description));
-      ws.Cell(row, 5).Value = allocation.User?.IdNumber;
-      ws.Cell(row, 6).Value = allocation.User?.EmployeeCode;
-      ws.Cell(row, 7).Value = allocation.User?.FirstName;
-      ws.Cell(row, 8).Value = allocation.User?.LastName;
-      if (allocation.MonthlyEmploymentScope.HasValue) ws.Cell(row, 9).Value = (double)allocation.MonthlyEmploymentScope.Value;
-      ws.Cell(row, 10).Value = allocation.DailyEmploymentScope?.ToString("0.##") ?? "ללא הגבלה";
-      if (allocation.AnnualEmploymentScope.HasValue) ws.Cell(row, 11).Value = (double)allocation.AnnualEmploymentScope.Value;
-      if (allocation.MonthlyRowAllocation.HasValue) ws.Cell(row, 12).Value = allocation.MonthlyRowAllocation.Value;
-      if (allocation.AnnualRowAllocation.HasValue) ws.Cell(row, 13).Value = allocation.AnnualRowAllocation.Value;
-      ws.Cell(row, 14).Value = allocation.OutputDuration;
-      ws.Cell(row, 15).Value = allocation.Notes;
-      ws.Cell(row, 16).Value = allocation.AllowExcelUpload ? "כן" : "לא";
-      row++;
-    }
-
-    ws.Row(1).Style.Font.Bold = true;
-    ws.Columns().AdjustToContents();
+    EmployeeAllocationWorksheetWriter.AddWorksheet(
+      workbook,
+      "עובדים והקצאות",
+      employees,
+      allocations,
+      frameworkLabels,
+      includeEmployeesWithoutAllocations: false);
 
     using var stream = new MemoryStream();
     workbook.SaveAs(stream);
@@ -318,6 +314,7 @@ public class AllocationsController : Controller
       .AsSplitQuery()
       .Include(a => a.User)
       .Include(a => a.Project)
+      .Include(a => a.ReportType)
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
       .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)
       .Include(a => a.AllocationSectors).ThenInclude(x => x.Sector)
@@ -326,7 +323,9 @@ public class AllocationsController : Controller
   private static IQueryable<Allocation> FullAllocationQuery(AppDbContext db) =>
     db.Allocations
       .AsSplitQuery()
-      .Include(a => a.User)
+      .Include(a => a.User).ThenInclude(u => u!.Role)
+      .Include(a => a.User).ThenInclude(u => u!.UserRole)
+      .Include(a => a.User).ThenInclude(u => u!.Status)
       .Include(a => a.Project)
       .Include(a => a.AllocationDistricts).ThenInclude(x => x.District)
       .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)
@@ -366,9 +365,4 @@ public class AllocationsController : Controller
     };
   }
 
-  private static string JoinValues(IEnumerable<string?> values)
-  {
-    var items = values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
-    return items.Count == 0 ? "" : string.Join(", ", items);
-  }
 }

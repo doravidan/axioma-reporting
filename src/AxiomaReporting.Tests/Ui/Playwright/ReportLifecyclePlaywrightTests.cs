@@ -22,8 +22,15 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
     [Fact]
     public async Task ReportLifecycle_SubmitRejectResubmitApproveBulk_EndToEnd()
     {
-        // Auto-accept all confirm() dialogs (submit report, delete row).
-        Page.Dialog += async (_, dialog) => await dialog.AcceptAsync();
+        // Accept confirmations and provide an explicit reason to the audited
+        // approved-return / report-deletion prompts.
+        Page.Dialog += async (_, dialog) =>
+        {
+            if (dialog.Type == "prompt")
+                await dialog.AcceptAsync("סיבת בדיקת E2E בסביבה סינתטית");
+            else
+                await dialog.AcceptAsync();
+        };
 
         await LoginAsync();
 
@@ -81,18 +88,64 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
         (await GetPageTextAsync()).Should().Contain("דיווחים אושרו בהצלחה");
         (await SummaryRow("990002").Locator(".badge:has-text('מאושר')").CountAsync()).Should().BeGreaterThan(0);
 
-        // ── Phase 2b: reopen an approved report (status override) ───────────
-        // An approved report is locked for the employee; admin/PM can return it
-        // to editing so more rows can be reported within the same month.
-        await SummaryRow("990002").Locator("button:has-text('החזר לעריכה'), form button:has-text('החזר לעריכה')").First.ClickAsync();
+        // ── Phase 2b: selection scopes + audited approved return ───────────
+        // The header selects the current page only. The explicit second action
+        // represents all authorized results under the active Approved filter.
+        await Page.GotoAsync("/Dashboard/Summary?StatusId=4");
+        var visibleApproved = await Page.Locator("input.report-cb[data-status-id='4']").CountAsync();
+        visibleApproved.Should().BeGreaterThan(1);
+        await Page.Locator("#selectAllCb").CheckAsync();
+        (await Page.Locator("#selectedCount").InnerTextAsync()).Trim().Should().Be(visibleApproved.ToString());
+        await Page.Locator("button:has-text('בטל בחירה')").ClickAsync();
+        (await Page.Locator("#selectedCount").InnerTextAsync()).Trim().Should().Be("0");
+
+        var allFilteredButton = Page.Locator("#selectAllFilteredBtn");
+        (await allFilteredButton.CountAsync()).Should().Be(1);
+        var allFilteredCount = await allFilteredButton.GetAttributeAsync("data-total");
+        await allFilteredButton.ClickAsync();
+        (await Page.Locator("#selectedCount").InnerTextAsync()).Trim().Should().Be(allFilteredCount);
+        (await Page.Locator("#bulkReturnBtn").IsDisabledAsync()).Should().BeFalse();
+        (await Page.Locator("#bulkApproveBtn").IsDisabledAsync()).Should().BeTrue(
+            because: "all-filtered Approved selection must never enable an unrelated bulk endpoint");
+        var artifactDirectory = ArtifactDirectory();
+        Directory.CreateDirectory(artifactDirectory);
+        await Page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            Path = Path.Combine(artifactDirectory, "summary-approved-all-filtered.png"),
+            FullPage = true
+        });
+        await Page.Locator("button:has-text('בטל בחירה')").ClickAsync();
+
+        // Limit the destructive action to the dedicated synthetic employee.
+        await Page.GotoAsync("/Dashboard/Summary?StatusId=4&EmployeeName=990002");
+        await SummaryRow("990002").Locator("input.report-cb[data-status-id='4']").CheckAsync();
+        await Page.Locator("#bulkReturnBtn").ClickAsync();
         await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
         Page.Url.Should().Contain("/Dashboard/Summary");
-        (await GetPageTextAsync()).Should().Contain("הדיווח הוחזר לעריכה");
-        (await SummaryRow("990002").Locator(".badge:has-text('הוחזר לתיקון')").CountAsync())
-            .Should().BeGreaterThan(0, because: "reopening must return the report to the editable returned-for-correction state");
+        (await GetPageTextAsync()).Should().Contain("הוחזרו מסטטוס מאושר לסטטוס הוגש");
+        await Page.GotoAsync("/Dashboard/Summary?EmployeeName=990002");
+        (await SummaryRow("990002").Locator(".badge:has-text('ממתין לאישור')").CountAsync())
+            .Should().BeGreaterThan(0, because: "the safe configured target for approved return is Submitted");
 
-        // The reopened report accepts a new row and can be resubmitted.
-        await AddRowAndSubmitAsync($"/Report?userId={emp2}");
+        // ── Phase 2c: logical deletion is consistent and permits a fresh report ──
+        await Page.GotoAsync("/Dashboard?show=1&EmployeeCode=990002");
+        var dedicatedReportCheckbox = Page.Locator(".dashboard-report-cb");
+        (await dedicatedReportCheckbox.CountAsync()).Should().BeGreaterThan(0);
+        await dedicatedReportCheckbox.First.CheckAsync();
+        await Page.Locator("#bulkDeleteReportsBtn").ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        (await GetPageTextAsync()).Should().Contain("דיווחים נמחקו");
+        (await Page.Locator(".dashboard-report-cb").CountAsync()).Should().Be(0,
+            because: "the archived report must disappear from the dashboard query");
+
+        await Page.GotoAsync("/Dashboard/Summary?EmployeeName=990002");
+        (await SummaryRow("990002").CountAsync()).Should().Be(0,
+            because: "the archived report must disappear from Summary as well");
+
+        await Page.GotoAsync($"/Report?userId={emp2}");
+        (await Page.Locator("button:has-text('הוסף שורה')").CountAsync()).Should().BeGreaterThan(0,
+            because: "an archived report must not block creation of a fresh draft for the same employee and month");
+        (await Page.Locator("#reportTable tbody tr[data-row-id]").CountAsync()).Should().Be(0);
 
         // ── Phase 3: employee self-service flow on the demo employee ────────
         // Ends with reject + row deletion so the demo report stays editable for
@@ -115,6 +168,7 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
         await Context.ClearCookiesAsync();
         await LoginAsync(DemoEmployeeId, DemoEmployeePassword);
         await Page.GotoAsync("/Report/Index");
+        await SelectDemoAllocationIfNeededAsync();
         var employeeView = await GetPageTextAsync();
         employeeView.Should().Contain("הוחזר לתיקון");
         (await Page.Locator("button:has-text('הוסף שורה')").CountAsync())
@@ -126,7 +180,10 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
         if (await deleteButtons.CountAsync() > 0)
         {
             await deleteButtons.First.ClickAsync();
-            await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+            var deleteDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deleteDeadline &&
+                   await Page.Locator("#reportTable tbody tr[data-row-id]").CountAsync() >= rowCountBefore)
+                await Task.Delay(100);
             (await Page.Locator("#reportTable tbody tr[data-row-id]").CountAsync())
                 .Should().BeLessThan(Math.Max(rowCountBefore, 1));
         }
@@ -190,9 +247,7 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
         // project is chosen. NOTE: Choices.js multi-selects remove non-selected
         // <option> elements from the DOM, so available values must be read from
         // the Choices store, not sel.options.
-        await Page.WaitForFunctionAsync(
-            $"() => {{ {SelectableValuesJs} return selectableValues(\"select[name='ProgramIds']\").length > 0; }}",
-            null, new PageWaitForFunctionOptions { Timeout = 10_000 });
+        await WaitForSelectableValueAsync("ProgramIds");
         await SelectFirstFromListAsync("ProgramIds");
         await Page.Locator("input[name='AnnualEmploymentScope']").FillAsync("100");
         await Page.Locator("input[name='MonthlyEmploymentScope']").FillAsync("20");
@@ -252,6 +307,22 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
         }}", selectName);
     }
 
+    private async Task WaitForSelectableValueAsync(string selectName)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            var count = await Page.EvaluateAsync<int>($@"(name) => {{
+                {SelectableValuesJs}
+                return selectableValues(`select[name='${{name}}']`).length;
+            }}", selectName);
+            if (count > 0) return;
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException($"No selectable value loaded for {selectName} within 10 seconds.");
+    }
+
     private async Task ThrowOnValidationErrorsAsync(string context)
     {
         var errors = await Page.Locator(".text-danger, .validation-summary-errors li").AllInnerTextsAsync();
@@ -260,10 +331,25 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
             throw new Xunit.Sdk.XunitException($"Validation errors while {context}: {joined} (url: {Page.Url})");
     }
 
+    private async Task SelectDemoAllocationIfNeededAsync()
+    {
+        if (await Page.Locator("#reportTable").CountAsync() > 0)
+            return;
+
+        var demoAllocation = Page.Locator("a.list-group-item")
+            .Filter(new LocatorFilterOptions { HasText = "תוכנית א" });
+        if (await demoAllocation.CountAsync() == 0)
+            return;
+
+        await demoAllocation.ClickAsync();
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+    }
+
     /// <summary>Opens the report editor, adds one fully-populated row, and submits the report.</summary>
     private async Task AddRowAndSubmitAsync(string reportUrl)
     {
         await Page.GotoAsync(reportUrl);
+        await SelectDemoAllocationIfNeededAsync();
         await Page.Locator("button:has-text('הוסף שורה')").First.ClickAsync();
         await Page.Locator("#rowModal.show").WaitForAsync(new LocatorWaitForOptions { Timeout = 5_000 });
 
@@ -325,5 +411,14 @@ public class ReportLifecyclePlaywrightTests : PlaywrightTestBase
             "sel => Array.from(sel.options).find(o => o.value)?.value ?? null");
         if (!string.IsNullOrEmpty(value))
             await select.First.SelectOptionAsync(value);
+    }
+
+    private static string ArtifactDirectory()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && directory.GetFiles("*.sln").Length == 0)
+            directory = directory.Parent;
+        if (directory == null) throw new DirectoryNotFoundException("Solution root was not found.");
+        return Path.Combine(directory.FullName, "artifacts", "client-feedback-20260805");
     }
 }

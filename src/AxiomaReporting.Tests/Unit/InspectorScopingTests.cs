@@ -256,7 +256,7 @@ public class InspectorScopingTests : IDisposable
   }
 
   [Fact]
-  public async Task CanAccessReportAsync_AdminAndPM_CanAccessAnyReport()
+  public async Task CanAccessReportAsync_AdminBypassesScope_ButManagersRequireAssignment()
   {
     await SeedBaseDataAsync();
 
@@ -267,12 +267,25 @@ public class InspectorScopingTests : IDisposable
     await _db.SaveChangesAsync();
 
     var adminAccess = await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.SystemAdmin);
-    var pmAccess    = await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.ProjectManager);
-    var coordAccess = await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.ProjectCoordinator);
+    var pmWithoutAssignment = await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.ProjectManager);
+    var coordWithoutAssignment = await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.ProjectCoordinator);
 
     adminAccess.Should().BeTrue("SystemAdmin must be able to access any report");
-    pmAccess.Should().BeTrue("ProjectManager must be able to access any report");
-    coordAccess.Should().BeTrue("ProjectCoordinator must be able to access any report");
+    pmWithoutAssignment.Should().BeFalse("ProjectManager access must be constrained by explicit assignments");
+    coordWithoutAssignment.Should().BeFalse("ProjectCoordinator access must be constrained by explicit assignments");
+
+    _db.InspectorAssignments.Add(new InspectorAssignment
+    {
+      Id = 1,
+      InspectorUserId = adminUserId,
+      DistrictId = DistrictCId
+    });
+    await _db.SaveChangesAsync();
+
+    (await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.ProjectManager))
+      .Should().BeTrue("the explicit District C assignment covers the report owner");
+    (await _sut.CanAccessReportAsync(report.Id, adminUserId, UserRoleEnum.ProjectCoordinator))
+      .Should().BeTrue("the same assignment model applies to coordinators");
   }
 
   [Fact]

@@ -216,6 +216,49 @@ public class ReportFlowTests : IDisposable
         because: "approving must enqueue a ReportApproved email");
   }
 
+  [Fact]
+  public async Task SystemAdmin_CanApproveReportWithoutAssignment()
+  {
+    var reportId = await SeedPendingReportAsync(userId: 1);
+    var client = await SignInAs(TestData.AdminIdNumber, TestData.AdminPassword);
+    var summary = await client.GetStringAsync("/Dashboard/Summary");
+
+    var response = await client.PostAsync("/Report/Approve", new FormUrlEncodedContent(
+      new Dictionary<string, string>
+      {
+        ["__RequestVerificationToken"] = HtmlForm.AntiForgeryToken(summary),
+        ["reportId"] = reportId.ToString()
+      }));
+
+    response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Redirect);
+    using var scope = _factory.Services.CreateScope();
+    (await scope.ServiceProvider.GetRequiredService<AppDbContext>().Reports.FindAsync(reportId))!
+      .StatusId.Should().Be(4);
+  }
+
+  [Fact]
+  public async Task SystemAdmin_PendingReport_SelectedUploadEnabledAllocation_ShowsExcelUploadButNotSubmit()
+  {
+    var reportId = await SeedPendingReportAsync(userId: 1);
+    using (var setup = _factory.Services.CreateScope())
+    {
+      var db = setup.ServiceProvider.GetRequiredService<AppDbContext>();
+      (await db.Allocations.FindAsync(_allocationId))!.AllowExcelUpload = true;
+      await db.SaveChangesAsync();
+    }
+
+    var client = await SignInAs(TestData.AdminIdNumber, TestData.AdminPassword);
+    var response = await client.GetAsync(
+      $"/Report?userId=1&allocationId={_allocationId}&reportId={reportId}");
+    var body = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+    response.StatusCode.Should().Be(HttpStatusCode.OK);
+    body.Should().Contain("/Report/UploadExcel",
+      "SystemAdmin may correct a submitted report and Excel permission belongs to the selected allocation");
+    body.Should().NotContain(">הגשת דיווח</button>",
+      "a PendingApproval report must not expose the normal draft submit action");
+  }
+
   // ─── Coordinator reject ─────────────────────────────────────────────────────
 
   [Fact]
@@ -477,6 +520,12 @@ public class ReportFlowTests : IDisposable
     db.Allocations.Add(allocation);
     db.SaveChanges();
     _allocationId = allocation.Id;
+    db.Set<AllocationDistrict>().Add(new AllocationDistrict
+    {
+      AllocationId = _allocationId,
+      DistrictId = _districtId
+    });
+    db.SaveChanges();
 
     // Coordinator user.
     db.Roles.Add(new EmployeeRole { Id = 20, Description = "Role Flow", IsActive = true, CreatedAt = DateTime.UtcNow });
@@ -499,6 +548,12 @@ public class ReportFlowTests : IDisposable
     db.Users.Add(coordinator);
     db.SaveChanges();
     _coordinatorUserId = coordinator.Id;
+
+    db.InspectorAssignments.Add(new InspectorAssignment
+    {
+      InspectorUserId = _coordinatorUserId,
+      DistrictId = _districtId
+    });
 
     db.TermsOfUseAcceptances.Add(new TermsOfUseAcceptance
     {

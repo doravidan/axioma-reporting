@@ -111,6 +111,53 @@ public class MyAllocationsFlowTests : IDisposable
   }
 
   [Fact]
+  public async Task Employee_WithTwoUploadAllocations_MustChooseAllocationExplicitly()
+  {
+    int secondAllocationId;
+    using (var setup = _factory.Services.CreateScope())
+    {
+      var db = setup.ServiceProvider.GetRequiredService<AppDbContext>();
+      db.Allocations.Single(item => item.Id == _allocationId).AllowExcelUpload = true;
+      var secondProject = new Project
+      {
+        Description = "Second upload project", IsActive = true, CreatedAt = DateTime.UtcNow
+      };
+      db.Projects.Add(secondProject);
+      await db.SaveChangesAsync();
+      var secondAllocation = new Allocation
+      {
+        UserId = 1,
+        ProjectId = secondProject.Id,
+        IsActive = true,
+        AllowExcelUpload = true,
+        CreatedAt = DateTime.UtcNow
+      };
+      db.Allocations.Add(secondAllocation);
+      await db.SaveChangesAsync();
+      secondAllocationId = secondAllocation.Id;
+    }
+
+    var client = await AccessControlTests.SignInAsAsync(
+      _factory, TestData.EmployeeIdNumber, TestData.EmployeePassword);
+    var landingResponse = await client.GetAsync("/MyAllocations");
+    var landingBody = System.Net.WebUtility.HtmlDecode(await landingResponse.Content.ReadAsStringAsync());
+
+    landingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    landingBody.Should().Contain("/Report?excelUpload=true");
+    landingBody.Should().NotContain($"/Report?allocationId={_allocationId}",
+      because: "no upload allocation may be selected from database order");
+
+    var selectorResponse = await client.GetAsync("/Report?excelUpload=true");
+    var selectorBody = System.Net.WebUtility.HtmlDecode(await selectorResponse.Content.ReadAsStringAsync());
+    selectorResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    selectorBody.Should().Contain("בחירת הקצאה להעלאת Excel");
+    selectorBody.Should().Contain("MyAlloc Project");
+    selectorBody.Should().Contain("Second upload project");
+    selectorBody.Should().Contain($"מזהה הקצאה: {_allocationId}");
+    selectorBody.Should().Contain($"מזהה הקצאה: {secondAllocationId}");
+  }
+
+  [Fact]
   public async Task Employee_GetMyAllocations_ShowsPastReportHistory()
   {
     int reportId;

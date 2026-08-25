@@ -15,6 +15,8 @@
   var allSectors = ViewBag.AllSectors as List<AxiomaReporting.Core.Entities.Sector> ?? new();
   string? sortBy = ViewBag.SortBy as string;
   bool sortDesc = ViewBag.SortDesc ?? false;
+  bool canManageAccounts = User.IsInRole("1") || User.IsInRole("2");
+  bool isSystemAdmin = User.IsInRole("1");
   string DisplayIdNumber(string? value) =>
     string.IsNullOrWhiteSpace(value)
       ? ""
@@ -98,7 +100,7 @@
     <div class="d-flex gap-2 flex-wrap">
       <a asp-action="Create" class="btn btn-primary">+ הוסף עובד</a>
       <a asp-controller="Allocations" asp-action="Index" class="btn btn-outline-primary">רשימת הקצאות</a>
-      <a href="@ExportLink()" class="btn btn-success">ייצוא אקסל</a>
+      <a href="@ExportLink()" class="btn btn-success">ייצוא עובדים והקצאות</a>
     </div>
   </div>
 
@@ -415,11 +417,18 @@
                      class="btn btn-sm btn-primary" title="עריכת כרטיס">עריכה</a>
                   <a asp-action="Allocations" asp-route-id="@emp.Id"
                      class="btn btn-sm btn-success" title="הקצאות">הקצאות</a>
+                  @if (isSystemAdmin && (emp.UserRoleId is 4 or 5))
+                  {
+                    <a asp-controller="Admin" asp-action="InspectorAssignments" asp-route-inspectorUserId="@emp.Id"
+                       class="btn btn-sm btn-outline-info" title="הגדרת תחומי צפייה למפקח">שיוכי צפייה</a>
+                  }
                   @if (activeAllocations.Count > 0)
                   {
                     <a asp-controller="Report" asp-action="Index" asp-route-userId="@emp.Id"
                        class="btn btn-sm btn-outline-primary" title="דווח פעילות חודשית עבור העובד">דווח</a>
                   }
+                  @if (canManageAccounts)
+                  {
                   <form method="post" action="@Url.Action("ResetPassword", "Employee", new { id = emp.Id })@Context.Request.QueryString"
                         style="display:inline"
                         onsubmit="return confirm('לאפס סיסמה למספר הזהות?')">
@@ -436,7 +445,8 @@
                     @if (filter.LockedOnly) { <input type="hidden" name="lockedOnly" value="true" /> }
                     <button type="submit" class="btn btn-sm btn-outline-warning">אפס סיסמה</button>
                   </form>
-                  @if (isLocked)
+                  }
+                  @if (canManageAccounts && isLocked)
                   {
                     <form method="post" action="@Url.Action("UnlockAccount", "Employee", new { id = emp.Id })@Context.Request.QueryString"
                           style="display:inline"
@@ -449,7 +459,7 @@
                       <button type="submit" class="btn btn-sm btn-outline-success">שחרור נעילה</button>
                     </form>
                   }
-                  @if (emp.StatusId != 2)
+                  @if (canManageAccounts && emp.StatusId != 2)
                   {
                     <form method="post" action="@Url.Action("DeleteEmployee", "Employee", new { id = emp.Id })@Context.Request.QueryString"
                           style="display:inline"

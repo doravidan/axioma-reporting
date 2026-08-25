@@ -14,7 +14,9 @@ public class FrameworkConfiguration : IEntityTypeConfiguration<Framework>
     builder.Property(e => e.InstitutionSymbol).HasMaxLength(100).IsRequired();
     builder.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
 
-    builder.HasIndex(e => new { e.InstitutionSymbol, e.EducationalStageId }).IsUnique();
+    builder.HasIndex(e => new { e.InstitutionSymbol, e.EducationalStageId })
+      .IsUnique()
+      .HasFilter(null);
 
     builder.HasOne(e => e.EducationalStage)
       .WithMany()

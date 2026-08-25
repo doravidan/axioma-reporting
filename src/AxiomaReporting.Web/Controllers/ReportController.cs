@@ -5,8 +5,10 @@ using AxiomaReporting.Core.Interfaces;
 using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Web.Authorization;
+using AxiomaReporting.Web.Security;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -21,6 +23,7 @@ public class ReportController : Controller
 
   private const long MaxAttachmentBytes = 10 * 1024 * 1024;
   private const int MaxAttachmentDescriptionLength = 1000;
+  private const string ExcelErrorSessionPrefix = "excel-error-pdf:";
 
   internal const string DeadlinePassedMessage =
     "המועד האחרון לדיווח עבר. ניתן לערוך רק באמצעות מנהל מערכת.";
@@ -35,6 +38,7 @@ public class ReportController : Controller
   private readonly IPdfReportService _pdfReportService;
   private readonly ICurrentUserService _currentUser;
   private readonly IEmailService _emailService;
+  private readonly IDashboardFilterService _dashboardFilterService;
   private readonly ILogger<ReportController> _logger;
 
   public ReportController(
@@ -45,6 +49,7 @@ public class ReportController : Controller
     IPdfReportService pdfReportService,
     ICurrentUserService currentUser,
     IEmailService emailService,
+    IDashboardFilterService dashboardFilterService,
     ILogger<ReportController> logger)
   {
     _db = db;
@@ -54,11 +59,18 @@ public class ReportController : Controller
     _pdfReportService = pdfReportService;
     _currentUser = currentUser;
     _emailService = emailService;
+    _dashboardFilterService = dashboardFilterService;
     _logger = logger;
   }
 
   [HttpGet]
-  public async Task<IActionResult> Index(int? userId = null, int? allocationId = null, int? reportId = null, int? editRowId = null, string? returnUrl = null)
+  public async Task<IActionResult> Index(
+    int? userId = null,
+    int? allocationId = null,
+    int? reportId = null,
+    int? editRowId = null,
+    string? returnUrl = null,
+    bool excelUpload = false)
   {
     var requestedReport = reportId.HasValue
       ? await _db.Reports
@@ -74,6 +86,12 @@ public class ReportController : Controller
 
     var targetUserId = requestedReport?.UserId ?? userId ?? _currentUser.UserId;
     if (!await CanViewEmployeeReportAsync(targetUserId)) return Forbid();
+    if (requestedReport != null && !await _dashboardFilterService.CanAccessReportAsync(
+          requestedReport.Id, _currentUser.UserId, _currentUser.UserRole))
+      return NotFound();
+
+    var accessibleAllocationIds = await _dashboardFilterService.GetAccessibleAllocationIdsAsync(
+      _currentUser.UserId, _currentUser.UserRole, includeInactive: true);
 
     var currentActiveMonthId = await _db.ReportingMonths
       .Where(m => m.IsActive)
@@ -95,7 +113,9 @@ public class ReportController : Controller
     var allocations = await _db.Allocations
       .Include(a => a.Project)
       .Include(a => a.AllocationPrograms).ThenInclude(x => x.Program)
-      .Where(a => a.UserId == targetUserId && a.IsActive)
+      .Where(a => a.UserId == targetUserId &&
+                  (requestedReport != null || a.IsActive) &&
+                  accessibleAllocationIds.Contains(a.Id))
       .ToListAsync();
 
     if (allocations.Count == 0 && requestedReport == null)
@@ -104,34 +124,67 @@ public class ReportController : Controller
       return View("NoAllocation");
     }
 
+    if (allocationId.HasValue &&
+        (allocationId.Value <= 0 || allocations.All(a => a.Id != allocationId.Value)))
+      return NotFound();
+
     Allocation selectedAllocation;
     if (requestedReport != null)
     {
-      var reportAllocationId = allocationId;
-      if (!reportAllocationId.HasValue || reportAllocationId.Value <= 0)
+      if (allocationId.HasValue)
       {
-        reportAllocationId = await _db.ReportRows
-          .Where(r => r.ReportId == requestedReport.Id && r.AllocationId.HasValue)
-          .Select(r => r.AllocationId)
-          .FirstOrDefaultAsync();
+        selectedAllocation = allocations.Single(a => a.Id == allocationId.Value);
       }
+      else
+      {
+        var reportAllocationIds = await _db.ReportRows
+          .Where(r => r.ReportId == requestedReport.Id && r.AllocationId.HasValue)
+          .Select(r => r.AllocationId!.Value)
+          .Distinct()
+          .ToListAsync();
+        var reportAllocations = reportAllocationIds.Count > 0
+          ? allocations.Where(a => reportAllocationIds.Contains(a.Id)).ToList()
+          : allocations;
 
-      selectedAllocation = allocations.FirstOrDefault(a => reportAllocationId.HasValue && a.Id == reportAllocationId.Value)
-        ?? (reportAllocationId.HasValue
-          ? await _db.Allocations.Include(a => a.Project).FirstOrDefaultAsync(a => a.Id == reportAllocationId.Value && a.UserId == targetUserId)
-          : null)
-        ?? allocations.FirstOrDefault()
-        ?? new Allocation { Id = reportAllocationId ?? 0, UserId = targetUserId, IsActive = false };
+        // A report can contain rows from more than one allocation. Never infer the
+        // allocation from row order; require an explicit choice when it is ambiguous.
+        if (reportAllocations.Count != 1)
+        {
+          ViewBag.Employee = employee;
+          ViewBag.Allocations = reportAllocations;
+          ViewBag.ActiveMonth = activeMonth;
+          ViewBag.ReportId = requestedReport.Id;
+          ViewBag.ReturnUrl = NormalizeLocalReturnUrl(returnUrl);
+          ViewBag.SelectionForExcelUpload = false;
+          return View("SelectAllocation");
+        }
+
+        selectedAllocation = reportAllocations[0];
+      }
     }
     else if (allocationId.HasValue)
-      selectedAllocation = allocations.FirstOrDefault(a => a.Id == allocationId.Value) ?? allocations[0];
+      selectedAllocation = allocations.Single(a => a.Id == allocationId.Value);
     else if (allocations.Count == 1)
       selectedAllocation = allocations[0];
     else
     {
+      var selectableAllocations = excelUpload
+        ? allocations.Where(a => a.AllowExcelUpload).ToList()
+        : allocations;
+      if (selectableAllocations.Count == 1)
+        return RedirectToAction(nameof(Index), new
+        {
+          userId = targetUserId,
+          allocationId = selectableAllocations[0].Id,
+          excelUpload
+        });
+
       ViewBag.Employee = employee;
-      ViewBag.Allocations = allocations;
+      ViewBag.Allocations = selectableAllocations;
       ViewBag.ActiveMonth = activeMonth;
+      ViewBag.SelectionForExcelUpload = excelUpload;
+      ViewBag.ReportId = requestedReport?.Id;
+      ViewBag.ReturnUrl = NormalizeLocalReturnUrl(returnUrl);
       return View("SelectAllocation");
     }
 
@@ -158,7 +211,9 @@ public class ReportController : Controller
       .Include(r => r.GradeLevel)
       .Include(r => r.Class)
       .Where(r => r.ReportId == report.Id);
-    if (!viewingHistoricalReport)
+    var mustRestrictToSelectedAllocation = !viewingHistoricalReport ||
+      _currentUser.UserRole is UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval;
+    if (mustRestrictToSelectedAllocation)
       rowsQuery = rowsQuery.Where(r => r.AllocationId == selectedAllocation.Id);
     var rows = await rowsQuery
       .OrderBy(r => r.MeetingDate)
@@ -166,9 +221,22 @@ public class ReportController : Controller
       .ToListAsync();
 
     var rowIds = rows.Select(r => r.Id).ToList();
-    ViewBag.ReportAttachments = await _db.DocumentAttachments
-      .Where(a => a.ReportId == report.Id ||
-                  (a.ReportRowId.HasValue && rowIds.Contains(a.ReportRowId.Value)))
+    var attachmentsQuery = _db.DocumentAttachments.AsQueryable();
+    if (_currentUser.UserRole is UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval)
+    {
+      // A report-level attachment may contain data from another allocation in the
+      // same report. Inspectors only receive attachments tied to visible rows.
+      attachmentsQuery = attachmentsQuery.Where(a =>
+        a.ReportRowId.HasValue && rowIds.Contains(a.ReportRowId.Value));
+    }
+    else
+    {
+      attachmentsQuery = attachmentsQuery.Where(a =>
+        a.ReportId == report.Id ||
+        (a.ReportRowId.HasValue && rowIds.Contains(a.ReportRowId.Value)));
+    }
+
+    ViewBag.ReportAttachments = await attachmentsQuery
       .OrderByDescending(a => a.UploadedAt)
       .ToListAsync();
 
@@ -345,9 +413,9 @@ public class ReportController : Controller
     var report = await _db.Reports
       .Include(r => r.User)
       .Include(r => r.ReportingMonth)
-      .FirstOrDefaultAsync(r => r.Id == reportId);
+      .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null) return NotFound();
-    if (!await CanViewEmployeeReportAsync(report.UserId)) return Forbid();
+    if (!await CanManageReportAsync(report.Id)) return Forbid();
 
     var rows = await _db.ReportRows
       .AsSplitQuery()
@@ -431,7 +499,7 @@ public class ReportController : Controller
       .Include(r => r.Report)
       .FirstOrDefaultAsync(r => r.Id == rowId);
     if (row?.Report == null) return NotFound();
-    if (!await CanViewEmployeeReportAsync(row.Report.UserId)) return Forbid();
+    if (!await CanManageReportAsync(row.Report.Id)) return Forbid();
 
     return Json(new
     {
@@ -465,7 +533,7 @@ public class ReportController : Controller
       .Include(r => r.ReportingMonth)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return Json(new { success = false, error = "דיווח לא נמצא" });
-    if (!await CanViewEmployeeReportAsync(report.UserId) || !CanEditReport(report))
+    if (!await CanManageReportAsync(report.Id) || !CanEditReport(report))
       return Json(new { success = false, error = EditBlockMessage(report) });
 
     var allocation = await _db.Allocations.FirstOrDefaultAsync(a =>
@@ -553,7 +621,7 @@ public class ReportController : Controller
       .Include(r => r.Report).ThenInclude(rep => rep!.ReportingMonth)
       .FirstOrDefaultAsync(r => r.Id == rowId);
     if (row?.Report == null) return Json(new { success = false });
-    if (!await CanViewEmployeeReportAsync(row.Report.UserId) || !CanEditReport(row.Report))
+    if (!await CanManageReportAsync(row.Report.Id) || !CanEditReport(row.Report))
       return Json(new { success = false, error = EditBlockMessage(row.Report) });
 
     if (TryParseRowVersion(rowVersion, out var token))
@@ -579,7 +647,7 @@ public class ReportController : Controller
       .Include(r => r.ReportingMonth)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return NotFound();
-    if (!await CanViewEmployeeReportAsync(report.UserId) || !CanEditReport(report))
+    if (!await CanManageReportAsync(report.Id) || !CanEditReport(report))
     {
       TempData["Errors"] = EditBlockMessage(report);
       return RedirectToReport(report.UserId, allocationId ?? 0, reportId, returnUrl);
@@ -622,17 +690,18 @@ public class ReportController : Controller
 
   [HttpPost]
   [ValidateAntiForgeryToken]
-  public async Task<IActionResult> Reopen(int reportId, string? returnUrl = null)
+  public async Task<IActionResult> Reopen(int reportId, string reason, string? returnUrl = null)
   {
-    // Status override is reserved for SystemAdmin / ProjectManager (role spec:
-    // "PM overrides report status") — not the wider approve policy.
-    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager))
+    // Legacy single-report endpoint: keep the same safe Admin-only policy as
+    // the configurable bulk-return action until the customer approves otherwise.
+    if (_currentUser.UserRole != UserRoleEnum.SystemAdmin)
       return Forbid();
+    if (!await CanManageReportAsync(reportId)) return Forbid();
 
-    if (await _statusService.ReopenReportAsync(reportId, _currentUser.UserId))
-      TempData["Success"] = "הדיווח הוחזר לעריכה — ניתן להוסיף שורות ולהגיש מחדש";
+    if (await _statusService.ReopenReportAsync(reportId, _currentUser.UserId, reason))
+      TempData["Success"] = "הדיווח הוחזר לסטטוס הוגש";
     else
-      TempData["Error"] = "לא ניתן להחזיר לעריכה — רק דיווח מאושר ניתן לפתיחה מחדש";
+      TempData["Error"] = "לא ניתן להחזיר את הדיווח — נדרש דיווח מאושר וסיבת החזרה";
 
     return RedirectBackToDashboard(returnUrl);
   }
@@ -657,9 +726,15 @@ public class ReportController : Controller
   [Route("Report/ManualEmployeeSearch")]
   public async Task<IActionResult> ManualEmployeeSearch(string? idNumber, string? employeeCode, string? firstName, string? lastName)
   {
-    var query = _db.Users.Where(u => u.StatusId == 1 && u.IsReportingEmployee);
-    if (_currentUser.UserRole == UserRoleEnum.Employee)
-      query = query.Where(u => u.Id == _currentUser.UserId);
+    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator))
+      return Forbid();
+
+    var accessibleEmployeeIds = await _dashboardFilterService.GetAccessibleEmployeeIdsAsync(
+      _currentUser.UserId, _currentUser.UserRole);
+    var accessibleAllocationIds = await _dashboardFilterService.GetAccessibleAllocationIdsAsync(
+      _currentUser.UserId, _currentUser.UserRole, includeInactive: false);
+    var query = _db.Users.Where(u =>
+      u.StatusId == 1 && u.IsReportingEmployee && accessibleEmployeeIds.Contains(u.Id));
 
     if (!string.IsNullOrWhiteSpace(idNumber))
     {
@@ -692,7 +767,7 @@ public class ReportController : Controller
     // התווית כוללת את התוכניות — הבחנה בין כמה הקצאות של אותו עובד באותו פרויקט
     // (תיקון לקוח 07/2026 #1).
     var allocations = (await _db.Allocations
-      .Where(a => a.IsActive && employeeIds.Contains(a.UserId))
+      .Where(a => a.IsActive && employeeIds.Contains(a.UserId) && accessibleAllocationIds.Contains(a.Id))
       .OrderBy(a => a.Project!.Description)
       .Select(a => new
       {
@@ -719,9 +794,14 @@ public class ReportController : Controller
   [HttpGet]
   public async Task<IActionResult> ManualOpen(int userId, int allocationId, int reportingMonthId)
   {
+    if (_currentUser.UserRole is not (UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator))
+      return Forbid();
     if (!await CanViewEmployeeReportAsync(userId)) return Forbid();
 
-    var allocation = await _db.Allocations.FirstOrDefaultAsync(a => a.Id == allocationId && a.IsActive);
+    var accessibleAllocationIds = await _dashboardFilterService.GetAccessibleAllocationIdsAsync(
+      _currentUser.UserId, _currentUser.UserRole, includeInactive: false);
+    var allocation = await _db.Allocations.FirstOrDefaultAsync(a =>
+      a.Id == allocationId && a.IsActive && accessibleAllocationIds.Contains(a.Id));
     if (allocation == null)
     {
       TempData["Error"] = "ההקצאה שנבחרה אינה פעילה או לא קיימת";
@@ -765,7 +845,7 @@ public class ReportController : Controller
       .Include(r => r.ReportingMonth)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return NotFound();
-    if (!await CanViewEmployeeReportAsync(report.UserId) || !CanEditReport(report))
+    if (!await CanManageReportAsync(report.Id) || !CanEditReport(report))
     {
       TempData["Errors"] = EditBlockMessage(report);
       return RedirectToReport(report.UserId, allocationId, reportId, returnUrl);
@@ -785,30 +865,52 @@ public class ReportController : Controller
     }
 
     await using var stream = file.OpenReadStream();
+    var excelValidation = await AttachmentFileSecurity.ValidateAsync(stream, extension, HttpContext.RequestAborted);
+    if (!excelValidation.IsValid)
+    {
+      TempData["Errors"] = "תוכן קובץ ה-Excel אינו תקין או אינו תואם לסיומת xlsx";
+      return RedirectToReport(report.UserId, allocationId, reportId, returnUrl);
+    }
+
     var result = await _excelImportService.ImportAsync(reportId, allocationId, stream, _currentUser.UserId);
     if (!result.Success)
     {
       var errorId = Guid.NewGuid().ToString("N");
-      var errorsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "excel-errors");
-      Directory.CreateDirectory(errorsDir);
-      await System.IO.File.WriteAllBytesAsync(
-        Path.Combine(errorsDir, $"{errorId}.pdf"),
-        _pdfReportService.CreateErrorReport(result.Errors));
+      var session = HttpContext.Features.Get<ISessionFeature>()?.Session;
+      if (session != null)
+      {
+        session.Set(
+          ExcelErrorSessionPrefix + errorId,
+          _pdfReportService.CreateErrorReport(result.Errors));
+        TempData["ExcelErrorPdf"] = Url.Action(nameof(DownloadExcelError), new { errorId });
+      }
       // מציגים על המסך עד 25 שגיאות; הרשימה המלאה זמינה ב-PDF המצורף.
       const int maxOnScreenErrors = 25;
       var onScreen = result.Errors.Take(maxOnScreenErrors).ToList();
       if (result.Errors.Count > maxOnScreenErrors)
         onScreen.Add($"…ועוד {result.Errors.Count - maxOnScreenErrors} שגיאות — הרשימה המלאה בקובץ ה-PDF");
       TempData["Errors"] = string.Join("|", onScreen);
-      TempData["ExcelErrorPdf"] = Url?.Content($"~/uploads/excel-errors/{errorId}.pdf")
-        ?? $"/uploads/excel-errors/{errorId}.pdf";
-
       await SendImportFailureEmailAsync(report, result.Errors);
       return RedirectToReport(report.UserId, allocationId, reportId, returnUrl);
     }
 
     TempData["Success"] = $"יובאו {result.ImportedRows} שורות מאקסל";
     return RedirectToReport(report.UserId, allocationId, reportId, returnUrl);
+  }
+
+  [HttpGet]
+  public IActionResult DownloadExcelError(string errorId)
+  {
+    if (!Guid.TryParseExact(errorId, "N", out _)) return NotFound();
+
+    var key = ExcelErrorSessionPrefix + errorId;
+    if (!HttpContext.Session.TryGetValue(key, out var pdfBytes) || pdfBytes.Length == 0)
+      return NotFound();
+
+    HttpContext.Session.Remove(key);
+    Response.Headers["Cache-Control"] = "no-store, private";
+    Response.Headers["X-Content-Type-Options"] = "nosniff";
+    return File(pdfBytes, "application/pdf", "excel-import-errors.pdf");
   }
 
   private async Task SendImportFailureEmailAsync(Report report, IReadOnlyCollection<string> errors)
@@ -858,7 +960,7 @@ public class ReportController : Controller
       .Include(r => r.ReportingMonth)
       .FirstOrDefaultAsync(r => r.Id == reportId);
     if (report == null) return Json(new { success = false, error = "דיווח לא נמצא" });
-    if (!await CanViewEmployeeReportAsync(report.UserId) || !CanEditReport(report))
+    if (!await CanManageReportAsync(report.Id) || !CanEditReport(report))
       return Json(new { success = false, error = EditBlockMessage(report) });
 
     if (file == null || file.Length == 0)
@@ -870,22 +972,29 @@ public class ReportController : Controller
     if (!AllowedAttachmentExtensions.Contains(extension))
       return Json(new { success = false, error = "סוג הקובץ אינו נתמך. ניתן להעלות PDF, Word או Excel בלבד" });
 
-    var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "attachments");
+    await using var source = file.OpenReadStream();
+    var validation = await AttachmentFileSecurity.ValidateAsync(source, extension, HttpContext.RequestAborted);
+    if (!validation.IsValid)
+      return Json(new { success = false, error = "תוכן הקובץ אינו תואם לסוג הקובץ שנבחר" });
+
+    var contentRoot = Directory.GetCurrentDirectory();
+    const string storageCategory = "report-attachments";
+    var uploadsDir = AttachmentFileSecurity.GetPrivateUploadDirectory(contentRoot, storageCategory);
     Directory.CreateDirectory(uploadsDir);
     var fileName = $"{Guid.NewGuid()}{extension}";
     var filePath = Path.Combine(uploadsDir, fileName);
 
     await using (var stream = new FileStream(filePath, FileMode.CreateNew))
-      await file.CopyToAsync(stream);
+      await source.CopyToAsync(stream, HttpContext.RequestAborted);
 
     var attachment = new DocumentAttachment
     {
       ReportId = reportId,
-      FileName = Path.GetFileName(file.FileName),
+      FileName = AttachmentFileSecurity.SafeOriginalFileName(file.FileName),
       Description = NormalizeAttachmentDescription(description),
-      FilePath = $"/uploads/attachments/{fileName}",
+      FilePath = AttachmentFileSecurity.GetStoredPrivatePath(storageCategory, fileName),
       FileSize = file.Length,
-      MimeType = file.ContentType,
+      MimeType = validation.ContentType,
       UploadedAt = DateTime.UtcNow,
       UploadedBy = _currentUser.UserId
     };
@@ -914,14 +1023,11 @@ public class ReportController : Controller
       .FirstOrDefaultAsync(a => a.Id == attachmentId);
     var report = attachment?.Report ?? attachment?.ReportRow?.Report;
     if (attachment == null || report == null) return Json(new { success = false });
-    if (!await CanViewEmployeeReportAsync(report.UserId) || !CanEditReport(report))
+    if (!await CanManageReportAsync(report.Id) || !CanEditReport(report))
       return Json(new { success = false, error = EditBlockMessage(report) });
 
-    var fullPath = Path.Combine(
-      Directory.GetCurrentDirectory(),
-      "wwwroot",
-      attachment.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-    if (System.IO.File.Exists(fullPath))
+    var fullPath = AttachmentFileSecurity.ResolveStoredPath(Directory.GetCurrentDirectory(), attachment.FilePath);
+    if (fullPath != null && System.IO.File.Exists(fullPath))
       System.IO.File.Delete(fullPath);
 
     _db.DocumentAttachments.Remove(attachment);
@@ -931,6 +1037,8 @@ public class ReportController : Controller
 
   private bool CanEditReport(Report report)
   {
+    if (report.IsArchived) return false;
+
     // Only System Admin may correct reports that were already submitted/approved or override deadlines.
     if (_currentUser.UserRole == UserRoleEnum.SystemAdmin)
       return true;
@@ -989,64 +1097,30 @@ public class ReportController : Controller
   {
     if (_currentUser.UserRole == UserRoleEnum.Employee)
       return employeeUserId == _currentUser.UserId;
+    if (_currentUser.UserRole == UserRoleEnum.SystemAdmin) return true;
 
-    if (_currentUser.UserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
-      return true;
-
-    return await IsEmployeeInInspectorScopeAsync(employeeUserId);
+    var accessibleEmployeeIds = await _dashboardFilterService.GetAccessibleEmployeeIdsAsync(
+      _currentUser.UserId, _currentUser.UserRole);
+    return accessibleEmployeeIds.Contains(employeeUserId);
   }
+
+  private Task<bool> CanManageReportAsync(int reportId) =>
+    _dashboardFilterService.CanManageWholeReportAsync(
+      reportId, _currentUser.UserId, _currentUser.UserRole);
 
   private async Task<bool> CanApproveReportAsync(int reportId)
   {
-    var report = await _db.Reports.FindAsync(reportId);
+    var report = await _db.Reports.FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report == null || report.StatusId != 3) return false;
 
-    if (_currentUser.UserRole is UserRoleEnum.SystemAdmin or UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator)
+    if (_currentUser.UserRole == UserRoleEnum.SystemAdmin)
       return true;
 
-    return _currentUser.UserRole == UserRoleEnum.InspectorApproval &&
-      await IsEmployeeInInspectorScopeAsync(report.UserId);
-  }
-
-  private async Task<bool> IsEmployeeInInspectorScopeAsync(int employeeUserId)
-  {
-    if (_currentUser.UserRole is not (UserRoleEnum.InspectorView or UserRoleEnum.InspectorApproval))
+    if (_currentUser.UserRole is not (
+      UserRoleEnum.ProjectManager or UserRoleEnum.ProjectCoordinator or UserRoleEnum.InspectorApproval))
       return false;
 
-    var assignments = await _db.InspectorAssignments
-      .Where(a => a.InspectorUserId == _currentUser.UserId)
-      .ToListAsync();
-    if (!assignments.Any()) return false;
-
-    foreach (var assignment in assignments)
-    {
-      var q = _db.Allocations.Where(a => a.UserId == employeeUserId && a.IsActive);
-
-      if (assignment.DistrictId.HasValue)
-      {
-        var districtId = assignment.DistrictId.Value;
-        q = q.Where(a => _db.Set<AllocationDistrict>()
-          .Any(ad => ad.AllocationId == a.Id && ad.DistrictId == districtId));
-      }
-
-      if (assignment.SectorId.HasValue)
-      {
-        var sectorId = assignment.SectorId.Value;
-        q = q.Where(a => _db.Set<AllocationSector>()
-          .Any(s => s.AllocationId == a.Id && s.SectorId == sectorId));
-      }
-
-      if (assignment.ProgramId.HasValue)
-      {
-        var programId = assignment.ProgramId.Value;
-        q = q.Where(a => _db.Set<AllocationProgram>()
-          .Any(p => p.AllocationId == a.Id && p.ProgramId == programId));
-      }
-
-      if (await q.AnyAsync()) return true;
-    }
-
-    return false;
+    return await CanManageReportAsync(reportId);
   }
 
   private static void CopyEditableFields(ReportRow source, ReportRow target)

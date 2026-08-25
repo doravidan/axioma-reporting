@@ -6,12 +6,31 @@
   var sectors = ViewBag.Sectors as List<AxiomaReporting.Core.Entities.Sector> ?? new();
   var educationTypes = ViewBag.EducationTypes as List<AxiomaReporting.Core.Entities.EducationType> ?? new();
   var educationalStages = ViewBag.EducationalStages as List<AxiomaReporting.Core.Entities.EducationalStage> ?? new();
+  string? filterName = ViewBag.FilterName;
+  string? filterSymbol = ViewBag.FilterSymbol;
+  int? filterLocalityId = ViewBag.FilterLocalityId;
+  int? filterDistrictId = ViewBag.FilterDistrictId;
+  int? filterSectorId = ViewBag.FilterSectorId;
+  int? filterTypeId = ViewBag.FilterTypeId;
+  int? filterStageId = ViewBag.FilterEducationalStageId;
+  bool? filterIsActive = ViewBag.FilterIsActive;
+  int page = ViewBag.Page ?? 1;
+  int pageSize = ViewBag.PageSize ?? 50;
+  int total = ViewBag.TotalCount ?? Model.Count;
+  Dictionary<string, object?> RouteValues(int targetPage) => new()
+  {
+    ["name"] = filterName, ["symbol"] = filterSymbol, ["localityId"] = filterLocalityId,
+    ["districtId"] = filterDistrictId, ["sectorId"] = filterSectorId, ["typeId"] = filterTypeId,
+    ["educationalStageId"] = filterStageId, ["isActive"] = filterIsActive,
+    ["page"] = targetPage, ["pageSize"] = pageSize
+  };
 }
 <div class="container-fluid mt-3">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h3>מוסדות</h3>
     <div class="d-flex gap-2">
       <a asp-controller="Lookup" asp-action="Index" class="btn btn-outline-secondary btn-sm">חזרה לטבלאות עזר</a>
+      <button type="button" class="btn btn-outline-success btn-sm" id="exportInstitutionsBtn">יצוא לאקסל</button>
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">הוסף מוסד</button>
     </div>
   </div>
@@ -21,6 +40,42 @@
     <strong>מוסדות</strong> = מאגר המוסדות המלא (סמל, שם, יישוב, מחוז, מגזר, סוג ושלב חינוך).
     <strong>מסגרות</strong> = הרשימה המשמשת לדיווח, הנגזרת מהמוסדות (רשומה אחת לכל צירוף סמל + שלב חינוך).
   </p>
+
+  <div class="card mb-3">
+    <div class="card-body py-2">
+      <form method="get" id="institutionFilterForm" class="row g-2 align-items-end">
+        <div class="col-md-2"><label class="form-label form-label-sm">שם מוסד</label><input class="form-control form-control-sm" name="name" value="@filterName" /></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">סמל מוסד</label><input class="form-control form-control-sm" name="symbol" inputmode="numeric" value="@filterSymbol" /></div>
+        <div class="col-md-2"><label class="form-label form-label-sm">יישוב</label><select class="form-select form-select-sm" name="localityId"><option value="">הכל</option>@foreach (var x in localities) { <option value="@x.Id" selected="@(filterLocalityId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">מחוז</label><select class="form-select form-select-sm" name="districtId"><option value="">הכל</option>@foreach (var x in districts) { <option value="@x.Id" selected="@(filterDistrictId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">מגזר</label><select class="form-select form-select-sm" name="sectorId"><option value="">הכל</option>@foreach (var x in sectors) { <option value="@x.Id" selected="@(filterSectorId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">סוג חינוך</label><select class="form-select form-select-sm" name="typeId"><option value="">הכל</option>@foreach (var x in educationTypes) { <option value="@x.Id" selected="@(filterTypeId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">שלב חינוך</label><select class="form-select form-select-sm" name="educationalStageId"><option value="">הכל</option>@foreach (var x in educationalStages) { <option value="@x.Id" selected="@(filterStageId == x.Id ? "selected" : null)">@x.Description</option> }</select></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">סטטוס</label><select class="form-select form-select-sm" name="isActive"><option value="">הכל</option><option value="true" selected="@(filterIsActive == true ? "selected" : null)">פעיל</option><option value="false" selected="@(filterIsActive == false ? "selected" : null)">לא פעיל</option></select></div>
+        <div class="col-md-1"><label class="form-label form-label-sm">שורות בעמוד</label><select class="form-select form-select-sm" name="pageSize">@foreach (var size in new[] { 25, 50, 100, 200 }) { <option value="@size" selected="@(pageSize == size ? "selected" : null)">@size</option> }</select></div>
+        <div class="col-auto d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit">הצג</button><a asp-action="Institutions" class="btn btn-outline-secondary btn-sm">נקה</a></div>
+      </form>
+      <div id="institutionExportError" class="alert alert-danger d-none mt-2 mb-0" role="alert"></div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="text-muted">נמצאו <strong>@total</strong> מוסדות</span>
+    @if (total > pageSize)
+    {
+      var totalPages = (int)Math.Ceiling((double)total / pageSize);
+      <nav aria-label="דפדוף מוסדות" class="overflow-auto"><ul class="pagination pagination-sm mb-0 flex-nowrap">
+        <li class="page-item @(page <= 1 ? "disabled" : "")"><a class="page-link" href="@Url.Action("Institutions", RouteValues(1))">הראשון</a></li>
+        <li class="page-item @(page <= 1 ? "disabled" : "")"><a class="page-link" href="@Url.Action("Institutions", RouteValues(Math.Max(1, page - 1)))">הקודם</a></li>
+        @for (var pg = Math.Max(1, page - 2); pg <= Math.Min(totalPages, page + 2); pg++)
+        {
+          <li class="page-item @(pg == page ? "active" : "")"><a class="page-link" href="@Url.Action("Institutions", RouteValues(pg))">@pg</a></li>
+        }
+        <li class="page-item @(page >= totalPages ? "disabled" : "")"><a class="page-link" href="@Url.Action("Institutions", RouteValues(Math.Min(totalPages, page + 1)))">הבא</a></li>
+        <li class="page-item @(page >= totalPages ? "disabled" : "")"><a class="page-link" href="@Url.Action("Institutions", RouteValues(totalPages))">האחרון</a></li>
+      </ul></nav>
+    }
+  </div>
 
   @if (TempData["Success"] != null)
   {
@@ -102,6 +157,40 @@
   </div>
 </div>
 
+@section Scripts {
+  <script>
+    (function () {
+      var button = document.getElementById('exportInstitutionsBtn');
+      var form = document.getElementById('institutionFilterForm');
+      var error = document.getElementById('institutionExportError');
+      if (!button || !form || !error) return;
+      button.addEventListener('click', function () {
+        var original = button.textContent;
+        button.disabled = true;
+        button.textContent = 'מכין קובץ…';
+        error.classList.add('d-none');
+        var query = new URLSearchParams(new FormData(form));
+        query.delete('pageSize');
+        fetch('@Url.Action("ExportInstitutionsExcel", "Admin")' + '?' + query.toString(), { credentials: 'same-origin' })
+          .then(function (response) {
+            if (!response.ok) return response.text().then(function (text) { throw new Error(text || 'יצוא המוסדות נכשל'); });
+            var disposition = response.headers.get('content-disposition') || '';
+            var match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+            var fileName = match ? decodeURIComponent(match[1].replace(/\"/g, '')) : '@($"institutions_{DateTime.Now:yyyy-MM-dd}.xlsx")';
+            return response.blob().then(function (blob) { return { blob: blob, fileName: fileName }; });
+          })
+          .then(function (download) {
+            var url = URL.createObjectURL(download.blob);
+            var link = document.createElement('a'); link.href = url; link.download = download.fileName;
+            document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+          })
+          .catch(function (ex) { error.textContent = ex.message || 'יצוא המוסדות נכשל'; error.classList.remove('d-none'); })
+          .finally(function () { button.disabled = false; button.textContent = original; });
+      });
+    })();
+  </script>
+}
+
 <!-- Add Modal -->
 <div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalTitle" aria-hidden="true">
   <div class="modal-dialog modal-lg" role="dialog" aria-modal="true">
@@ -120,7 +209,7 @@
             </div>
             <div class="col-md-4 mb-3">
               <label class="form-label">סמל מוסד <span class="text-danger">*</span></label>
-              <input name="institutionSymbol" type="number" class="form-control" required />
+              <input name="institutionSymbol" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="100" class="form-control" required />
             </div>
           </div>
           <div class="row">
@@ -205,7 +294,7 @@
             </div>
             <div class="col-md-4 mb-3">
               <label class="form-label">סמל מוסד <span class="text-danger">*</span></label>
-              <input id="eSymbol" name="institutionSymbol" type="number" class="form-control" required />
+              <input id="eSymbol" name="institutionSymbol" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="100" class="form-control" required />
             </div>
           </div>
           <div class="row">

@@ -5,6 +5,7 @@ using AxiomaReporting.Infrastructure.Data;
 using AxiomaReporting.Infrastructure.Services;
 using AxiomaReporting.Tests.TestSupport;
 using AxiomaReporting.Web.Controllers;
+using ClosedXML.Excel;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -179,7 +180,7 @@ public class ReportControllerGapsTests : IDisposable
 
     // Provide a small fake xlsx stream — not actually parsed since we override the service.
     var file = new Mock<IFormFile>();
-    using var ms = new MemoryStream(new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+    using var ms = CreateMinimalXlsxStream();
     file.Setup(f => f.OpenReadStream()).Returns(ms);
     file.Setup(f => f.FileName).Returns("rows.xlsx");
     file.Setup(f => f.Length).Returns(ms.Length);
@@ -206,7 +207,7 @@ public class ReportControllerGapsTests : IDisposable
     var controller = BuildController(UserRoleEnum.Employee, userId: 1, importOverride: import);
 
     var file = new Mock<IFormFile>();
-    using var ms = new MemoryStream(new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+    using var ms = CreateMinimalXlsxStream();
     file.Setup(f => f.OpenReadStream()).Returns(ms);
     file.Setup(f => f.FileName).Returns("rows.xlsx");
     file.Setup(f => f.Length).Returns(ms.Length);
@@ -293,7 +294,8 @@ public class ReportControllerGapsTests : IDisposable
     pdf.Setup(p => p.CreateErrorReport(It.IsAny<IEnumerable<string>>())).Returns(new byte[] { 1, 2, 3 });
 
     var ctrl = new ReportController(
-      _db, validator, status, import, pdf.Object, currentUser.Object, _email, NullLogger<ReportController>.Instance);
+      _db, validator, status, import, pdf.Object, currentUser.Object, _email,
+      new DashboardFilterService(_db), NullLogger<ReportController>.Instance);
 
     ctrl.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
     ctrl.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
@@ -313,6 +315,18 @@ public class ReportControllerGapsTests : IDisposable
     DomainId = 1,
     Subject1Id = 1
   };
+
+  private static MemoryStream CreateMinimalXlsxStream()
+  {
+    var stream = new MemoryStream();
+    using (var workbook = new XLWorkbook())
+    {
+      workbook.Worksheets.Add("Rows").Cell(1, 1).Value = "Test";
+      workbook.SaveAs(stream);
+    }
+    stream.Position = 0;
+    return stream;
+  }
 
   private void Seed()
   {

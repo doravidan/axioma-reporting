@@ -220,6 +220,70 @@ public class ReportExcelImportServiceTests : IDisposable
   }
 
   [Fact]
+  public async Task ImportAsync_FullPersonalHeader_IsNotMisclassifiedAsExportedReport()
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.AddWorksheet("דיווח");
+    AddFullPersonalHeader(ws);
+    ws.Cell(2, 1).Value = DateTime.Today.AddDays(-1);
+    ws.Cell(2, 2).Value = 1.5m;
+    ws.Cell(2, 3).Value = "District A";
+    ws.Cell(2, 4).Value = "Locality A";
+    ws.Cell(2, 5).Value = "Locality A — 640086 — Framework A";
+    ws.Cell(2, 6).Value = "Education Program A";
+    ws.Cell(2, 7).Value = "Domain A";
+    ws.Cell(2, 8).Value = "Subject A";
+    ws.Cell(2, 16).Value = "full personal header";
+
+    using var stream = ToStream(workbook);
+    var result = await _sut.ImportAsync(1, 1, stream, 1);
+
+    result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+    _db.ReportRows.Should().ContainSingle(row =>
+      row.MeetingDuration == 1.5m &&
+      row.DistrictId == 1 &&
+      row.Notes == "full personal header");
+  }
+
+  [Fact]
+  public async Task ImportAsync_InvalidDuration_ReturnsRowColumnValueAndRequiredFormat()
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.AddWorksheet("דיווח");
+    AddFullPersonalHeader(ws);
+    ws.Cell(2, 1).Value = DateTime.Today.AddDays(-1);
+    ws.Cell(2, 2).Value = "שעה וחצי";
+
+    using var stream = ToStream(workbook);
+    var result = await _sut.ImportAsync(1, 1, stream, 1);
+
+    result.Success.Should().BeFalse();
+    result.Errors.Should().ContainSingle(error =>
+      error.Contains("שורה 2") &&
+      error.Contains("משך תפוקה") &&
+      error.Contains("שעה וחצי") &&
+      error.Contains("hh:mm"));
+  }
+
+  [Fact]
+  public void SharedDurationParser_AcceptsDecimalAndHourMinuteFormats()
+  {
+    using var workbook = new XLWorkbook();
+    var ws = workbook.AddWorksheet("Rows");
+    ws.Cell(1, 1).Value = 1.5m;
+    ws.Cell(1, 2).Value = "01:30";
+
+    ExcelReportParsing.TryParseDuration(
+      ws.Cell(1, 1), out var decimalHours, out _, out _).Should().BeTrue();
+    ExcelReportParsing.TryParseDuration(
+      ws.Cell(1, 2), out var timeHours, out _, out _).Should().BeTrue();
+    decimalHours.Should().Be(1.5m);
+    timeHours.Should().Be(1.5m);
+    ExcelReportParsing.NormalizeHeader("\uFEFF משך\u00A0  תפוקה ")
+      .Should().Be("משך תפוקה");
+  }
+
+  [Fact]
   public async Task ImportAsync_ClientHebrewWorkbook_FindsHeaderBelowRow2AndDoesNotImportHeaderRows()
   {
     using var workbook = new XLWorkbook();
@@ -308,6 +372,19 @@ public class ReportExcelImportServiceTests : IDisposable
 
     for (var i = 0; i < headers.Length; i++)
       ws.Cell(1, i + 1).Value = headers[i];
+  }
+
+  private static void AddFullPersonalHeader(IXLWorksheet ws)
+  {
+    var headers = new[]
+    {
+      "תאריך מפגש", "משך תפוקה", "מחוז", "יישוב", "מסגרת", "תוכנית חינוכית",
+      "תחום", "נושא 1", "נושא 2", "קיום דיון", "מסקנות כיתה",
+      "מסקנות מסגרת חינוכית", "יישוב/מחוז/ארצי", "שכבה", "כיתה", "הערות"
+    };
+
+    for (var index = 0; index < headers.Length; index++)
+      ws.Cell(1, index + 1).Value = headers[index];
   }
 
   private static void AddClientHebrewHeader(IXLWorksheet ws, int row)

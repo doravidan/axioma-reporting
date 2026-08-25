@@ -46,7 +46,7 @@ public class ReportExcelImportService : IReportExcelImportService
     var report = await _db.Reports
       .Include(r => r.User)
       .Include(r => r.ReportingMonth)
-      .FirstOrDefaultAsync(r => r.Id == reportId);
+      .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsArchived);
     if (report?.User == null || report.ReportingMonth == null)
     {
       result.Errors.Add("הדיווח לא נמצא");
@@ -194,8 +194,20 @@ public class ReportExcelImportService : IReportExcelImportService
 
   private static bool IsExportedReportHeaderRow(IXLRow row)
   {
+    // A personal 16-column upload starts with Date + Duration. It used to be
+    // misclassified as a dashboard/report export because both formats share
+    // most Hebrew headers. An exported report is identified by its positional
+    // signature: serial number, date, duration.
+    var firstHeader = ExcelReportParsing.NormalizeHeader(row.Cell(1).GetString());
+    var secondHeader = ExcelReportParsing.NormalizeHeader(row.Cell(2).GetString());
+    var thirdHeader = ExcelReportParsing.NormalizeHeader(row.Cell(3).GetString());
+    if (!firstHeader.Contains("מסד", StringComparison.Ordinal) ||
+        !secondHeader.Contains("תאריך", StringComparison.Ordinal) ||
+        !thirdHeader.Contains("משך", StringComparison.Ordinal))
+      return false;
+
     var lastColumn = Math.Min(25, row.LastCellUsed()?.Address.ColumnNumber ?? 25);
-    var rowText = NormalizeHebrewHeader(string.Join("|", Enumerable.Range(1, lastColumn)
+    var rowText = ExcelReportParsing.NormalizeHeader(string.Join("|", Enumerable.Range(1, lastColumn)
       .Select(c => row.Cell(c).GetString())));
 
     if (string.IsNullOrWhiteSpace(rowText) || rowText.Contains("קוד עובד")) return false;
@@ -216,7 +228,7 @@ public class ReportExcelImportService : IReportExcelImportService
   private static bool IsClientHebrewHeaderRow(IXLRow row)
   {
     var lastColumn = Math.Min(25, row.LastCellUsed()?.Address.ColumnNumber ?? 25);
-    var rowText = NormalizeHebrewHeader(string.Join("|", Enumerable.Range(1, lastColumn)
+    var rowText = ExcelReportParsing.NormalizeHeader(string.Join("|", Enumerable.Range(1, lastColumn)
       .Select(c => row.Cell(c).GetString())));
 
     if (string.IsNullOrWhiteSpace(rowText)) return false;
@@ -240,12 +252,7 @@ public class ReportExcelImportService : IReportExcelImportService
 
   private static string NormalizeHebrewHeader(string? value)
   {
-    if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-    return value
-      .Replace('\u00a0', ' ')
-      .Replace("\"", string.Empty)
-      .Trim()
-      .ToLowerInvariant();
+    return ExcelReportParsing.NormalizeHeader(value);
   }
 
   private static bool IsEmptyDataRow(IXLRow row, bool clientHebrewFormat, bool exportedReportFormat)
@@ -274,7 +281,7 @@ public class ReportExcelImportService : IReportExcelImportService
       ReportId = reportId,
       AllocationId = allocationId,
       MeetingDate = ReadDate(row, 1),
-      MeetingDuration = ReadDecimal(row, 2),
+      MeetingDuration = ReadDuration(row, 2),
       DistrictId = await ResolveRequiredAsync(row, 3, "מחוז", _lookupResolver.ResolveDistrictAsync),
       LocalityId = await ResolveRequiredAsync(row, 4, "יישוב", _lookupResolver.ResolveLocalityAsync),
       FrameworkId = await ResolveRequiredFrameworkAsync(row, 5, allocationId),
@@ -299,7 +306,7 @@ public class ReportExcelImportService : IReportExcelImportService
       ReportId = reportId,
       AllocationId = allocationId,
       MeetingDate = ReadDate(row, 7),
-      MeetingDuration = ReadDecimal(row, 8),
+      MeetingDuration = ReadDuration(row, 8),
       DistrictId = await ResolveRequiredAsync(row, 4, "מחוז", _lookupResolver.ResolveDistrictAsync),
       LocalityId = await ResolveRequiredAsync(row, 5, "יישוב", _lookupResolver.ResolveLocalityAsync),
       FrameworkId = await ResolveRequiredFrameworkAsync(row, 6, allocationId),
@@ -325,7 +332,7 @@ public class ReportExcelImportService : IReportExcelImportService
       ReportId = reportId,
       AllocationId = allocationId,
       MeetingDate = ReadDate(row, 2),
-      MeetingDuration = ReadDecimal(row, 3),
+      MeetingDuration = ReadDuration(row, 3),
       DistrictId = await ResolveRequiredAsync(row, 4, "מחוז", _lookupResolver.ResolveDistrictAsync),
       LocalityId = await ResolveRequiredAsync(row, 5, "יישוב", _lookupResolver.ResolveLocalityAsync),
       FrameworkId = await ResolveRequiredFrameworkAsync(row, 6, allocationId),
@@ -350,10 +357,15 @@ public class ReportExcelImportService : IReportExcelImportService
     throw new InvalidOperationException("MeetingDate אינו תאריך תקין");
   }
 
-  private static decimal ReadDecimal(IXLRow row, int column)
+  private static decimal ReadDuration(IXLRow row, int column)
   {
-    if (row.Cell(column).TryGetValue<decimal>(out var value)) return value;
-    throw new InvalidOperationException("MeetingDuration אינו מספר תקין");
+    if (ExcelReportParsing.TryParseDuration(
+          row.Cell(column), out var value, out var rawValue, out var error))
+      return value;
+
+    var displayValue = string.IsNullOrWhiteSpace(rawValue) ? "(ריק)" : rawValue;
+    throw new InvalidOperationException(
+      $"עמודה 'משך תפוקה', ערך '{displayValue}': {error}");
   }
 
   private static async Task<int> ResolveRequiredAsync(

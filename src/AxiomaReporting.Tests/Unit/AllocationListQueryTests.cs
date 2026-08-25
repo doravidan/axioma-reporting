@@ -186,6 +186,7 @@ public class AllocationListQueryTests : IDisposable
     _db.ProjectProgramFrameworks.Add(new ProjectProgramFramework { ProjectId = 1, ProgramId = 10, FrameworkId = 105 });
     _db.ProjectProgramGradeLevels.Add(new ProjectProgramGradeLevel { ProjectId = 1, ProgramId = 10, GradeLevelId = 106 });
     _db.ProjectProgramClasses.Add(new ProjectProgramClass { ProjectId = 1, ProgramId = 10, ClassId = 107 });
+    _db.ProjectProgramLocalities.Add(new ProjectProgramLocality { ProjectId = 1, ProgramId = 10, LocalityId = 109 });
     _db.ProjectProgramLocalityDistrictNationals.Add(new ProjectProgramLocalityDistrictNational { ProjectId = 1, ProgramId = 10, LocalityDistrictNationalId = 108 });
     await _db.SaveChangesAsync();
 
@@ -200,6 +201,7 @@ public class AllocationListQueryTests : IDisposable
     JsonIds(result, "frameworkIds").Should().Equal(105);
     JsonIds(result, "gradeLevelIds").Should().Equal(106);
     JsonIds(result, "classIds").Should().Equal(107);
+    JsonIds(result, "localityIds").Should().Equal(109);
     JsonIds(result, "localityDistrictNationalIds").Should().Equal(108);
   }
 

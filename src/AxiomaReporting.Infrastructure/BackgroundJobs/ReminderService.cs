@@ -74,12 +74,12 @@ public class ReminderService : BackgroundService
       .ToListAsync(stoppingToken);
 
     var submittedUserIds = await db.Reports
-      .Where(r => r.ReportingMonthId == activeMonth.Id && r.StatusId >= 3 && r.StatusId != 5)
+      .Where(r => !r.IsArchived && r.ReportingMonthId == activeMonth.Id && r.StatusId >= 3 && r.StatusId != 5)
       .Select(r => r.UserId)
       .ToListAsync(stoppingToken);
 
     var returnedUserIds = await db.Reports
-      .Where(r => r.ReportingMonthId == activeMonth.Id && r.StatusId == 5)
+      .Where(r => !r.IsArchived && r.ReportingMonthId == activeMonth.Id && r.StatusId == 5)
       .Select(r => r.UserId)
       .ToListAsync(stoppingToken);
 

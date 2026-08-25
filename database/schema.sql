@@ -8745,3 +8745,143 @@ GO
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260720132512_AddProjectProgramLocalities')
+BEGIN
+    CREATE TABLE [ProjectProgramLocalities] (
+        [ProjectId] int NOT NULL,
+        [ProgramId] int NOT NULL,
+        [LocalityId] int NOT NULL,
+        CONSTRAINT [PK_ProjectProgramLocalities] PRIMARY KEY ([ProjectId], [ProgramId], [LocalityId]),
+        CONSTRAINT [FK_ProjectProgramLocalities_Localities_LocalityId] FOREIGN KEY ([LocalityId]) REFERENCES [Localities] ([Id]) ON DELETE CASCADE
+    );
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260720132512_AddProjectProgramLocalities')
+BEGIN
+    CREATE INDEX [IX_ProjectProgramLocalities_LocalityId] ON [ProjectProgramLocalities] ([LocalityId]);
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260720132512_AddProjectProgramLocalities')
+BEGIN
+
+    INSERT INTO dbo.ProjectProgramLocalities (ProjectId, ProgramId, LocalityId)
+    SELECT scopeRow.ProjectId, scopeRow.ProgramId, institution.LocalityId
+    FROM dbo.ProjectProgramFrameworks scopeRow
+    INNER JOIN dbo.Frameworks framework ON framework.Id = scopeRow.FrameworkId
+    INNER JOIN dbo.Institutions institution
+        ON institution.InstitutionSymbol = TRY_CONVERT(int, framework.InstitutionSymbol)
+    INNER JOIN dbo.Localities locality
+        ON locality.Id = institution.LocalityId
+       AND locality.IsActive = 1
+    WHERE institution.LocalityId IS NOT NULL
+    GROUP BY scopeRow.ProjectId, scopeRow.ProgramId, institution.LocalityId;
+
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260720132512_AddProjectProgramLocalities')
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260720132512_AddProjectProgramLocalities', N'6.0.36');
+END;
+GO
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+
+    IF EXISTS (
+      SELECT 1
+      FROM Reports
+      WHERE IsArchived = 0
+      GROUP BY UserId, ReportingMonthId
+      HAVING COUNT_BIG(*) > 1
+    )
+      THROW 51000, 'Migration stopped: duplicate active reports exist for an employee/month.', 1;
+
+    IF EXISTS (
+      SELECT 1
+      FROM Institutions
+      GROUP BY InstitutionSymbol
+      HAVING COUNT_BIG(*) > 1
+    )
+      THROW 51001, 'Migration stopped: duplicate institution numbers exist globally. Review the read-only duplicate report before applying.', 1;
+
+    IF EXISTS (
+      SELECT 1
+      FROM Frameworks
+      GROUP BY LTRIM(RTRIM(InstitutionSymbol)), EducationalStageId
+      HAVING COUNT_BIG(*) > 1
+    )
+      THROW 51002, 'Migration stopped: duplicate normalized framework symbols exist in the current educational-stage scope.', 1;
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    DROP INDEX [IX_Reports_UserId_ReportingMonthId] ON [Reports];
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    DROP INDEX [IX_Institutions_InstitutionSymbol_EducationalStageId] ON [Institutions];
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    DROP INDEX [IX_Frameworks_InstitutionSymbol_EducationalStageId] ON [Frameworks];
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    DECLARE @var1 sysname;
+    SELECT @var1 = [d].[name]
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[Institutions]') AND [c].[name] = N'InstitutionSymbol');
+    IF @var1 IS NOT NULL EXEC(N'ALTER TABLE [Institutions] DROP CONSTRAINT [' + @var1 + '];');
+    ALTER TABLE [Institutions] ALTER COLUMN [InstitutionSymbol] nvarchar(100) NOT NULL;
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_Reports_UserId_ReportingMonthId] ON [Reports] ([UserId], [ReportingMonthId]) WHERE [IsArchived] = 0');
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    CREATE UNIQUE INDEX [IX_Institutions_InstitutionSymbol] ON [Institutions] ([InstitutionSymbol]);
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    CREATE UNIQUE INDEX [IX_Frameworks_InstitutionSymbol_EducationalStageId] ON [Frameworks] ([InstitutionSymbol], [EducationalStageId]);
+END;
+GO
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness')
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260807113407_PreserveInstitutionSymbolsAndActiveReportUniqueness', N'6.0.36');
+END;
+GO
+
+COMMIT;
+GO
+

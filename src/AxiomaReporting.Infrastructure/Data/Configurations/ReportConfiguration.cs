@@ -14,8 +14,11 @@ public class ReportConfiguration : IEntityTypeConfiguration<Report>
     builder.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
     builder.Property(e => e.RowVersion).IsRowVersion();
 
-    // Unique: one report per user per reporting month
-    builder.HasIndex(e => new { e.UserId, e.ReportingMonthId }).IsUnique();
+    // A logically deleted report remains available for audit/history, but must
+    // not block a fresh active report for the same employee and month.
+    builder.HasIndex(e => new { e.UserId, e.ReportingMonthId })
+      .IsUnique()
+      .HasFilter("[IsArchived] = 0");
 
     builder.HasOne(e => e.User)
       .WithMany(u => u.Reports)

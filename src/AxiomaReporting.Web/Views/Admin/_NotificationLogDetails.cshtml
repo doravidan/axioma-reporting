@@ -1,4 +1,5 @@
 @model AxiomaReporting.Core.Entities.NotificationLog
+@inject AxiomaReporting.Web.Security.IHtmlContentSanitizer HtmlSanitizer
 @{
   string TypeLabel(string? value) => value switch
   {
@@ -88,6 +89,6 @@
 <div class="mb-3">
   <h6>תוכן</h6>
   <div class="border rounded p-2 bg-light" style="max-height: 320px; overflow: auto;">
-    @Html.Raw(Model.Body)
+    @Html.Raw(HtmlSanitizer.Sanitize(Model.Body))
   </div>
 </div>

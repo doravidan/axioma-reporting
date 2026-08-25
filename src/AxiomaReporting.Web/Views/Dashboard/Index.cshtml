@@ -58,12 +58,17 @@
     };
 
     string SortLink(string key) => Url.Action("Index", RouteValues(1, key)) ?? "#";
+    var selectionScopeKey = System.Text.Json.JsonSerializer.Serialize(RouteValues(1));
     string AriaSort(string key) => filter.SortBy == key ? (filter.SortDesc ? "descending" : "ascending") : "none";
     string TextOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
     string DateOrDash(DashboardReportDetailRow row) => row.StatusId == 0 || row.MeetingDate == DateTime.MinValue
         ? "—"
         : row.MeetingDate.ToString("dd/MM/yyyy");
     bool showEditColumn = ViewBag.CanEditDashboardRows ?? false;
+    bool showViewColumn = ViewBag.CanViewDashboardRows ?? false;
+    bool canBulkDelete = ViewBag.CanBulkDelete ?? false;
+    bool showActionsColumn = showEditColumn || showViewColumn || canBulkDelete;
+    var renderedReportIds = new HashSet<int>();
 }
 
 <div class="container-fluid mt-3">
@@ -92,6 +97,10 @@
             @TempData["Error"]
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="סגור הודעה"></button>
         </div>
+    }
+    @if (TempData["ErrorDetails"] != null)
+    {
+        <div class="alert alert-warning" role="alert">@TempData["ErrorDetails"]</div>
     }
 
     <div class="card mb-3">
@@ -195,24 +204,60 @@
         @if (total > filter.PageSize)
         {
             var totalPages = (int)Math.Ceiling((double)total / filter.PageSize);
-            <nav aria-label="דפדוף תוצאות">
-                <ul class="pagination pagination-sm mb-0">
-                    @for (var pg = 1; pg <= totalPages; pg++)
+            var pager = PaginationWindow.Create(filter.Page, totalPages);
+            var currentPage = pager.CurrentPage;
+            <nav aria-label="דפדוף תוצאות" class="overflow-auto">
+                <ul class="pagination pagination-sm mb-0 flex-nowrap">
+                    <li class="page-item @(currentPage == 1 ? "disabled" : "")"><a class="page-link" href="@Url.Action("Index", RouteValues(1))">הראשון</a></li>
+                    <li class="page-item @(currentPage == 1 ? "disabled" : "")"><a class="page-link" href="@Url.Action("Index", RouteValues(Math.Max(1, currentPage - 1)))">הקודם</a></li>
+                    @if (pager.HasPreviousWindow)
                     {
-                        <li class="page-item @(pg == filter.Page ? "active" : "")">
-                            <a class="page-link" href="@Url.Action("Index", RouteValues(pg))">@pg</a>
+                        <li class="page-item"><a class="page-link" href="@Url.Action("Index", RouteValues(pager.PreviousWindowPage))" aria-label="הצג את עשרת העמודים הקודמים">… הקודמים</a></li>
+                    }
+                    @foreach (var pg in pager.Pages)
+                    {
+                        <li class="page-item @(pg == currentPage ? "active" : "")">
+                            <a class="page-link" aria-current="@(pg == currentPage ? "page" : null)" href="@Url.Action("Index", RouteValues(pg))">@pg</a>
                         </li>
                     }
+                    @if (pager.HasNextWindow)
+                    {
+                        <li class="page-item"><a class="page-link" href="@Url.Action("Index", RouteValues(pager.NextWindowPage))" aria-label="הצג את עשרת העמודים הבאים">עוד…</a></li>
+                    }
+                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")"><a class="page-link" href="@Url.Action("Index", RouteValues(Math.Min(totalPages, currentPage + 1)))">הבא</a></li>
+                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")"><a class="page-link" href="@Url.Action("Index", RouteValues(totalPages))">האחרון</a></li>
                 </ul>
             </nav>
         }
     </div>
 
+    <form asp-action="BulkDelete" method="post" id="dashboardBulkForm">
+      @Html.AntiForgeryToken()
+      <input type="hidden" name="returnUrl" value="@(Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString)" />
+      <input type="hidden" name="reason" id="bulkDeleteReason" />
+      <div id="selectedReportInputs"></div>
+      @if (canBulkDelete)
+      {
+        <div class="card border-danger-subtle mb-2" aria-label="פעולות על הנבחרים">
+          <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+            <strong>פעולות על הנבחרים</strong>
+            <span class="badge bg-primary"><span id="dashboardSelectedCount">0</span> דיווחים נבחרו</span>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="selectCurrentPageBtn">בחר את כל הרשומות בעמוד</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="clearDashboardSelectionBtn">בטל בחירה</button>
+            <button type="submit" class="btn btn-sm btn-danger" id="bulkDeleteReportsBtn" disabled>מחק דיווחים שנבחרו</button>
+            <span class="small text-muted">לכל רשומה צ׳קבוקס עצמאי; הבחירה נשמרת במעבר בין עמודים של אותו חיפוש.</span>
+          </div>
+        </div>
+      }
     <div class="table-responsive">
         <table class="table table-hover table-bordered table-sm align-middle text-nowrap">
             <thead class="table-light">
                 <tr>
-                    @if (showEditColumn)
+                    @if (canBulkDelete)
+                    {
+                        <th scope="col" class="text-center"><input type="checkbox" id="dashboardSelectPage" aria-label="בחר את כל הרשומות בעמוד הנוכחי" /></th>
+                    }
+                    @if (showActionsColumn)
                     {
                         <th scope="col">פעולות</th>
                     }
@@ -246,18 +291,34 @@
                 @if (!rows.Any())
                 {
                     <tr>
-                        <td colspan="@(showEditColumn ? 25 : 24)" class="text-center text-muted py-4">
+                        <td colspan="@((showActionsColumn ? 25 : 24) + (canBulkDelete ? 1 : 0))" class="text-center text-muted py-4">
                             לא נמצאו שורות דיווח התואמות את הסינון
                         </td>
                     </tr>
                 }
                 @foreach (var r in rows)
                 {
+                    var isFirstReportOccurrence = r.ReportId > 0 && renderedReportIds.Add(r.ReportId);
                     <tr>
-                        @if (showEditColumn)
+                        @if (canBulkDelete)
+                        {
+                            <td class="text-center">
+                                @if (r.ReportId > 0 && r.ReportRowId > 0)
+                                {
+                                    <input type="checkbox"
+                                           class="dashboard-report-cb"
+                                           value="@r.ReportRowId"
+                                           data-report-id="@r.ReportId"
+                                           data-selection-key="@r.ReportId:@r.ReportRowId"
+                                           aria-label="בחר רשומת דיווח של @r.FullName" />
+                                }
+                            </td>
+                        }
+                        @if (showActionsColumn)
                         {
                             <td>
-                                @if (r.ReportId > 0 && r.ReportRowId > 0)
+                              <div class="d-flex gap-1">
+                                @if (showEditColumn && r.ReportId > 0 && r.ReportRowId > 0)
                                 {
                                     <a class="btn btn-sm btn-outline-primary"
                                        asp-controller="Report"
@@ -268,10 +329,31 @@
                                        asp-route-returnUrl="@(Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString)"
                                        asp-route-editRowId="@r.ReportRowId">ערוך</a>
                                 }
-                                else
+                                else if (showViewColumn && r.ReportId > 0 && r.ReportRowId > 0)
+                                {
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       asp-controller="Report"
+                                       asp-action="Index"
+                                       asp-route-userId="@r.UserId"
+                                       asp-route-allocationId="@r.AllocationId"
+                                       asp-route-reportId="@r.ReportId"
+                                       asp-route-returnUrl="@(Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString)">צפה</a>
+                                }
+                                @if (canBulkDelete && isFirstReportOccurrence)
+                                {
+                                    <button type="submit"
+                                            class="btn btn-sm btn-outline-danger dashboard-single-delete"
+                                            data-report-id="@r.ReportId"
+                                            data-selection-key="@r.ReportId:@r.ReportRowId"
+                                            aria-label="מחק דיווח של @r.FullName">מחק</button>
+                                }
+                                @if ((!showEditColumn || r.ReportRowId <= 0) &&
+                                     (!showViewColumn || r.ReportRowId <= 0) &&
+                                     (!canBulkDelete || r.ReportId <= 0))
                                 {
                                     <span class="text-muted">—</span>
                                 }
+                              </div>
                             </td>
                         }
                         <td>@(r.SequenceNumber == 0 ? "—" : r.SequenceNumber)</td>
@@ -314,6 +396,7 @@
             </tbody>
         </table>
     </div>
+    </form>
 
     <div class="d-flex gap-4 mt-2 text-muted">
         <span>סה"כ שורות בעמוד: <strong>@rows.Count</strong></span>
@@ -325,6 +408,83 @@
 
 @section Scripts {
   <script>
+    (function () {
+      var form = document.getElementById('dashboardBulkForm');
+      var boxes = Array.prototype.slice.call(document.querySelectorAll('.dashboard-report-cb'));
+      var countEl = document.getElementById('dashboardSelectedCount');
+      var hiddenContainer = document.getElementById('selectedReportInputs');
+      var deleteButton = document.getElementById('bulkDeleteReportsBtn');
+      if (!form || !countEl || !hiddenContainer || !deleteButton) return;
+
+      var storageKey = 'dashboard-report-row-selection-v2:' + @Html.Raw(System.Text.Json.JsonSerializer.Serialize(selectionScopeKey));
+      var selected = new Set();
+      try { JSON.parse(sessionStorage.getItem(storageKey) || '[]').forEach(function (id) { selected.add(String(id)); }); } catch (_) { }
+
+      function selectedReportIds() {
+        return Array.from(new Set(Array.from(selected).map(function (key) { return key.split(':')[0]; })));
+      }
+
+      function persistAndRender() {
+        try { sessionStorage.setItem(storageKey, JSON.stringify(Array.from(selected))); } catch (_) { }
+        boxes.forEach(function (box) { box.checked = selected.has(box.dataset.selectionKey); });
+        hiddenContainer.innerHTML = '';
+        var reportIds = selectedReportIds();
+        reportIds.forEach(function (id) {
+          var input = document.createElement('input');
+          input.type = 'hidden'; input.name = 'reportIds'; input.value = id;
+          hiddenContainer.appendChild(input);
+        });
+        countEl.textContent = String(reportIds.length);
+        deleteButton.disabled = reportIds.length === 0;
+        var header = document.getElementById('dashboardSelectPage');
+        var pageIds = boxes.map(function (b) { return b.dataset.selectionKey; });
+        if (header) {
+          header.checked = pageIds.length > 0 && pageIds.every(function (id) { return selected.has(id); });
+          header.indeterminate = pageIds.some(function (id) { return selected.has(id); }) && !header.checked;
+        }
+      }
+
+      boxes.forEach(function (box) {
+        box.addEventListener('change', function () {
+          if (box.checked) selected.add(box.dataset.selectionKey); else selected.delete(box.dataset.selectionKey);
+          persistAndRender();
+        });
+      });
+      function selectPage(value) {
+        boxes.forEach(function (box) { if (value) selected.add(box.dataset.selectionKey); else selected.delete(box.dataset.selectionKey); });
+        persistAndRender();
+      }
+      document.getElementById('dashboardSelectPage')?.addEventListener('change', function () { selectPage(this.checked); });
+      document.getElementById('selectCurrentPageBtn')?.addEventListener('click', function () { selectPage(true); });
+      document.getElementById('clearDashboardSelectionBtn')?.addEventListener('click', function () { selected.clear(); persistAndRender(); });
+      Array.prototype.forEach.call(document.querySelectorAll('.dashboard-single-delete'), function (button) {
+        button.addEventListener('click', function () {
+          selected.clear();
+          selected.add(button.dataset.selectionKey);
+          persistAndRender();
+        });
+      });
+      form.addEventListener('submit', function (event) {
+        var reportCount = selectedReportIds().length;
+        var noun = reportCount === 1 ? ' דיווח שנבחר' : ' דיווחים שנבחרו';
+        if (reportCount === 0) {
+          event.preventDefault(); return;
+        }
+        var reason = window.prompt('יש לציין סיבת מחיקה עבור ' + reportCount + noun + ':');
+        if (!reason || !reason.trim()) {
+          event.preventDefault(); return;
+        }
+        if (!window.confirm('למחוק ' + reportCount + noun + '? הדיווחים יוסרו מכל מסכי העבודה וניתן יהיה לדווח מחדש.')) {
+          event.preventDefault(); return;
+        }
+        document.getElementById('bulkDeleteReason').value = reason.trim();
+        deleteButton.disabled = true;
+        if (event.submitter) event.submitter.disabled = true;
+        try { sessionStorage.removeItem(storageKey); } catch (_) { }
+      });
+      persistAndRender();
+    })();
+
     // סינון מדורג (אפיון: "במידה ונבחר מחוז יופיעו כל הערכים בכל השדות") —
     // שינוי מחוז/מגזר/תוכנית/סטטוס/חודש מרענן את האפשרויות התואמות בשאר השדות
     // דרך Dashboard/FilterOptions (אותו מנגנון כמו מסך הסיכום).

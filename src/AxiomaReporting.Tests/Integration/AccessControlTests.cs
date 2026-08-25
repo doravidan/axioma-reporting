@@ -272,6 +272,245 @@ public class AccessControlTests : IDisposable
       because: "only SystemAdmin may promote another user to SystemAdmin");
   }
 
+  [Fact]
+  public async Task InspectorView_AssignmentPersists_SeesOnlyScopedReports_AndCannotWrite()
+  {
+    const int programInScopeId = 201;
+    const int programOutOfScopeId = 202;
+    const int projectId = 201;
+    const int reportingMonthId = 201;
+    const int scopedEmployeeId = 21;
+    const int hiddenEmployeeId = 22;
+    int scopedAllocationId;
+    int hiddenAllocationId;
+    int scopedReportId;
+    int hiddenReportId;
+
+    using (var setup = _factory.Services.CreateScope())
+    {
+      var db = setup.ServiceProvider.GetRequiredService<AppDbContext>();
+      var now = DateTime.UtcNow;
+      db.Programs.AddRange(
+        new AxiomaReporting.Core.Entities.Program
+        {
+          Id = programInScopeId, Description = "Inspector scoped program", IsActive = true, CreatedAt = now
+        },
+        new AxiomaReporting.Core.Entities.Program
+        {
+          Id = programOutOfScopeId, Description = "Inspector hidden program", IsActive = true, CreatedAt = now
+        });
+      db.Projects.Add(new Project
+      {
+        Id = projectId, Description = "Inspector test project", IsActive = true, CreatedAt = now
+      });
+      db.Districts.Add(new District
+      {
+        Id = 201, Description = "Inspector test district", IsActive = true, CreatedAt = now
+      });
+      db.Localities.Add(new Locality
+      {
+        Id = 201, Description = "Inspector test locality", IsActive = true, CreatedAt = now
+      });
+      db.Frameworks.Add(new Framework
+      {
+        Id = 201, Description = "Inspector test framework", IsActive = true, CreatedAt = now
+      });
+      db.EducationalPrograms.Add(new EducationalProgram
+      {
+        Id = 201, Description = "Inspector educational program", IsActive = true, CreatedAt = now
+      });
+      db.Domains.Add(new Domain
+      {
+        Id = 201, Description = "Inspector test domain", IsActive = true, CreatedAt = now
+      });
+      db.Subjects.Add(new Subject
+      {
+        Id = 201, Description = "Inspector test subject", IsActive = true, CreatedAt = now
+      });
+      db.ReportingMonths.Add(new ReportingMonth
+      {
+        Id = reportingMonthId,
+        Month = 4,
+        Year = 2026,
+        Description = "04/2026",
+        LastReportingDate = DateTime.Today.AddDays(10),
+        IsActive = true,
+        CreatedAt = now
+      });
+      db.ReportStatuses.Add(new ReportStatus { Id = 4, Name = "Approved" });
+      db.Users.AddRange(
+        new User
+        {
+          Id = scopedEmployeeId,
+          EmployeeCode = "SCOPE201",
+          IdNumber = "201201201",
+          FirstName = "Scoped",
+          LastName = "Employee",
+          PasswordHash = new PasswordService().HashPassword(Password),
+          RoleId = 10,
+          UserRoleId = (int)UserRoleEnum.Employee,
+          StatusId = (int)UserStatusEnum.Active,
+          IsReportingEmployee = true,
+          CreatedAt = now
+        },
+        new User
+        {
+          Id = hiddenEmployeeId,
+          EmployeeCode = "HIDDEN202",
+          IdNumber = "202202202",
+          FirstName = "Hidden",
+          LastName = "Employee",
+          PasswordHash = new PasswordService().HashPassword(Password),
+          RoleId = 10,
+          UserRoleId = (int)UserRoleEnum.Employee,
+          StatusId = (int)UserStatusEnum.Active,
+          IsReportingEmployee = true,
+          CreatedAt = now
+        });
+      await db.SaveChangesAsync();
+
+      var scopedAllocation = new Allocation
+      {
+        UserId = scopedEmployeeId, ProjectId = projectId, IsActive = true, CreatedAt = now
+      };
+      scopedAllocation.AllocationPrograms.Add(new AllocationProgram
+      {
+        Allocation = scopedAllocation, ProgramId = programInScopeId
+      });
+      var hiddenAllocation = new Allocation
+      {
+        UserId = hiddenEmployeeId, ProjectId = projectId, IsActive = true, CreatedAt = now
+      };
+      hiddenAllocation.AllocationPrograms.Add(new AllocationProgram
+      {
+        Allocation = hiddenAllocation, ProgramId = programOutOfScopeId
+      });
+      db.Allocations.AddRange(scopedAllocation, hiddenAllocation);
+      await db.SaveChangesAsync();
+      scopedAllocationId = scopedAllocation.Id;
+      hiddenAllocationId = hiddenAllocation.Id;
+
+      var scopedReport = new Report
+      {
+        UserId = scopedEmployeeId,
+        ReportingMonthId = reportingMonthId,
+        StatusId = 4,
+        CreatedAt = now
+      };
+      var hiddenReport = new Report
+      {
+        UserId = hiddenEmployeeId,
+        ReportingMonthId = reportingMonthId,
+        StatusId = 4,
+        CreatedAt = now
+      };
+      db.Reports.AddRange(scopedReport, hiddenReport);
+      await db.SaveChangesAsync();
+      scopedReportId = scopedReport.Id;
+      hiddenReportId = hiddenReport.Id;
+      db.ReportRows.AddRange(
+        new ReportRow
+        {
+          ReportId = scopedReportId,
+          AllocationId = scopedAllocationId,
+          SequenceNumber = 1,
+          MeetingDate = DateTime.Today,
+          MeetingDuration = 1,
+          DistrictId = 201,
+          LocalityId = 201,
+          FrameworkId = 201,
+          EducationalProgramId = 201,
+          DomainId = 201,
+          Subject1Id = 201,
+          CreatedAt = now
+        },
+        new ReportRow
+        {
+          ReportId = hiddenReportId,
+          AllocationId = hiddenAllocationId,
+          SequenceNumber = 1,
+          MeetingDate = DateTime.Today,
+          MeetingDuration = 1,
+          DistrictId = 201,
+          LocalityId = 201,
+          FrameworkId = 201,
+          EducationalProgramId = 201,
+          DomainId = 201,
+          Subject1Id = 201,
+          CreatedAt = now
+        });
+      await db.SaveChangesAsync();
+    }
+
+    var adminClient = await SignInAsAsync(_factory, TestData.AdminIdNumber, TestData.AdminPassword);
+    var assignmentPage = await adminClient.GetStringAsync("/Admin/InspectorAssignments?inspectorUserId=11");
+    var saveAssignment = await adminClient.PostAsync("/Admin/CreateInspectorAssignment", new FormUrlEncodedContent(
+      new Dictionary<string, string>
+      {
+        ["__RequestVerificationToken"] = HtmlForm.AntiForgeryToken(assignmentPage),
+        ["inspectorUserId"] = "11",
+        ["programId"] = programInScopeId.ToString(),
+        ["districtId"] = string.Empty,
+        ["sectorId"] = string.Empty
+      }));
+    saveAssignment.IsSuccessStatusCode.Should().BeTrue();
+
+    using (var verifyAssignment = _factory.Services.CreateScope())
+    {
+      var db = verifyAssignment.ServiceProvider.GetRequiredService<AppDbContext>();
+      db.InspectorAssignments.Should().ContainSingle(item =>
+        item.InspectorUserId == 11 && item.ProgramId == programInScopeId);
+    }
+    var reloadedAssignments = await adminClient.GetStringAsync("/Admin/InspectorAssignments?inspectorUserId=11");
+    reloadedAssignments.Should().Contain("Inspector scoped program");
+
+    var inspectorClient = _factory.CreateClient(new()
+    {
+      BaseAddress = new Uri("https://localhost"),
+      AllowAutoRedirect = false
+    });
+    var inspectorLogin = await inspectorClient.GetStringAsync("/Account/Login");
+    var inspectorSignIn = await inspectorClient.PostAsync("/Account/Login", new FormUrlEncodedContent(
+      new Dictionary<string, string>
+      {
+        ["__RequestVerificationToken"] = HtmlForm.AntiForgeryToken(inspectorLogin),
+        ["IdNumber"] = InspectorViewIdNumber,
+        ["Password"] = Password
+      }));
+    inspectorSignIn.StatusCode.Should().Be(HttpStatusCode.Redirect);
+    var dashboard = await inspectorClient.GetAsync("/Dashboard?show=1");
+    dashboard.StatusCode.Should().Be(HttpStatusCode.OK);
+    var dashboardBody = await dashboard.Content.ReadAsStringAsync();
+    dashboardBody.Should().Contain("Scoped Employee");
+    dashboardBody.Should().NotContain("Hidden Employee");
+    dashboardBody.Should().NotContain("id=\"bulkDeleteReportsBtn\"");
+
+    var idorAttempt = await inspectorClient.GetAsync(
+      $"/Report/Index?reportId={hiddenReportId}&allocationId={hiddenAllocationId}");
+    idorAttempt.StatusCode.Should().BeOneOf(
+      HttpStatusCode.NotFound, HttpStatusCode.Forbidden, HttpStatusCode.Redirect);
+    if (idorAttempt.StatusCode == HttpStatusCode.Redirect)
+      idorAttempt.Headers.Location!.ToString().Should().Contain("AccessDenied");
+
+    var tokenPage = await inspectorClient.GetStringAsync("/Account/ChangePassword");
+    var beforeRows = 0;
+    using (var before = _factory.Services.CreateScope())
+      beforeRows = before.ServiceProvider.GetRequiredService<AppDbContext>().ReportRows.Count();
+    var writeAttempt = await inspectorClient.PostAsync("/Report/SaveRow", new FormUrlEncodedContent(
+      new Dictionary<string, string>
+      {
+        ["__RequestVerificationToken"] = HtmlForm.AntiForgeryToken(tokenPage),
+        ["reportId"] = scopedReportId.ToString(),
+        ["allocationId"] = scopedAllocationId.ToString(),
+        ["MeetingDate"] = DateTime.Today.ToString("yyyy-MM-dd"),
+        ["MeetingDuration"] = "1"
+      }));
+    writeAttempt.StatusCode.Should().Be(HttpStatusCode.OK);
+    (await writeAttempt.Content.ReadAsStringAsync()).Should().Contain("\"success\":false");
+    using var after = _factory.Services.CreateScope();
+    after.ServiceProvider.GetRequiredService<AppDbContext>().ReportRows.Count().Should().Be(beforeRows);
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   /// <summary>Signs in and returns an authenticated HttpClient (cookies persist).</summary>

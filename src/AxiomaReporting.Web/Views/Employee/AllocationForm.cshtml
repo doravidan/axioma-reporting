@@ -64,6 +64,8 @@
             <small id="programsHelp" class="form-text text-muted">
               התוכניות יסוננו לפי הפרויקט הנבחר. אם לא הוגדרה מפה, יוצגו כל התוכניות.
             </small>
+            <small id="programValuesStatus" class="form-text text-muted" role="status"
+                   aria-live="polite" hidden></small>
           </div>
 
           <div class="col-md-3">
@@ -299,10 +301,21 @@
     </div>
 
     <div class="d-flex gap-2">
-      <button type="submit" class="btn btn-primary">שמור הקצאה</button>
+      <button type="submit" class="btn btn-primary allocation-save-action">שמור הקצאה</button>
       @if (!isEdit)
       {
-        <button type="submit" name="continueAdding" value="true" class="btn btn-success">שמור והוסף עוד</button>
+        <button type="submit" name="continueAdding" value="true"
+                class="btn btn-success allocation-save-action">שמור והוסף עוד</button>
+      }
+      @if (isEdit && User.IsInRole("1"))
+      {
+        <button type="submit"
+                class="btn btn-outline-danger"
+                formaction="@Url.Action("DeleteAllocation", "Employee", new { id = employee.Id, allocationId = Model.Id })"
+                formnovalidate
+                onclick="return confirm('למחוק את ההקצאה? היא תוסר מההקצאות הפעילות, ודיווחים קודמים יישמרו.');">
+          מחק הקצאה
+        </button>
       }
       <a asp-action="Allocations" asp-route-id="@employee.Id"
          class="btn btn-outline-secondary">ביטול</a>
@@ -312,6 +325,7 @@
 
 @section Scripts {
   @await Html.PartialAsync("_ValidationScriptsPartial")
+  <script src="~/js/allocation-scope-loader.js" asp-append-version="true"></script>
   <script>
     // Toggle daily scope input when "unlimited" checkbox is clicked
     const unlimitedDaily = document.getElementById('unlimitedDaily');
@@ -365,8 +379,33 @@
       return Array.from(programsSelect.selectedOptions).map(o => o.value);
     }
 
+    const programsByProjectCache = new Map();
+    let programReloadSequence = 0;
+    let previousPrograms = new Set(currentProgramSelection());
+
+    function loadProgramsForProject(projectId) {
+      const cacheKey = String(projectId);
+      if (programsByProjectCache.has(cacheKey)) return programsByProjectCache.get(cacheKey);
+
+      const request = fetch(programsUrl + '?projectId=' + encodeURIComponent(projectId), {
+        headers: { 'Accept': 'application/json' }
+      })
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp.json();
+        })
+        .catch(err => {
+          programsByProjectCache.delete(cacheKey);
+          throw err;
+        });
+
+      programsByProjectCache.set(cacheKey, request);
+      return request;
+    }
+
     async function reloadPrograms(projectId, preserve) {
       if (!programsSelect) return;
+      const requestSequence = ++programReloadSequence;
       const keep = new Set((preserve !== undefined ? preserve : currentProgramSelection()).map(String));
 
       if (!projectId) {
@@ -377,11 +416,10 @@
       }
 
       try {
-        const resp = await fetch(programsUrl + '?projectId=' + encodeURIComponent(projectId), {
-          headers: { 'Accept': 'application/json' }
-        });
-        if (!resp.ok) throw new Error('network');
-        const data = await resp.json();
+        const data = await loadProgramsForProject(projectId);
+        if (requestSequence !== programReloadSequence
+          || (projectSelect && projectSelect.value !== String(projectId))) return;
+
         const choices = data.map(item => ({
           value: String(item.id),
           label: item.description,
@@ -402,6 +440,7 @@
           }
         }
       } catch (err) {
+        if (requestSequence !== programReloadSequence) return;
         // Graceful failure: leave current options in place so the user isn't stuck.
         console.warn('ProgramsForProject fetch failed:', err);
       }
@@ -409,7 +448,10 @@
 
     if (projectSelect) {
       // Changing the project resets the program selection to that project's list.
-      projectSelect.addEventListener('change', (e) => reloadPrograms(e.target.value, []));
+      projectSelect.addEventListener('change', (e) => {
+        previousPrograms = new Set();
+        reloadPrograms(e.target.value, []);
+      });
 
       // On first load, filter to the already-selected project (preserving any saved
       // selections when editing an existing allocation).
@@ -420,9 +462,15 @@
 
     // --- שיוך אוטומטי של ערכי טבלאות קוד לפי התוכנית שנבחרה (משוב בטא B21) ---
     // בחירת תוכנית מוסיפה את כל ברירות המחדל המשויכות לפרויקט+תוכנית (נושאים,
-    // תחומים, תוכניות חינוכיות, קיום דיון, שכבות ומסגרות — תיקון לקוח 07/2026 #3)
+    // תחומים, תוכניות חינוכיות, קיום דיון, שכבות, יישובים ומסגרות — תיקון לקוח 07/2026 #3)
     // לבחירות בכרטיס השיוכים; ניתן לערוך/להסיר לאחר מכן (B6).
     const valuesUrl = '@Url.Action("ValuesForProgram", "Employee")';
+    const programValuesStatus = document.getElementById('programValuesStatus');
+    const allocationForm = programsSelect ? programsSelect.closest('form') : null;
+    const allocationSaveActions = allocationForm
+      ? Array.from(allocationForm.querySelectorAll('.allocation-save-action'))
+      : [];
+    const scopeLoader = window.AxiomaAllocationScope;
     const scopeTargets = {
       subjectIds: 'select[name="SubjectIds"]',
       domainIds: 'select[name="DomainIds"]',
@@ -431,42 +479,146 @@
       frameworkIds: 'select[name="FrameworkIds"]',
       gradeLevelIds: 'select[name="GradeLevelIds"]',
       classIds: 'select[name="ClassIds"]',
+      localityIds: 'select[name="LocalityIds"]',
       localityDistrictNationalIds: 'select[name="LocalityDistrictNationalIds"]'
     };
-
-    function addSelections(selector, ids) {
+    const scopeCatalogs = new WeakMap();
+    Object.values(scopeTargets).forEach(selector => {
       const el = document.querySelector(selector);
-      if (!el || !ids || !ids.length) return;
-      const inst = window._axChoices && window._axChoices.get ? window._axChoices.get(el) : null;
-      ids.forEach(id => {
-        if (inst) inst.setChoiceByValue(String(id));
-        else {
-          const opt = Array.from(el.options).find(o => o.value === String(id));
-          if (opt) opt.selected = true;
-        }
-      });
+      if (el && scopeLoader) scopeCatalogs.set(el, scopeLoader.createCatalog(el));
+    });
+    const programValuesCache = new Map();
+    let activeProgramValueLoads = 0;
+    let programValuesStatusTimer = null;
+
+    function showProgramValuesStatus(message, kind) {
+      if (!programValuesStatus) return;
+      if (programValuesStatusTimer) {
+        window.clearTimeout(programValuesStatusTimer);
+        programValuesStatusTimer = null;
+      }
+      programValuesStatus.classList.remove('text-muted', 'text-success', 'text-danger');
+      programValuesStatus.classList.add(
+        kind === 'success' ? 'text-success' : kind === 'error' ? 'text-danger' : 'text-muted');
+      programValuesStatus.textContent = message;
+      programValuesStatus.dataset.state = kind;
+      programValuesStatus.hidden = false;
     }
 
-    async function applyProgramValues(programId) {
-      const projectId = projectSelect ? projectSelect.value : '';
-      if (!projectId || !programId) return;
+    function updateProgramValuesBusyState() {
+      const busy = activeProgramValueLoads > 0;
+      if (allocationForm) allocationForm.setAttribute('aria-busy', busy ? 'true' : 'false');
+      allocationSaveActions.forEach(button => { button.disabled = busy; });
+      if (busy) showProgramValuesStatus('טוען את סט הערכים של התוכנית…', 'loading');
+      else if (programValuesStatus?.dataset.state === 'loading') {
+        programValuesStatus.hidden = true;
+        programValuesStatus.textContent = '';
+        delete programValuesStatus.dataset.state;
+      }
+    }
+
+    function scheduleProgramValuesStatusHide() {
+      if (!programValuesStatus) return;
+      programValuesStatusTimer = window.setTimeout(() => {
+        if (activeProgramValueLoads === 0) {
+          programValuesStatus.hidden = true;
+          delete programValuesStatus.dataset.state;
+        }
+      }, 3000);
+    }
+
+    function nextAnimationFrame() {
+      return new Promise(resolve => window.requestAnimationFrame(() => resolve()));
+    }
+
+    function addSelectionsInBatch(selector, ids) {
+      const el = document.querySelector(selector);
+      if (!el || !ids || !ids.length || !scopeLoader) return { added: 0 };
+      const inst = window._axChoices && window._axChoices.get ? window._axChoices.get(el) : null;
+      return scopeLoader.batchAddSelections(el, ids, inst, scopeCatalogs.get(el));
+    }
+
+    function loadProgramValues(projectId, programId) {
+      const cacheKey = `${projectId}:${programId}`;
+      if (programValuesCache.has(cacheKey)) return programValuesCache.get(cacheKey);
+
+      const request = fetch(
+        `${valuesUrl}?projectId=${encodeURIComponent(projectId)}&programId=${encodeURIComponent(programId)}`,
+        { headers: { 'Accept': 'application/json' } })
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp.json();
+        })
+        .catch(err => {
+          programValuesCache.delete(cacheKey);
+          throw err;
+        });
+
+      programValuesCache.set(cacheKey, request);
+      return request;
+    }
+
+    async function applyProgramValues(programIds) {
+      const requestedProjectId = projectSelect ? projectSelect.value : '';
+      const requestedProgramIds = Array.from(new Set((programIds || []).map(String).filter(Boolean)));
+      if (!requestedProjectId || requestedProgramIds.length === 0) return;
+
+      const startedAt = window.performance.now();
+      activeProgramValueLoads += 1;
+      updateProgramValuesBusyState();
       try {
-        const resp = await fetch(`${valuesUrl}?projectId=${encodeURIComponent(projectId)}&programId=${encodeURIComponent(programId)}`,
-          { headers: { 'Accept': 'application/json' } });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        Object.entries(scopeTargets).forEach(([key, sel]) => addSelections(sel, data[key]));
+        const responses = await Promise.all(requestedProgramIds.map(async programId => ({
+          programId,
+          data: await loadProgramValues(requestedProjectId, programId)
+        })));
+
+        // Ignore a response that became stale while the user changed project or
+        // removed the program. This prevents old defaults from leaking into the form.
+        if (!projectSelect || projectSelect.value !== requestedProjectId) return;
+        const stillSelected = new Set(currentProgramSelection());
+        const applicable = responses.filter(item => stillSelected.has(item.programId));
+        if (applicable.length === 0) return;
+
+        const merged = Object.fromEntries(
+          Object.keys(scopeTargets).map(key => [
+            key,
+            Array.from(new Set(applicable.flatMap(item =>
+              Array.isArray(item.data[key]) ? item.data[key].map(String) : [])))
+          ]));
+
+        let addedCount = 0;
+        for (const [key, selector] of Object.entries(scopeTargets)) {
+          // Yield between large widgets so the loading message can paint and the
+          // browser remains responsive even for 1,000+ program defaults.
+          await nextAnimationFrame();
+          addedCount += addSelectionsInBatch(selector, merged[key]).added || 0;
+        }
+
+        const durationMs = Math.round(window.performance.now() - startedAt);
+        programsSelect.dataset.programValuesDurationMs = String(durationMs);
+        programsSelect.dataset.programValuesAddedCount = String(addedCount);
+        showProgramValuesStatus(
+          addedCount > 0
+            ? `סט הערכים נטען בהצלחה (${addedCount} ערכים נוספו).`
+            : 'כל ערכי התוכנית כבר משויכים להקצאה.',
+          'success');
+        scheduleProgramValuesStatusHide();
       } catch (err) {
         console.warn('ValuesForProgram fetch failed:', err);
+        showProgramValuesStatus('טעינת סט הערכים נכשלה. ניתן לנסות לבחור את התוכנית שוב.', 'error');
+      }
+      finally {
+        activeProgramValueLoads = Math.max(0, activeProgramValueLoads - 1);
+        updateProgramValuesBusyState();
       }
     }
 
     if (programsSelect) {
-      let prevPrograms = new Set(currentProgramSelection());
       programsSelect.addEventListener('change', () => {
         const now = currentProgramSelection();
-        now.filter(id => !prevPrograms.has(id)).forEach(applyProgramValues);
-        prevPrograms = new Set(now);
+        const addedPrograms = now.filter(id => !previousPrograms.has(id));
+        previousPrograms = new Set(now);
+        applyProgramValues(addedPrograms);
       });
     }
   </script>

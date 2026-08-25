@@ -39,9 +39,11 @@ public class AuthEngineerFlowTests
     }));
 
     response.IsSuccessStatusCode.Should().BeTrue();
-    factory.EmailService.Sent
+    var resetEmail = factory.EmailService.Sent
       .Should().ContainSingle(e => e.TemplateType == "PasswordReset")
-      .Which.Tokens.Should().ContainKey("ResetLink");
+      .Which;
+    resetEmail.Tokens.Should().ContainKey("ResetLink");
+    resetEmail.Tokens["ResetLink"].Should().Contain("#token=").And.NotContain("?token=");
 
     using var scope = factory.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -75,6 +77,7 @@ public class AuthEngineerFlowTests
     logs.Should().ContainSingle();
     logs[0].Status.Should().Be("Skipped");
     logs[0].TemplateType.Should().Be("PasswordReset");
+    logs[0].Body.Should().NotContain("000000000");
   }
 
   [Fact]

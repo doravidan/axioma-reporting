@@ -166,13 +166,67 @@ public class DashboardFilterServiceTests : IDisposable
     programs.Should().ContainSingle(p => p.Id == 1);
   }
 
+  [Fact]
+  public async Task ProgramFilter_IsCombinedWithOtherFiltersUsingAnd()
+  {
+    var allowedPrograms = await _sut.GetFilteredProgramsAsync(99, UserRoleEnum.ProjectManager);
+    allowedPrograms.Should().ContainSingle(p => p.Id == 1);
+    var scopedWithoutFilters = await _sut.GetReportRowsAsync(
+      new DashboardFilter(), 99, UserRoleEnum.ProjectManager);
+    scopedWithoutFilters.TotalCount.Should().Be(1);
+    scopedWithoutFilters.Rows.Should().ContainSingle(r => r.ReportId == 1);
+    var matching = await _sut.GetReportRowsAsync(
+      new DashboardFilter { ProgramId = 1, DistrictId = 1 }, 99, UserRoleEnum.ProjectManager);
+    var unauthorized = await _sut.GetReportRowsAsync(
+      new DashboardFilter { ProgramId = 2, DistrictId = 1 }, 99, UserRoleEnum.ProjectManager);
+
+    matching.Rows.Should().ContainSingle(r => r.ReportId == 1);
+    unauthorized.Rows.Should().BeEmpty("a manually supplied program id outside the manager assignment must not expose data");
+  }
+
+  [Fact]
+  public async Task ExistingReports_RemainVisibleWhenEmployeeAndAllocationAreInactive()
+  {
+    _db.Users.Find(1)!.StatusId = 2;
+    _db.Allocations.Find(1)!.IsActive = false;
+    await _db.SaveChangesAsync();
+
+    var result = await _sut.GetReportRowsAsync(
+      new DashboardFilter(), 99, UserRoleEnum.SystemAdmin);
+
+    result.Rows.Should().ContainSingle(r => r.ReportId == 1);
+  }
+
+  [Fact]
+  public async Task GetAllReportRowsAsync_IgnoresUiPaginationAndReturnsEveryFilteredRow()
+  {
+    for (var id = 10; id < 40; id++)
+    {
+      _db.ReportRows.Add(new ReportRow
+      {
+        Id = id, ReportId = 1, AllocationId = 1, SequenceNumber = id,
+        MeetingDate = DateTime.Today, MeetingDuration = 1, DistrictId = 1,
+        LocalityId = 1, FrameworkId = 1, EducationalProgramId = 1,
+        DomainId = 1, Subject1Id = 1, CreatedAt = DateTime.UtcNow
+      });
+    }
+    await _db.SaveChangesAsync();
+
+    var rows = await _sut.GetAllReportRowsAsync(
+      new DashboardFilter { Page = 2, PageSize = 1, ProgramId = 1 },
+      99, UserRoleEnum.SystemAdmin);
+
+    rows.Should().HaveCount(31);
+  }
+
   private void Seed()
   {
     _db.Users.AddRange(
       User(1, "Alpha", "Employee", isReporting: true),
       User(2, "Missing", "Employee", isReporting: true),
       User(3, "Scoped", "Inspector", isReporting: false),
-      User(4, "Empty", "Inspector", isReporting: false));
+      User(4, "Empty", "Inspector", isReporting: false),
+      User(99, "Scoped", "Manager", isReporting: false));
 
     _db.ReportingMonths.Add(new ReportingMonth
     {
@@ -189,7 +243,14 @@ public class DashboardFilterServiceTests : IDisposable
       new ReportStatus { Id = 4, Name = "Approved" });
     _db.Districts.Add(new District { Id = 1, Description = "District 1", IsActive = true });
     _db.Sectors.Add(new Sector { Id = 1, Description = "Sector 1", IsActive = true });
-    _db.Programs.Add(new ProgramEntity { Id = 1, Description = "Program 1", IsActive = true });
+    _db.Localities.Add(new Locality { Id = 1, Description = "Locality 1", IsActive = true });
+    _db.Frameworks.Add(new Framework { Id = 1, Description = "Framework 1", InstitutionSymbol = "00100", IsActive = true });
+    _db.EducationalPrograms.Add(new EducationalProgram { Id = 1, Description = "Educational Program 1", IsActive = true });
+    _db.Domains.Add(new Domain { Id = 1, Description = "Domain 1", IsActive = true });
+    _db.Subjects.Add(new Subject { Id = 1, Description = "Subject 1", IsActive = true });
+    _db.Programs.AddRange(
+      new ProgramEntity { Id = 1, Description = "Program 1", IsActive = true },
+      new ProgramEntity { Id = 2, Description = "Program 2", IsActive = true });
     _db.Projects.AddRange(
       new Project { Id = 1, Description = "Project 1", IsActive = true },
       new Project { Id = 2, Description = "Project 2", IsActive = true });
@@ -202,6 +263,7 @@ public class DashboardFilterServiceTests : IDisposable
       new AllocationDistrict { AllocationId = 2, DistrictId = 1 });
     _db.Set<AllocationSector>().Add(new AllocationSector { AllocationId = 1, SectorId = 1 });
     _db.Set<AllocationProgram>().Add(new AllocationProgram { AllocationId = 1, ProgramId = 1 });
+    _db.Set<AllocationProgram>().Add(new AllocationProgram { AllocationId = 2, ProgramId = 2 });
 
     _db.Reports.Add(new Report
     {
@@ -232,7 +294,13 @@ public class DashboardFilterServiceTests : IDisposable
     {
       Id = 1,
       InspectorUserId = 3,
-      DistrictId = 1
+      ProgramId = 1
+    });
+    _db.InspectorAssignments.Add(new InspectorAssignment
+    {
+      Id = 2,
+      InspectorUserId = 99,
+      ProgramId = 1
     });
     _db.SaveChanges();
   }

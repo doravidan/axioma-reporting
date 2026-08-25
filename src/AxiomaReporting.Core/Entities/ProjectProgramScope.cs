@@ -64,6 +64,14 @@ public class ProjectProgramClass
   public SchoolClass? SchoolClass { get; set; }
 }
 
+public class ProjectProgramLocality
+{
+  public int ProjectId { get; set; }
+  public int ProgramId { get; set; }
+  public int LocalityId { get; set; }
+  public Locality? Locality { get; set; }
+}
+
 public class ProjectProgramLocalityDistrictNational
 {
   public int ProjectId { get; set; }

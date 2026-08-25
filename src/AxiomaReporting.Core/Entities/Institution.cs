@@ -4,7 +4,7 @@ namespace AxiomaReporting.Core.Entities;
 
 public class Institution : BaseEntity
 {
-  public int InstitutionSymbol { get; set; }
+  public string InstitutionSymbol { get; set; } = string.Empty;
   public string Name { get; set; } = string.Empty;
   public bool IsActive { get; set; } = true;
   public int? LocalityId { get; set; }

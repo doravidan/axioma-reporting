@@ -47,36 +47,58 @@ public static class FrameworkLabelService
     AppDbContext db, List<FrameworkRow> frameworks, CancellationToken ct)
   {
     // Symbols are numeric for real institutions; synthetic (FW-*/QCAT-*) have no institution.
+    // Keep the original Framework.InstitutionSymbol for display: converting it to int is
+    // useful only for the Institution lookup and must never strip leading zeroes.
     var numericSymbols = frameworks
-      .Select(f => int.TryParse(f.Symbol, out var s) ? (int?)s : null)
-      .Where(s => s.HasValue)
-      .Select(s => s!.Value)
+      .Where(f => f.Symbol.All(char.IsDigit))
+      .SelectMany(f => new[]
+      {
+        InstitutionSymbolNormalizer.Normalize(f.Symbol),
+        InstitutionSymbolNormalizer.NumericComparisonKey(f.Symbol)
+      })
       .Distinct()
       .ToList();
 
-    var localityBySymbol = new Dictionary<int, string>();
+    var institutionBySymbol = new Dictionary<string, (string? Locality, string? Name)>(StringComparer.Ordinal);
     if (numericSymbols.Count > 0)
     {
       var pairs = await db.Institutions.AsNoTracking()
-        .Where(i => numericSymbols.Contains(i.InstitutionSymbol) && i.LocalityId != null)
-        .Select(i => new { i.InstitutionSymbol, Locality = i.Locality!.Description })
+        .Where(i => numericSymbols.Contains(i.InstitutionSymbol))
+        .Select(i => new
+        {
+          i.InstitutionSymbol,
+          Locality = i.Locality != null ? i.Locality.Description : null,
+          i.Name
+        })
         .ToListAsync(ct);
       foreach (var p in pairs)
-        localityBySymbol.TryAdd(p.InstitutionSymbol, p.Locality);
+        institutionBySymbol.TryAdd(
+          InstitutionSymbolNormalizer.NumericComparisonKey(p.InstitutionSymbol),
+          (p.Locality, p.Name));
     }
 
     var labels = new Dictionary<int, string>(frameworks.Count);
     foreach (var f in frameworks)
     {
       string? locality = null;
-      var hasSymbol = int.TryParse(f.Symbol, out var symbol);
-      if (hasSymbol) localityBySymbol.TryGetValue(symbol, out locality);
+      string? institutionName = null;
+      var hasSymbol = f.Symbol.All(char.IsDigit);
+      var symbolKey = InstitutionSymbolNormalizer.NumericComparisonKey(f.Symbol);
+      if (hasSymbol && institutionBySymbol.TryGetValue(symbolKey, out var institution))
+      {
+        locality = institution.Locality;
+        institutionName = institution.Name;
+      }
 
-      labels[f.Id] = hasSymbol
-        ? (string.IsNullOrEmpty(locality)
-            ? $"{symbol} — {f.Description}"
-            : $"{locality} — {symbol} — {f.Description}")
-        : f.Description;
+      var parts = new[]
+        {
+          locality?.Trim(),
+          hasSymbol ? f.Symbol.Trim() : null,
+          !string.IsNullOrWhiteSpace(institutionName) ? institutionName.Trim() : f.Description?.Trim()
+        }
+        .Where(part => !string.IsNullOrWhiteSpace(part));
+
+      labels[f.Id] = string.Join(" — ", parts);
     }
 
     // Same symbol+name can legitimately repeat across educational stages —
